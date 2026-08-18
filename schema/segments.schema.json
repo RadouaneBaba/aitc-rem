@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitc-rem.local/schema/segments.schema.json",
+  "title": "SegmentsDocument",
+  "description": "SS9.2 -- output of the deterministic segmenter. The same recording always produces the same segment count, which is what makes the audit trail meaningful and merge/split in the review UI predictable.",
+  "type": "object",
+
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "recordingId": { "type": "string" },
+    "runId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "ownerId": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "segments": { "type": "array", "items": { "$ref": "#/$defs/Segment" } },
+    "eventCount": {
+      "type": "integer",
+      "description": "Total events in the source recording. Every one is assigned to exactly one segment -- none dropped (SS9.2)."
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "recordingId",
+    "runId",
+    "projectId",
+    "ownerId",
+    "createdAt",
+    "segments",
+    "eventCount"
+  ],
+  "additionalProperties": false,
+
+  "$defs": {
+    "BoundaryReason": {
+      "title": "BoundaryReason",
+      "description": "Why this segment started. Highest priority first, per SS9.2.",
+      "type": "string",
+      "enum": [
+        "recording_start",
+        "checkpoint_annotation",
+        "url_change",
+        "form_submit",
+        "state_mutation",
+        "idle_gap",
+        "region_replacement",
+        "hard_cap"
+      ]
+    },
+
+    "Segment": {
+      "title": "Segment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "e.g. seg_003" },
+        "index": { "type": "integer", "minimum": 0 },
+        "eventIds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "boundaryReason": { "$ref": "#/$defs/BoundaryReason" },
+        "startTimestamp": { "type": "number" },
+        "endTimestamp": { "type": "number" },
+        "startUrl": { "type": "string" },
+        "endUrl": { "type": "string" },
+        "label": {
+          "type": "string",
+          "description": "A cheap deterministic summary, e.g. 'click \"Submit\" -> POST /api/orders 201'. Lets the decompose stage read the whole session without pulling full snapshots."
+        },
+        "mutations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Successful state-mutating requests in this segment, e.g. 'POST /api/orders 201'. Used by the mutation_claimed validator."
+        },
+        "fidelity": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/FidelityFlag" },
+          "description": "Union of the flags on this segment's events."
+        },
+        "hasCheckpoint": { "type": "boolean" },
+        "hasScenarioBreak": { "type": "boolean" },
+        "role": { "$ref": "common.schema.json#/$defs/SegmentRole" }
+      },
+      "required": ["id", "index", "eventIds", "boundaryReason", "startTimestamp", "endTimestamp", "label"],
+      "additionalProperties": false
+    }
+  }
+}

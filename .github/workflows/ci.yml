@@ -1,0 +1,31 @@
+# A thin wrapper around scripts/check.sh, which is where the actual logic lives.
+# Inert until this repo has a remote.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -e ".[dev]"
+
+      # Regenerates from schema/ and fails on drift, then lints and tests.
+      - run: bash scripts/check.sh

@@ -1,0 +1,29 @@
+{
+  "name": "aitc-rem",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Recorded browser session -> structured, formal test case",
+  "type": "module",
+  "scripts": {
+    "codegen": "bash schema/codegen.sh",
+    "codegen:check": "bash schema/codegen.sh --check",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "check": "bash scripts/check.sh",
+    "e2e": "pnpm --filter @aitc-rem/extension build && playwright test",
+    "demo": "pnpm --filter @aitc-rem/demo-app dev"
+  },
+  "devDependencies": {
+    "@apidevtools/json-schema-ref-parser": "^16.0.0",
+    "@playwright/test": "^1.62.1",
+    "ajv": "^8.20.0",
+    "json-schema-to-typescript": "^15.0.4",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "pnpm@10.6.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

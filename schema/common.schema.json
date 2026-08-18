@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitc-rem.local/schema/common.schema.json",
+  "title": "Common",
+  "description": "Types shared across the Recording, IR and Trace schemas.\n\nFramePath deliberately does NOT live here despite looking shared: datamodel-code-generator emits a bare `IframeHop | ShadowHop` without importing either name when a oneOf union is reached through a cross-file $ref, producing Python that does not import. Any future union stays in the file that uses it.",
+
+  "$defs": {
+    "FidelityFlag": {
+      "title": "FidelityFlag",
+      "description": "What the recorder could NOT determine. SS6.8. Propagates from event to step and is rendered prominently in review. Degrading loudly is the point.",
+      "type": "string",
+      "enum": [
+        "canvas_interaction",
+        "no_accessible_name",
+        "closed_shadow_root",
+        "cross_origin_frame_blocked",
+        "drag_interaction",
+        "file_content_omitted",
+        "rapid_sequence",
+        "settle_timeout",
+        "network_incomplete"
+      ]
+    },
+
+    "SelectorSet": {
+      "title": "SelectorSet",
+      "description": "Ranked, most-stable first. SS6.2. Only `css` is guaranteed present -- it is the last resort, not the preference.",
+      "type": "object",
+      "properties": {
+        "testId": {
+          "type": "string",
+          "description": "data-testid / data-test / data-cy value. Highest stability when the app provides one; absent for most apps, which is expected and fine."
+        },
+        "role": {
+          "type": "string",
+          "description": "Serialized role+name locator, e.g. getByRole('button', { name: 'Submit' })."
+        },
+        "text": { "type": "string" },
+        "css": { "type": "string" }
+      },
+      "required": ["css"],
+      "additionalProperties": false
+    },
+
+    "Provenance": {
+      "title": "Provenance",
+      "description": "Where an assertion came from, ranked per SS9.5. annotated/narrated/objective are direct statements of intent; inferred is a guess about it.",
+      "type": "string",
+      "enum": ["annotated", "narrated", "objective", "inferred", "confirmed"]
+    },
+
+    "SegmentRole": {
+      "title": "SegmentRole",
+      "description": "SS9.3 -- what role a segment plays in the narrative. exploratory and abandoned are pruned from the test case but kept in the trace, and the review UI shows a marker so nothing is silently lost.",
+      "type": "string",
+      "enum": ["setup", "test_step", "teardown", "exploratory", "abandoned"]
+    },
+
+    "Confidence": {
+      "title": "Confidence",
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+
+    "OwnershipFields": {
+      "title": "OwnershipFields",
+      "description": "SS16 -- carried from day one so multi-user needs no migration. Unused locally.",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601, UTC."
+        }
+      },
+      "required": ["projectId", "ownerId", "createdAt"]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@aitc-rem/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome MV3 content-script recorder",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "dom-accessibility-api": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.297",
+    "esbuild": "^0.25.0",
+    "happy-dom": "^17.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
+  }
+}

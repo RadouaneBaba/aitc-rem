@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Export recording</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; color: #1c1f23; max-width: 760px; margin: 40px auto; padding: 0 24px; }
+      h1 { font-size: 20px; }
+      h2 { font-size: 15px; margin-top: 28px; }
+      h3 { font-size: 13px; margin-top: 16px; color: #5b6470; }
+      table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+      td { padding: 6px 8px; border-bottom: 1px solid #f1f3f5; }
+      td:first-child { color: #5b6470; width: 32%; }
+      code { background: #f6f7f9; padding: 1px 5px; border-radius: 4px; }
+      pre { background: #fdecea; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+      .ok { color: #2f6f4f; font-weight: 600; }
+      .bad { color: #b3261e; font-weight: 600; }
+      .muted { color: #5b6470; }
+      button { background: #2f6f4f; color: #fff; border: 0; border-radius: 6px; padding: 10px 16px; font: inherit; cursor: pointer; }
+      button[disabled] { background: #a9bdb2; cursor: not-allowed; }
+      .note { background: #f6f7f9; border-left: 3px solid #dfe3e8; padding: 10px 14px; margin: 16px 0; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>Export recording</h1>
+    <div id="summary"></div>
+
+    <h2>Schema check</h2>
+    <div id="validity"></div>
+
+    <h2>What will leave this browser</h2>
+    <div class="note">
+      Redaction already happened, in the page, before any of this was written down.
+      The values below were replaced before they reached disk &mdash; the raw ones were never persisted.
+      Placeholders carry forward into the generated test as parameters.
+    </div>
+    <div id="redaction"></div>
+
+    <h2>Save</h2>
+    <p><button id="save">Save recording.json and screenshots</button></p>
+    <p id="saved" class="muted"></p>
+  </body>
+  <script type="module" src="export.js"></script>
+</html>

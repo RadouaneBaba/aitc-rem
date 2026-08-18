@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AITC-REM Recorder</title>
+    <style>
+      body { font: 13px system-ui, sans-serif; width: 320px; margin: 0; padding: 14px; color: #1c1f23; }
+      h1 { font-size: 14px; margin: 0 0 10px; }
+      label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 12px; }
+      textarea { width: 100%; box-sizing: border-box; border: 1px solid #dfe3e8; border-radius: 6px; padding: 7px; font: inherit; resize: vertical; }
+      button { border: 0; border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer; }
+      button.primary { background: #2f6f4f; color: #fff; }
+      button.stop { background: #b3261e; color: #fff; }
+      button.ghost { background: #f1f3f5; color: #1c1f23; }
+      .row { display: flex; gap: 8px; margin-top: 12px; }
+      .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f3f5; }
+      .muted { color: #5b6470; }
+      .hint { font-size: 11px; color: #5b6470; margin-top: 10px; line-height: 1.45; }
+      .ann { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+      .ann button { font-size: 12px; padding: 6px 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>AITC-REM Recorder</h1>
+
+    <div id="idle">
+      <label for="objective">What are you checking?</label>
+      <textarea id="objective" rows="3" placeholder="Check that an order over EUR500 triggers the approval flow."></textarea>
+      <p class="hint">Optional, and the strongest single signal there is &mdash; it is the one thing the recorder cannot observe for itself.</p>
+      <div class="row"><button class="primary" id="start">Start recording</button></div>
+    </div>
+
+    <div id="active" hidden>
+      <div class="stat"><span class="muted">Events</span><strong id="count">0</strong></div>
+      <div class="stat"><span class="muted">Annotations</span><strong id="annotations">0</strong></div>
+      <div class="stat"><span class="muted">Origins</span><strong id="origins">-</strong></div>
+
+      <div class="ann">
+        <button class="ghost" data-kind="checkpoint">Checkpoint</button>
+        <button class="ghost" data-kind="scenario_break">New scenario</button>
+        <button class="ghost" data-kind="bug_marker">Mark a bug</button>
+        <button class="ghost" data-kind="intent_note">Note&hellip;</button>
+      </div>
+
+      <div class="row">
+        <button class="stop" id="stop">Stop</button>
+        <button class="ghost" id="export">Stop &amp; export</button>
+      </div>
+      <p class="hint">Annotations are never required. They raise quality; the tool must be fully usable without them.</p>
+    </div>
+  </body>
+  <script src="popup.js"></script>
+</html>

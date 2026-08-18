@@ -1,0 +1,564 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitc-rem.local/schema/recording.schema.json",
+  "title": "Recording",
+  "description": "The contract between the Chrome extension and the pipeline (SS5). Everything here has already passed through in-browser redaction (SS7) -- no raw secret ever reaches this document.",
+  "type": "object",
+
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "id": {
+      "type": "string",
+      "description": "e.g. rec_01J8X2. Stable; referenced by every run artifact."
+    },
+    "projectId": { "type": "string" },
+    "ownerId": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+
+    "objective": {
+      "type": "string",
+      "description": "SS6.6 -- the tester's stated objective, verbatim. The one input the tool can never observe, and the primary source for the test case title. Optional; the tool must be fully usable without it."
+    },
+
+    "metadata": { "$ref": "#/$defs/RecordingMetadata" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/CapturedEvent" }
+    },
+    "narration": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/NarrationSegment" },
+      "description": "SS6.6 -- transcribed locally, timestamps anchored to the recorder clock."
+    },
+    "annotations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/TesterAnnotation" },
+      "description": "Session-level annotations. Annotations bound to a specific action also appear on that event."
+    },
+    "parameters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RedactionParameter" },
+      "description": "SS7.2 -- placeholders that were substituted, by name only. The raw values they replaced are never persisted anywhere."
+    }
+  },
+
+  "required": [
+    "schemaVersion",
+    "id",
+    "projectId",
+    "ownerId",
+    "createdAt",
+    "metadata",
+    "events",
+    "narration",
+    "annotations",
+    "parameters"
+  ],
+  "additionalProperties": false,
+
+  "$defs": {
+    "FramePathSegment": {
+      "title": "FramePathSegment",
+      "description": "One hop in the path from the top document to the element's document. SS6.2.",
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "IframeHop",
+          "properties": {
+            "kind": { "const": "iframe" },
+            "url": { "type": "string" },
+            "index": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["kind", "url", "index"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "ShadowHop",
+          "properties": {
+            "kind": { "const": "shadow" },
+            "host": {
+              "type": "string",
+              "description": "Tag name or selector of the shadow host element."
+            }
+          },
+          "required": ["kind", "host"],
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "FramePath": {
+      "title": "FramePath",
+      "description": "Path from the top document down to the element's document. Empty means the top-level document.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/FramePathSegment" }
+    },
+
+    "RecordingMetadata": {
+      "title": "RecordingMetadata",
+      "type": "object",
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "browser": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "viewport": {
+          "title": "Viewport",
+          "type": "object",
+          "properties": {
+            "w": { "type": "integer" },
+            "h": { "type": "integer" }
+          },
+          "required": ["w", "h"],
+          "additionalProperties": false
+        },
+        "startUrl": { "type": "string" },
+        "origins": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Every distinct origin touched during the recording. Load-bearing: the pipeline's pre-send gate checks these against the allowlist before sending anything to a training-eligible endpoint (SS9.12)."
+        },
+        "recorderVersion": { "type": "string" },
+        "fidelitySummary": {
+          "type": "object",
+          "description": "Count of each fidelity flag across all events. Lets the review UI warn before the tester opens a single step.",
+          "additionalProperties": { "type": "integer" }
+        }
+      },
+      "required": ["capturedAt", "durationMs", "browser", "viewport", "startUrl", "origins"],
+      "additionalProperties": false
+    },
+
+    "CapturedEvent": {
+      "title": "CapturedEvent",
+      "description": "SS6.2 -- a bundle per user action, not a continuous stream. Scroll, hover and mousemove are context, never steps, and do not appear here.\n\nOn the three snapshots: `before` is taken at the moment of the action; `after` is taken once the page settles (SS6.5), NOT on the next tick, because snapshotting immediately captures the state before the application has responded and loses the very evidence the assertion needs. `transient` is captured the instant a live region appears, ahead of settle, and is present only when something showed up that might vanish -- a toast that disappears within three seconds is otherwise ungroundable.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "e.g. evt_027. Referenced by every downstream stage." },
+        "seq": { "type": "integer", "minimum": 0 },
+        "timestamp": { "type": "number", "description": "ms since recorder start." },
+        "type": {
+          "title": "EventType",
+          "type": "string",
+          "enum": [
+            "click",
+            "input",
+            "select",
+            "keypress",
+            "navigate",
+            "submit",
+            "file_select",
+            "tab_open",
+            "tab_close",
+            "dialog"
+          ]
+        },
+        "url": { "type": "string", "description": "Document URL at the moment of the action." },
+        "tabId": { "type": "integer" },
+        "target": { "$ref": "#/$defs/EventTarget" },
+        "before": { "$ref": "#/$defs/SemanticSnapshot" },
+        "after": { "$ref": "#/$defs/SemanticSnapshot" },
+        "transient": { "$ref": "#/$defs/SemanticSnapshot" },
+        "diff": { "$ref": "#/$defs/SnapshotDiff" },
+        "settle": { "$ref": "#/$defs/SettleInfo" },
+        "network": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/NetworkCall" },
+          "description": "Requests in this action's time window."
+        },
+        "console": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ConsoleEntry" },
+          "description": "Errors and warnings only."
+        },
+        "screenshot": { "type": "string", "description": "Path to a PNG on disk. Never sent to a model (SS7.4)." },
+        "annotations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TesterAnnotation" }
+        },
+        "fidelity": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/FidelityFlag" }
+        },
+        "keys": {
+          "type": "string",
+          "description": "For keypress events: the key or chord, e.g. 'Enter' or 'Control+S'."
+        },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SelectedFile" },
+          "description": "For file_select. Bytes are deliberately not captured (SS4 deferred list)."
+        },
+        "dialog": {
+          "title": "DialogInfo",
+          "type": "object",
+          "description": "For native dialog events (alert/confirm/prompt/beforeunload).",
+          "properties": {
+            "kind": { "title": "DialogKind", "type": "string", "enum": ["alert", "confirm", "prompt", "beforeunload"] },
+            "message": { "type": "string" },
+            "accepted": { "type": "boolean" }
+          },
+          "required": ["kind", "message"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "seq",
+        "timestamp",
+        "type",
+        "url",
+        "target",
+        "before",
+        "after",
+        "diff",
+        "network",
+        "console",
+        "fidelity"
+      ],
+      "additionalProperties": false
+    },
+
+    "EventTarget": {
+      "title": "EventTarget",
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "Computed accessible role, not the tag name. Resolved from an explicit role attribute or the implicit-role mapping."
+        },
+        "name": {
+          "type": "string",
+          "description": "Computed accessible name (dom-accessibility-api) -- the human label. Empty string when the element has none, which also raises no_accessible_name."
+        },
+        "value": {
+          "type": "string",
+          "description": "Post-redaction. A password field's value is '<<password>>' here and nowhere is it anything else."
+        },
+        "tagName": { "type": "string" },
+        "selectors": { "$ref": "common.schema.json#/$defs/SelectorSet" },
+        "frame": { "$ref": "#/$defs/FramePath" },
+        "boundingBox": {
+          "title": "BoundingBox",
+          "type": "object",
+          "description": "Viewport coordinates. Mainly for canvas interactions, where it is all we have.",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "w": { "type": "number" },
+            "h": { "type": "number" }
+          },
+          "required": ["x", "y", "w", "h"],
+          "additionalProperties": false
+        },
+        "coordinates": {
+          "title": "Coordinates",
+          "type": "object",
+          "description": "Click point relative to the target. Only meaningful for canvas_interaction.",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          },
+          "required": ["x", "y"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["role", "name", "selectors", "frame"],
+      "additionalProperties": false
+    },
+
+    "SemanticNode": {
+      "title": "SemanticNode",
+      "description": "SS6.3 -- role, accessible name, state. Never raw DOM HTML: 2-6 KB vs 50-200 KB, and the raw form overflows the context window and produces incoherent output on any model.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string",
+          "description": "Structural path within this snapshot, e.g. '0.2.1'. Stable for the snapshot; how query_element and the element_exists validator resolve a node."
+        },
+        "role": { "type": "string" },
+        "name": { "type": "string" },
+        "value": { "type": "string", "description": "Post-redaction." },
+        "state": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "disabled, checked, expanded, invalid, selected, required, readonly, busy, ..."
+        },
+        "landmark": {
+          "type": "string",
+          "description": "nav, main, dialog, ... -- for locating the node."
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SemanticNode" }
+        }
+      },
+      "required": ["ref", "role", "name"],
+      "additionalProperties": false
+    },
+
+    "SemanticSnapshot": {
+      "title": "SemanticSnapshot",
+      "type": "object",
+      "properties": {
+        "capturedAt": { "type": "number" },
+        "url": { "type": "string" },
+        "title": { "type": "string" },
+        "scope": {
+          "title": "SnapshotScope",
+          "type": "string",
+          "enum": ["scoped", "full"],
+          "description": "SS6.3 -- scoped by default (nearest landmark/dialog ancestor). 'full' only when get_full_snapshot asked for it, which is itself an agentic decision: cheap view by default, expensive one on demand."
+        },
+        "scopeRoot": {
+          "title": "ScopeRoot",
+          "type": "object",
+          "description": "What the scope was anchored to. Absent when scope is 'full'.",
+          "properties": {
+            "role": { "type": "string" },
+            "name": { "type": "string" },
+            "landmark": { "type": "string" }
+          },
+          "required": ["role"],
+          "additionalProperties": false
+        },
+        "root": { "$ref": "#/$defs/SemanticNode" },
+        "liveRegions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SemanticNode" },
+          "description": "SS6.3 -- every alert/status/log/alertdialog node anywhere in the document, regardless of scope. Outcomes appear far from the click, and this is where most expected results actually live."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "Node budget was hit and the tree was cut. Surfaces rather than silently shortening."
+        }
+      },
+      "required": ["capturedAt", "url", "title", "scope", "root", "liveRegions"],
+      "additionalProperties": false
+    },
+
+    "DiffNode": {
+      "title": "DiffNode",
+      "description": "A node in a diff, flattened -- no children, to keep diffs small enough to hand to a model whole.",
+      "type": "object",
+      "properties": {
+        "ref": { "type": "string" },
+        "role": { "type": "string" },
+        "name": { "type": "string" },
+        "value": { "type": "string" },
+        "state": { "type": "array", "items": { "type": "string" } },
+        "path": { "type": "string", "description": "Human-readable ancestry, e.g. 'main > dialog \"Confirm order\"'." }
+      },
+      "required": ["ref", "role", "name"],
+      "additionalProperties": false
+    },
+
+    "SnapshotDiff": {
+      "title": "SnapshotDiff",
+      "description": "Computed at capture time (SS6.2), so the pipeline never has to re-derive it.",
+      "type": "object",
+      "properties": {
+        "added": { "type": "array", "items": { "$ref": "#/$defs/DiffNode" } },
+        "removed": { "type": "array", "items": { "$ref": "#/$defs/DiffNode" } },
+        "changed": {
+          "type": "array",
+          "items": {
+            "title": "NodeChange",
+            "type": "object",
+            "properties": {
+              "before": { "$ref": "#/$defs/DiffNode" },
+              "after": { "$ref": "#/$defs/DiffNode" },
+              "fields": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Which of name/value/state changed."
+              }
+            },
+            "required": ["before", "after", "fields"],
+            "additionalProperties": false
+          }
+        },
+        "urlChanged": {
+          "title": "UrlChange",
+          "type": "object",
+          "properties": {
+            "from": { "type": "string" },
+            "to": { "type": "string" }
+          },
+          "required": ["from", "to"],
+          "additionalProperties": false
+        },
+        "titleChanged": {
+          "title": "TitleChange",
+          "type": "object",
+          "properties": {
+            "from": { "type": "string" },
+            "to": { "type": "string" }
+          },
+          "required": ["from", "to"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["added", "removed", "changed"],
+      "additionalProperties": false
+    },
+
+    "SettleInfo": {
+      "title": "SettleInfo",
+      "description": "SS6.5 -- why the recorder decided the application had finished responding. Diagnostic, and the reason a settle_timeout can be explained rather than merely flagged.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "title": "SettleReason",
+          "type": "string",
+          "enum": ["quiet", "live_region", "url_change", "timeout"]
+        },
+        "waitedMs": { "type": "number" },
+        "mutationCount": { "type": "integer" },
+        "inFlightAtEnd": { "type": "integer" }
+      },
+      "required": ["reason", "waitedMs"],
+      "additionalProperties": false
+    },
+
+    "NetworkCall": {
+      "title": "NetworkCall",
+      "description": "SS6.4 -- captured by a fetch/XHR patch in MAIN world. Bodies are redacted in page context before they leave it.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "method": { "type": "string" },
+        "url": { "type": "string" },
+        "status": { "type": "integer" },
+        "startTime": { "type": "number" },
+        "endTime": { "type": "number" },
+        "durationMs": { "type": "number" },
+        "initiator": { "title": "NetworkInitiator", "type": "string", "enum": ["fetch", "xhr", "navigation", "unknown"] },
+        "requestBody": { "type": "string", "description": "Redacted. Truncated past a size budget." },
+        "responseBody": { "type": "string", "description": "Redacted. Truncated past a size budget." },
+        "requestHeaders": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Allowlisted only. Authorization and Cookie are never recorded (SS6.4)."
+        },
+        "responseHeaders": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "failed": { "type": "boolean" },
+        "bodyTruncated": { "type": "boolean" }
+      },
+      "required": ["id", "method", "url", "startTime", "initiator"],
+      "additionalProperties": false
+    },
+
+    "ConsoleEntry": {
+      "title": "ConsoleEntry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "level": { "title": "ConsoleLevel", "type": "string", "enum": ["error", "warning"] },
+        "text": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "stack": { "type": "string" },
+        "uncaught": {
+          "type": "boolean",
+          "description": "An uncaught exception rather than a console.error call. Strong bug signal (SS14.1)."
+        }
+      },
+      "required": ["id", "level", "text", "timestamp"],
+      "additionalProperties": false
+    },
+
+    "TesterAnnotation": {
+      "title": "TesterAnnotation",
+      "description": "SS6.7. The tool must be fully usable with zero annotations -- they raise quality, they are never required.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "title": "AnnotationKind",
+          "type": "string",
+          "enum": ["checkpoint", "intent_note", "assertion", "scenario_break", "bug_marker"]
+        },
+        "text": {
+          "type": "string",
+          "description": "For intent_note this becomes the step name VERBATIM -- the model does not rewrite it."
+        },
+        "timestamp": { "type": "number" },
+        "eventId": { "type": "string" },
+        "target": {
+          "title": "AnnotationTarget",
+          "type": "object",
+          "description": "For assertion annotations: the element the tester pointed at.",
+          "properties": {
+            "role": { "type": "string" },
+            "name": { "type": "string" },
+            "value": { "type": "string" },
+            "selectors": { "$ref": "common.schema.json#/$defs/SelectorSet" }
+          },
+          "required": ["role", "name"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["id", "kind", "timestamp"],
+      "additionalProperties": false
+    },
+
+    "NarrationSegment": {
+      "title": "NarrationSegment",
+      "description": "SS6.6 -- a direct read on the test oracle. Retrieved via get_narration rather than pre-loaded, so an unambiguous step pays nothing for it.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "startMs": { "type": "number" },
+        "endMs": { "type": "number" },
+        "text": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["id", "startMs", "endMs", "text"],
+      "additionalProperties": false
+    },
+
+    "SelectedFile": {
+      "title": "SelectedFile",
+      "description": "Name/size/MIME only -- bytes are deliberately not captured (SS4). Rendered as <<fixture: name.csv>>.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "size": { "type": "integer" },
+        "mime": { "type": "string" }
+      },
+      "required": ["name", "size", "mime"],
+      "additionalProperties": false
+    },
+
+    "RedactionParameter": {
+      "title": "RedactionParameter",
+      "description": "SS7.2 -- placeholders carry forward into the generated test as parameters, which makes Scenario Outline a natural extension rather than a separate feature.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "e.g. user_email_1" },
+        "placeholder": { "type": "string", "description": "e.g. <<user_email_1>>" },
+        "category": {
+          "title": "RedactionCategory",
+          "type": "string",
+          "enum": [
+            "password",
+            "email",
+            "card_number",
+            "phone",
+            "national_id",
+            "custom",
+            "auth_header",
+            "body_field"
+          ]
+        },
+        "occurrences": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["name", "placeholder", "category", "occurrences"],
+      "additionalProperties": false
+    }
+  }
+}

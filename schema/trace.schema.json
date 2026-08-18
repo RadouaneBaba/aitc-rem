@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitc-rem.local/schema/trace.schema.json",
+  "title": "AgentTrace",
+  "description": "SS9.10 -- a schema'd artifact versioned with the run, designed as a product artifact rather than a log file. Consumed by the validators, the review UI's 'why this step' panel, and the ablation.",
+  "type": "object",
+
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "runId": { "type": "string" },
+    "recordingId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "ownerId": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+
+    "config": { "$ref": "#/$defs/RunConfig" },
+
+    "toolCalls": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ToolCall" },
+      "description": "SS8.2 -- not debug output. This is the substrate evidence_retrieved resolves against, the data behind the review UI's why-panel, and the raw material for the agency proof."
+    },
+    "modelCalls": { "type": "array", "items": { "$ref": "#/$defs/ModelCall" } },
+    "investigations": { "type": "array", "items": { "$ref": "#/$defs/StepInvestigation" } },
+    "stages": { "type": "array", "items": { "$ref": "#/$defs/StageRecord" } },
+    "validatorResults": { "type": "array", "items": { "$ref": "#/$defs/ValidatorResult" } },
+    "repairAttempts": { "type": "array", "items": { "$ref": "#/$defs/RepairAttempt" } },
+    "decompositionDecisions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DecompositionDecision" }
+    },
+    "metrics": { "$ref": "#/$defs/RunMetrics" }
+  },
+
+  "required": [
+    "schemaVersion",
+    "runId",
+    "recordingId",
+    "projectId",
+    "ownerId",
+    "createdAt",
+    "config",
+    "toolCalls",
+    "modelCalls",
+    "investigations",
+    "stages",
+    "validatorResults",
+    "repairAttempts",
+    "decompositionDecisions"
+  ],
+  "additionalProperties": false,
+
+  "$defs": {
+    "AblationConfig": {
+      "title": "AblationConfig",
+      "description": "SS3.5 -- one flag, three configurations, the same recordings. A0 is the shape this project replaces.",
+      "type": "string",
+      "enum": ["A0", "A1", "A2"]
+    },
+
+    "PipelineStage": {
+      "title": "PipelineStage",
+      "type": "string",
+      "enum": ["segment", "decompose", "name", "assert", "library", "validate", "critic", "coverage", "render"]
+    },
+
+    "RunConfig": {
+      "title": "RunConfig",
+      "type": "object",
+      "properties": {
+        "ablation": { "$ref": "#/$defs/AblationConfig" },
+        "toolsEnabled": {
+          "type": "boolean",
+          "description": "False only for A0. Disable tools and the pipeline cannot emit a single valid assertion -- not 'degrades', cannot (SS3.2)."
+        },
+        "criticEnabled": { "type": "boolean" },
+        "repairEnabled": { "type": "boolean" },
+        "maxRepairAttempts": { "type": "integer", "default": 3 },
+        "defaultInvestigationBudget": { "type": "integer", "default": 8 },
+        "models": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "provider": { "type": "string" },
+              "model": { "type": "string" }
+            },
+            "required": ["provider", "model"],
+            "additionalProperties": false
+          },
+          "description": "Per stage (SS9.12). The ablation pins one provider and one model across A0/A1/A2 and disables fallback, or it measures provider variance instead of architecture."
+        },
+        "fallbackEnabled": { "type": "boolean" },
+        "cassetteMode": {
+          "title": "CassetteMode",
+          "type": "string",
+          "enum": ["off", "read_write", "read_only", "record_only"],
+          "description": "read_write is the development default: replay when the exact prompt was seen before, call the real API otherwise. read_only makes a run fully offline and deterministic."
+        },
+        "a0Truncation": { "$ref": "#/$defs/TruncationPolicy" }
+      },
+      "required": ["ablation", "toolsEnabled", "criticEnabled", "repairEnabled"],
+      "additionalProperties": false
+    },
+
+    "TruncationPolicy": {
+      "title": "TruncationPolicy",
+      "description": "Pre-declared for A0, which pre-loads all context with no tools and will not fit a long recording in any context window. If A0 truncates silently the ablation measures truncation rather than architecture, so the policy is stated up front and the dropped volume is reported as a metric.",
+      "type": "object",
+      "properties": {
+        "strategy": { "title": "TruncationStrategy", "type": "string", "enum": ["head_tail", "head", "none"] },
+        "tokenBudget": { "type": "integer" },
+        "tokensDropped": { "type": "integer" },
+        "eventsDropped": { "type": "integer" },
+        "overflowed": {
+          "type": "boolean",
+          "description": "True when the recording did not fit. Reported as an ablation finding, not an error."
+        }
+      },
+      "required": ["strategy", "tokenBudget"],
+      "additionalProperties": false
+    },
+
+    "ToolCall": {
+      "title": "ToolCall",
+      "description": "SS3.2 -- every call logged with a content-addressed response.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "e.g. tc_0447" },
+        "stage": { "$ref": "#/$defs/PipelineStage" },
+        "stepId": { "type": "string" },
+        "segmentId": { "type": "string" },
+        "tool": { "type": "string", "description": "e.g. get_snapshot" },
+        "args": { "type": "object", "additionalProperties": true },
+        "responsePath": {
+          "type": "string",
+          "description": "runs/<rec>/tools/tc_0447.json, relative to the run root."
+        },
+        "responseHash": {
+          "type": "string",
+          "description": "sha256 of canonical_json(response). Canonical serialization is load-bearing: any key-order or whitespace variance between write and re-read would reject a CORRECT assertion."
+        },
+        "timestamp": { "type": "number" },
+        "durationMs": { "type": "number" },
+        "error": { "type": "string", "description": "Set when the tool raised. The call is still logged -- a failed retrieval is evidence too." }
+      },
+      "required": ["id", "stage", "tool", "args", "responsePath", "responseHash", "timestamp"],
+      "additionalProperties": false
+    },
+
+    "ModelCall": {
+      "title": "ModelCall",
+      "description": "Token and latency accounting. Feeds the budget guard and the ablation's cost column.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "stage": { "$ref": "#/$defs/PipelineStage" },
+        "stepId": { "type": "string" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "turn": { "type": "integer", "description": "Position within a multi-turn tool loop." },
+        "promptTokens": { "type": "integer" },
+        "completionTokens": { "type": "integer" },
+        "latencyMs": { "type": "number" },
+        "cached": {
+          "type": "boolean",
+          "description": "True when served from the cassette rather than the provider. Cached calls consume no quota and no money."
+        },
+        "attempt": { "type": "integer" },
+        "finishReason": { "type": "string" },
+        "error": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "stage", "provider", "model", "cached", "timestamp"],
+      "additionalProperties": false
+    },
+
+    "StepInvestigation": {
+      "title": "StepInvestigation",
+      "description": "SS3.3 -- agency includes deciding how much work a decision deserves. A step with an obvious outcome should cost zero calls; an ambiguous one should cost eight. That variance is the observable signature of adaptive behaviour.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "stepId": { "type": "string" },
+        "segmentId": { "type": "string" },
+        "stage": { "$ref": "#/$defs/PipelineStage" },
+        "initialUncertainty": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What the agent could not determine up front. Empty means the evidence was already sufficient."
+        },
+        "toolCallIds": { "type": "array", "items": { "type": "string" } },
+        "budgetUsed": { "type": "integer", "minimum": 0 },
+        "budgetMax": { "type": "integer", "minimum": 0 },
+        "stopReason": {
+          "title": "StopReason",
+          "type": "string",
+          "enum": [
+            "no_investigation_needed",
+            "evidence_sufficient",
+            "budget_exhausted",
+            "escalated"
+          ]
+        },
+        "stopRationale": { "type": "string" },
+        "escalationQuestion": {
+          "type": "string",
+          "description": "Set when stopReason is 'escalated'. Rendered as a direct question next to the step. A first-class outcome, not a failure."
+        },
+        "narrative": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered, human-readable trace for the why-panel: what it didn't know, what it looked at, what it found, why it stopped."
+        }
+      },
+      "required": ["id", "stage", "initialUncertainty", "toolCallIds", "budgetUsed", "budgetMax", "stopReason"],
+      "additionalProperties": false
+    },
+
+    "StageRecord": {
+      "title": "StageRecord",
+      "description": "SS9.1 -- each stage reads a file and writes a file, so when output is wrong you open the intermediate artifact and see exactly which stage lied.",
+      "type": "object",
+      "properties": {
+        "stage": { "$ref": "#/$defs/PipelineStage" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "inputPath": { "type": "string" },
+        "outputPath": { "type": "string" },
+        "startedAt": { "type": "number" },
+        "endedAt": { "type": "number" },
+        "status": { "title": "StageStatus", "type": "string", "enum": ["ok", "failed", "skipped"] },
+        "error": { "type": "string" }
+      },
+      "required": ["stage", "attempt", "outputPath", "startedAt", "status"],
+      "additionalProperties": false
+    },
+
+    "ValidatorResult": {
+      "title": "ValidatorResult",
+      "type": "object",
+      "properties": {
+        "validator": {
+          "title": "ValidatorName",
+          "type": "string",
+          "enum": [
+            "evidence_retrieved",
+            "assertion_grounding",
+            "element_exists",
+            "mutation_claimed",
+            "event_coverage",
+            "gherkin_parses",
+            "library_verbatim",
+            "no_placeholder_leak",
+            "selector_resolvable",
+            "no_pruned_assertion"
+          ]
+        },
+        "status": { "title": "ValidatorStatus", "type": "string", "enum": ["pass", "fail", "warn", "skip"] },
+        "action": {
+          "title": "ValidatorAction",
+          "type": "string",
+          "enum": ["none", "reject", "warn", "hard_fail"],
+          "description": "reject -> regenerate. hard_fail -> do not render at all (no_placeholder_leak only)."
+        },
+        "testCaseId": { "type": "string" },
+        "stepId": { "type": "string" },
+        "assertionId": { "type": "string" },
+        "message": { "type": "string" },
+        "attempt": { "type": "integer" },
+        "skipReason": {
+          "type": "string",
+          "description": "Why the validator had no subject, e.g. 'no library entries in Phase 1'. A skip is recorded, never silently omitted."
+        }
+      },
+      "required": ["validator", "status", "action", "attempt"],
+      "additionalProperties": false
+    },
+
+    "RepairAttempt": {
+      "title": "RepairAttempt",
+      "description": "SS9.9 -- findings are not merely reported; the offending stage re-runs with the criticism as input. Bounded at 3 attempts per stage.",
+      "type": "object",
+      "properties": {
+        "stage": { "$ref": "#/$defs/PipelineStage" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "trigger": { "title": "RepairTrigger", "type": "string", "enum": ["validator", "critic"] },
+        "finding": { "type": "string" },
+        "targetStepId": { "type": "string" },
+        "resolved": { "type": "boolean" },
+        "exhausted": {
+          "type": "boolean",
+          "description": "Budget ran out with the finding unresolved. The step is surfaced to the human with the finding stated plainly -- never silently accepted."
+        }
+      },
+      "required": ["stage", "attempt", "trigger", "finding", "resolved"],
+      "additionalProperties": false
+    },
+
+    "DecompositionDecision": {
+      "title": "DecompositionDecision",
+      "description": "SS9.3 -- no deterministic rule can tell a false start from a legitimate test step, so the rationale is recorded.",
+      "type": "object",
+      "properties": {
+        "kind": { "title": "DecompositionKind", "type": "string", "enum": ["test_case_boundary", "segment_role", "shared_setup"] },
+        "segmentId": { "type": "string" },
+        "testCaseId": { "type": "string" },
+        "role": { "$ref": "common.schema.json#/$defs/SegmentRole" },
+        "rationale": { "type": "string" },
+        "toolCallIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["kind", "rationale"],
+      "additionalProperties": false
+    },
+
+    "RunMetrics": {
+      "title": "RunMetrics",
+      "description": "SS3.5 -- six of seven ablation metrics come from machinery built for other reasons. These are those.",
+      "type": "object",
+      "properties": {
+        "assertionsTotal": { "type": "integer" },
+        "assertionsGrounded": { "type": "integer" },
+        "groundingRate": {
+          "type": "number",
+          "description": "Logged from day one as a free regression signal (SS17.1)."
+        },
+        "assertionsUngrounded": { "type": "integer" },
+        "validatorFirstPassRate": { "type": "number" },
+        "toolCallsTotal": { "type": "integer" },
+        "toolCallsPerStep": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" },
+          "description": "Keyed by stepId. The x-axis of the effort/difficulty correlation (SS3.4), and the column that separates an agent from a chain -- a chain is flat by construction."
+        },
+        "repairConvergenceRate": { "type": "number" },
+        "stepsEditedByHuman": { "type": "integer", "description": "Collected passively from the review UI (SS13.5)." },
+        "promptTokensTotal": { "type": "integer" },
+        "completionTokensTotal": { "type": "integer" },
+        "uncachedModelCalls": { "type": "integer" },
+        "durationMs": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

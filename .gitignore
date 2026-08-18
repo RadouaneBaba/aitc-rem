@@ -1,0 +1,40 @@
+# Local data stores — never committed (§15.3)
+recordings/
+runs/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+# Build output
+extension/dist/
+ui/dist/
+fixtures/demo-app/dist/
+
+# Local config overrides (may contain API keys)
+*.local.yaml
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Playwright
+test-results/
+playwright-report/
+.playwright-profile/

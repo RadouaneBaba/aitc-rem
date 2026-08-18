@@ -1,0 +1,336 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitc-rem.local/schema/ir.schema.json",
+  "title": "IRDocument",
+  "description": "SS10 -- one canonical structure. Gherkin, Excel and Jira are renderers over it: no format is second-class, and a fourth output means writing a renderer, not touching the pipeline. A recording produces an array of test cases (SS9.3).",
+  "type": "object",
+
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "recordingId": { "type": "string" },
+    "runId": { "type": "string", "description": "Links to the agent trace." },
+    "projectId": { "type": "string" },
+    "ownerId": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "testCases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/TestCaseIR" }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "recordingId",
+    "runId",
+    "projectId",
+    "ownerId",
+    "createdAt",
+    "testCases"
+  ],
+  "additionalProperties": false,
+
+  "$defs": {
+    "TestCaseIR": {
+      "title": "TestCaseIR",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recordingId": { "type": "string" },
+        "runId": { "type": "string" },
+        "kind": { "title": "TestCaseKind", "type": "string", "enum": ["test_case", "bug_report"] },
+
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "objective": {
+          "type": "string",
+          "description": "The tester's stated objective, verbatim (SS6.6)."
+        },
+        "preconditions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Precondition" },
+          "description": "From segments classified 'setup'. Lift into a Gherkin Background when shared across test cases."
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/Step" } },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Parameter" },
+          "description": "From redaction placeholders (SS7.2)."
+        },
+
+        "omitted": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OmittedSegment" },
+          "description": "Exploratory/abandoned segments -- shown, not hidden. A verbatim transcript is unusable; silent deletion is untrustworthy."
+        },
+        "suggestions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CoverageSuggestion" },
+          "description": "SS9.8 -- STRICTLY QUARANTINED. Never rendered as steps, never exported as test cases, always labelled unverified."
+        },
+
+        "metadata": { "$ref": "#/$defs/TestCaseMetadata" },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Warning" },
+          "description": "Unresolved fidelity flags and critic findings. Never collapsed by default in the UI."
+        },
+
+        "bug": { "$ref": "#/$defs/BugDetail" }
+      },
+      "required": [
+        "id",
+        "recordingId",
+        "runId",
+        "kind",
+        "title",
+        "description",
+        "preconditions",
+        "tags",
+        "steps",
+        "parameters",
+        "omitted",
+        "metadata",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+
+    "Step": {
+      "title": "Step",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "keyword": { "title": "StepKeyword", "type": "string", "enum": ["Given", "When", "Then", "And"] },
+        "text": { "type": "string", "description": "Intent, not mechanics. 'Submits the order' beats 'clicks the blue button'." },
+
+        "eventIds": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Traceability into the recording. One of the two backlinks that carry the whole trust story (SS10): this one proves the sentence came from the recording."
+        },
+        "investigationRef": {
+          "type": "string",
+          "description": "-> StepInvestigation in the trace. Renders as the 'why this step' panel (SS13.3)."
+        },
+        "screenshotRef": { "type": "string" },
+        "selectorHints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SelectorHint" },
+          "description": "For later automation. Rendered as Gherkin comments, never in step text."
+        },
+
+        "assertions": { "type": "array", "items": { "$ref": "#/$defs/Assertion" } },
+        "libraryRef": {
+          "type": "string",
+          "description": "Set when reused from the step library. The library_verbatim validator enforces that the text matches the entry exactly."
+        },
+
+        "confidence": { "$ref": "common.schema.json#/$defs/Confidence" },
+        "escalation": {
+          "type": "string",
+          "description": "A specific question for the human. A first-class outcome, not a failure -- an agent that asks is more useful than one that guesses."
+        },
+        "fidelity": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/FidelityFlag" }
+        },
+        "criticNotes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "keyword", "text", "eventIds", "investigationRef", "assertions", "confidence", "fidelity"],
+      "additionalProperties": false
+    },
+
+    "Assertion": {
+      "title": "Assertion",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": {
+          "type": "string",
+          "description": "Prose -- free. 'the confirmation banner appears'. This is what defuses paraphrase thrash: the model is never forced to write stiff sentences to satisfy a string match."
+        },
+        "provenance": { "$ref": "common.schema.json#/$defs/Provenance" },
+        "evidence": { "$ref": "#/$defs/Evidence" },
+        "accepted": { "type": "boolean" },
+        "rank": {
+          "type": "integer",
+          "description": "Candidate ordering within the step. Each step gets 2-3 ranked candidates, never one (SS9.5)."
+        }
+      },
+      "required": ["id", "text", "provenance", "evidence", "accepted"],
+      "additionalProperties": false
+    },
+
+    "Evidence": {
+      "title": "Evidence",
+      "description": "SS3.2 -- the single most important structure in the system. A claim is valid only if its literal appeared in a tool response THIS agent actually received during THIS run.",
+      "type": "object",
+      "properties": {
+        "literal": {
+          "type": "string",
+          "description": "Exact retrieved string, e.g. 'Order confirmed'. Checked character-for-character by evidence_retrieved."
+        },
+        "toolCallId": {
+          "type": "string",
+          "description": "The retrieval that produced it, e.g. tc_0447. The second of the two backlinks (SS10): this one proves the agent went and looked. If this id does not resolve in the trace, the assertion is rejected."
+        },
+        "eventId": { "type": "string" },
+        "kind": {
+          "title": "EvidenceKind",
+          "type": "string",
+          "enum": ["semantic_node", "url", "network", "console", "narration", "a11y_node"]
+        }
+      },
+      "required": ["literal", "toolCallId", "eventId", "kind"],
+      "additionalProperties": false
+    },
+
+    "Precondition": {
+      "title": "Precondition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "eventIds": { "type": "array", "items": { "type": "string" } },
+        "shared": {
+          "type": "boolean",
+          "description": "True when this precondition is common to several test cases and should lift into a Background block."
+        }
+      },
+      "required": ["id", "text", "eventIds"],
+      "additionalProperties": false
+    },
+
+    "Parameter": {
+      "title": "Parameter",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "placeholder": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "placeholder", "category"],
+      "additionalProperties": false
+    },
+
+    "SelectorHint": {
+      "title": "SelectorHint",
+      "type": "object",
+      "properties": {
+        "strategy": { "title": "SelectorStrategy", "type": "string", "enum": ["testId", "role", "text", "css"] },
+        "value": { "type": "string" },
+        "stability": { "$ref": "common.schema.json#/$defs/Confidence" }
+      },
+      "required": ["strategy", "value", "stability"],
+      "additionalProperties": false
+    },
+
+    "OmittedSegment": {
+      "title": "OmittedSegment",
+      "type": "object",
+      "properties": {
+        "segmentId": { "type": "string" },
+        "reason": { "title": "OmissionReason", "type": "string", "enum": ["exploratory", "abandoned"] },
+        "eventCount": { "type": "integer", "minimum": 1 },
+        "summary": { "type": "string", "description": "e.g. 'browsed the reports page, returned'." },
+        "afterStepId": {
+          "type": "string",
+          "description": "Which step this omission followed, so the UI can place the '3 exploratory actions omitted' marker."
+        }
+      },
+      "required": ["segmentId", "reason", "eventCount", "summary"],
+      "additionalProperties": false
+    },
+
+    "CoverageSuggestion": {
+      "title": "CoverageSuggestion",
+      "description": "SS9.8 -- a prompt for the tester, not an artifact. Must never contaminate grounded output.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "rationale": { "type": "string" },
+        "category": {
+          "title": "SuggestionCategory",
+          "type": "string",
+          "enum": ["validation_path", "api_error_shape", "boundary_value", "disabled_state", "visible_branch"]
+        },
+        "basedOn": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Event ids or tool call ids the observation rests on. Unverified is not the same as ungrounded."
+        }
+      },
+      "required": ["id", "text", "rationale", "category"],
+      "additionalProperties": false
+    },
+
+    "Warning": {
+      "title": "Warning",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "title": "WarningSource", "type": "string", "enum": ["fidelity", "critic", "validator", "recorder"] },
+        "severity": { "title": "WarningSeverity", "type": "string", "enum": ["info", "warn", "error"] },
+        "message": { "type": "string" },
+        "stepId": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "required": ["id", "source", "severity", "message"],
+      "additionalProperties": false
+    },
+
+    "TestCaseMetadata": {
+      "title": "TestCaseMetadata",
+      "type": "object",
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "durationMs": { "type": "number" },
+        "browser": { "type": "string" },
+        "viewport": {
+          "title": "Viewport",
+          "type": "object",
+          "properties": { "w": { "type": "integer" }, "h": { "type": "integer" } },
+          "required": ["w", "h"],
+          "additionalProperties": false
+        },
+        "startUrl": { "type": "string" },
+        "projectId": { "type": "string" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["capturedAt", "durationMs", "browser", "viewport", "startUrl", "projectId", "ownerId"],
+      "additionalProperties": false
+    },
+
+    "BugDetail": {
+      "title": "BugDetail",
+      "description": "SS14.2 -- present only when kind is 'bug_report'. `expected` and `actual` are subject to the same evidence binding as any assertion: `actual` must quote something the agent retrieved.",
+      "type": "object",
+      "properties": {
+        "failureStepId": { "type": "string" },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" },
+        "actualEvidence": { "$ref": "#/$defs/Evidence" },
+        "consoleErrorIds": { "type": "array", "items": { "type": "string" } },
+        "failedRequestIds": { "type": "array", "items": { "type": "string" } },
+        "screenshotAtFailure": { "type": "string" },
+        "environment": {
+          "title": "BugEnvironment",
+          "type": "object",
+          "properties": {
+            "browser": { "type": "string" },
+            "viewport": { "type": "string" },
+            "url": { "type": "string" }
+          },
+          "required": ["browser", "viewport", "url"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["failureStepId", "expected", "actual", "environment"],
+      "additionalProperties": false
+    }
+  }
+}
