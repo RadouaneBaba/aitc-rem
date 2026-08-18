@@ -179,9 +179,14 @@ class StepInvestigation(StrictModel):
 
 
 class StageStatus(StrEnum):
+    """
+    degraded -- the stage produced usable output by falling back rather than by doing its job. Distinguished from ok because a fallback that reports success is how a quiet failure becomes permanent.
+    """
+
     ok = "ok"
     failed = "failed"
     skipped = "skipped"
+    degraded = "degraded"
 
 
 class StageRecord(StrictModel):
@@ -199,6 +204,9 @@ class StageRecord(StrictModel):
     startedAt: float
     endedAt: float | None = None
     status: StageStatus = Field(..., title="StageStatus")
+    """
+    degraded -- the stage produced usable output by falling back rather than by doing its job. Distinguished from ok because a fallback that reports success is how a quiet failure becomes permanent.
+    """
     error: str | None = None
 
 
@@ -209,6 +217,7 @@ class ValidatorName(StrEnum):
     mutation_claimed = "mutation_claimed"
     event_coverage = "event_coverage"
     gherkin_parses = "gherkin_parses"
+    gherkin_style = "gherkin_style"
     library_verbatim = "library_verbatim"
     no_placeholder_leak = "no_placeholder_leak"
     selector_resolvable = "selector_resolvable"

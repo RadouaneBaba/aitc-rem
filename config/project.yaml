@@ -1,0 +1,45 @@
+# How generated test artifacts should read, for this project.
+#
+# The pipeline decides what is true; this file decides how it reads. Every
+# setting below has a default that produces good output, so deleting this file
+# changes nothing except that you lose the ability to disagree with it.
+
+# Subject of every step sentence. "I" switches to the classic Cucumber register
+# ("When I sign in"); "the tester" and "the user" stay third person.
+voice: the tester
+
+# Tags applied to every test case, on top of whatever the pipeline proposes.
+# A scenario with any step needing human review also gets @needs-review.
+tags: []
+
+# sidecar -> write <case>.trace.md beside the .feature and keep the feature body
+#            free of traceability comments
+# none    -> write neither; the evidence still lives in ir.json and trace.json,
+#            which is what the validators read
+trace: sidecar
+
+# inline  -> quote captured values and <<placeholders>> directly in step text,
+#            in a plain Scenario. A tester executing the test reads top to
+#            bottom and never looks in two places for one value.
+# outline -> lift the placeholders into a Scenario Outline with an Examples row.
+parameters: inline
+
+# Filename stem for the rendered feature. Available: {caseId} {title} {recordingId}
+feature_name: "{caseId}"
+
+# One provenance line at the top of the feature file, naming the recording and
+# the sidecar. Set false if you want the file to look hand-written.
+header: true
+
+# Extra formats written alongside the .feature file. The feature and its
+# evidence sidecar are always produced -- the validators read them.
+#   xlsx  -> one workbook per run, a sheet per test case, plus preconditions,
+#            parameters and warnings sheets
+#   jira  -> one issue payload per test case, in Atlassian Document Format.
+#            Built and written to disk, never posted: sending needs a site,
+#            a project key and an API token.
+exports: []
+
+jira:
+  issue_type: Test
+  project_key: ""

@@ -184,6 +184,49 @@ async function main(): Promise<void> {
         .map((e) => `${e.instancePath || '/'} ${e.message ?? ''}`)
         .join('\n')}</pre>`;
 
+  // SS13 -- the tester never touches a terminal. This button is the whole of
+  // that promise: the pipeline runs on a local server and the browser opens on
+  // a draft. It lives here rather than in the popup on purpose, because SS7.3
+  // says the tester sees exactly what will be sent BEFORE it goes, and the
+  // redaction preview above is that screen.
+  $('send').addEventListener('click', async () => {
+    const button = $('send') as HTMLButtonElement;
+    const base = ($('server') as HTMLInputElement).value.trim().replace(/\/$/, '');
+    button.disabled = true;
+    $('sent').textContent = 'Sending…';
+
+    try {
+      const response = await fetch(`${base}/api/recordings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(recording),
+      });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${await response.text()}`);
+      }
+
+      const { job, unknownOrigins } = await response.json();
+      const review = `${base}/`;
+      $('sent').innerHTML =
+        `Sent. Job <code>${job.id}</code> is running the pipeline — a draft takes a ` +
+        `couple of minutes. <a href="${review}" target="_blank">Open the review UI</a>.` +
+        (unknownOrigins?.length
+          ? `<br /><strong>Note:</strong> ${unknownOrigins.join(', ')} ` +
+            `${unknownOrigins.length === 1 ? 'is' : 'are'} not on the allowlist, so this ` +
+            `recording will not be sent to a training-eligible model tier.`
+          : '');
+    } catch (error) {
+      // A tester who pressed Send and got silence cannot tell a stopped server
+      // from a slow one.
+      $('sent').innerHTML =
+        `<span class="bad">Could not reach ${base}.</span> Start it with ` +
+        `<code>python -m server.cli serve</code>, or save the file below instead. ` +
+        `(${(error as Error).message})`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   $('save').addEventListener('click', async () => {
     const dir = `aitc-rem/${recording.id}`;
     await download(

@@ -15,12 +15,15 @@ import sys
 from pathlib import Path
 
 from server.ablation import run_ablation, write_report
+from server.config import load_allowed_origins, load_project_config
 from server.llm.cassette import CassetteClient
 from server.llm.chain import BudgetGuard, FallbackChain, RateLimiter, RetryingClient
 from server.llm.client import ModelClient
 from server.llm.gemini import DEFAULT_MODEL, GeminiClient
 from server.models import AblationConfig, Recording
 from server.pipeline.run import PipelineOptions, run_pipeline
+from server.renderers import export_all
+from server.renderers.gherkin import trace_filename
 from server.storage.paths import REPO_ROOT, Storage
 from server.util.env import load_env
 
@@ -71,14 +74,7 @@ def check_origins(recording: Recording, *, allow: bool) -> None:
     recording of a real application must not be sent to one. The allowlist
     makes that a mechanical check rather than a note in a document.
     """
-    config_path = REPO_ROOT / "config" / "allowed_origins.yaml"
-    allowed: list[str] = []
-    if config_path.exists():
-        for line in config_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("- "):
-                allowed.append(line[2:].strip().strip("\"'"))
-
+    allowed = load_allowed_origins()
     unknown = [o for o in recording.metadata.origins if o not in allowed]
     if not unknown:
         return
@@ -102,8 +98,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     storage = Storage()
     model = build_model(model=args.model, offline=args.offline, rpm=args.rpm)
+    # House style is project configuration, not a pipeline argument (SS9.12's
+    # posture applied to output): it changes how the artifact reads and never
+    # what it claims.
+    project = load_project_config()
     options = PipelineOptions.for_config(
-        AblationConfig(args.config), model_name=args.model, budget=args.budget
+        AblationConfig(args.config),
+        model_name=args.model,
+        budget=args.budget,
+        project=project,
     )
 
     result = run_pipeline(recording, model, storage=storage, run_id=args.run_id, options=options)
@@ -111,7 +114,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(f"Recording:      {recording.id}  ({len(recording.events)} events)")
     print(f"Run:            {result.run.root}")
     print(f"Steps:          {len(result.naming.steps)}")
-    print(f"Tool calls:     {len(result.trace.toolCalls)}  {result.naming.tool_calls_per_step()}")
+    print(f"Tool calls:     {len(result.trace.toolCalls)}  {result.tool_calls_per_step}")
     print(f"Grounding rate: {result.grounding_rate:.1%}")
     print(f"Duration:       {result.duration_ms / 1000:.1f}s")
     print()
@@ -119,9 +122,22 @@ def cmd_run(args: argparse.Namespace) -> int:
     for warning in getattr(model, "warnings", []):
         print(f"\nBUDGET: {warning}")
 
+    exports = export_all(
+        result.ir,
+        out_dir=result.run.root,
+        config=project,
+        names=args.export.split(",") if args.export else None,
+    )
+    for export in exports:
+        print(f"Exported:       {export}")
+        for warning in export.warnings:
+            print(f"                - {warning}")
+
     if result.rendered:
         print()
         print(next(iter(result.rendered.values())))
+    if result.sidecars:
+        print(f"Evidence sidecar: {result.run.root / trace_filename(result.ir.testCases[0])}")
 
     return 0 if result.report.ok else 1
 
@@ -146,6 +162,42 @@ def cmd_ablate(args: argparse.Namespace) -> int:
     out = Path(args.out)
     write_report(report, out)
     print(f"\nWritten to {out}")
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """SS13 -- the tester never touches a terminal.
+
+    Except once, here, to start the thing. The extension posts recordings to
+    this server, the pipeline runs as a background job, and review happens in a
+    browser.
+    """
+    import uvicorn
+
+    from server.api import create_app
+
+    storage = Storage()
+    project = load_project_config()
+    options = PipelineOptions.for_config(
+        AblationConfig(args.config), model_name=args.model, budget=args.budget, project=project
+    )
+    app = create_app(
+        storage=storage,
+        model_factory=lambda: build_model(
+            model=args.model, offline=args.offline, rpm=args.rpm
+        ),
+        options=options,
+        config=project,
+    )
+
+    ui = REPO_ROOT / "ui" / "dist"
+    print(f"aitc-rem on http://{args.host}:{args.port}")
+    if not ui.exists():
+        print("The review UI is not built yet. Run: pnpm --filter @aitc-rem/ui build")
+    print("Point the recorder at this address and press Stop when you are done.")
+    print()
+
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 
 
@@ -177,12 +229,25 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("recording")
     run.add_argument("--config", default="A2", choices=[c.value for c in AblationConfig])
     run.add_argument("--run-id", default="run_001")
+    run.add_argument(
+        "--export",
+        default="",
+        help="extra formats, comma separated (xlsx, jira). Overrides config/project.yaml",
+    )
     run.set_defaults(func=cmd_run)
 
     ablate = sub.add_parser("ablate", parents=[common], help="run A0/A1/A2 and print the table")
     ablate.add_argument("recordings", nargs="+")
     ablate.add_argument("--out", default=str(REPO_ROOT / "runs" / "ablation.json"))
     ablate.set_defaults(func=cmd_ablate)
+
+    serve = sub.add_parser(
+        "serve", parents=[common], help="run the local server and the review UI"
+    )
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--config", default="A2", choices=[c.value for c in AblationConfig])
+    serve.set_defaults(func=cmd_serve)
 
     # Read .env before anything asks for a key, so the CLI works without the
     # caller having exported it into their shell.

@@ -18,6 +18,9 @@
       .muted { color: #5b6470; }
       button { background: #2f6f4f; color: #fff; border: 0; border-radius: 6px; padding: 10px 16px; font: inherit; cursor: pointer; }
       button[disabled] { background: #a9bdb2; cursor: not-allowed; }
+      button.secondary { background: #f1f3f5; color: #1c1f23; }
+      input { font: inherit; padding: 8px; border: 1px solid #dfe3e8; border-radius: 6px; }
+      a { color: #2f6f4f; }
       .note { background: #f6f7f9; border-left: 3px solid #dfe3e8; padding: 10px 14px; margin: 16px 0; font-size: 13px; }
     </style>
   </head>
@@ -36,8 +39,20 @@
     </div>
     <div id="redaction"></div>
 
-    <h2>Save</h2>
-    <p><button id="save">Save recording.json and screenshots</button></p>
+    <h2>Send</h2>
+    <p class="muted">
+      Send this to aitc-rem and it runs the pipeline and opens the draft for review.
+      Nothing leaves your machine: the server is local.
+    </p>
+    <p>
+      <label>Server <input id="server" value="http://127.0.0.1:8000" size="28" /></label>
+      <button id="send">Send to aitc-rem</button>
+    </p>
+    <p id="sent" class="muted"></p>
+
+    <h2>Or save the file</h2>
+    <p class="muted">For running the pipeline yourself, or for keeping the raw evidence.</p>
+    <p><button id="save" class="secondary">Save recording.json and screenshots</button></p>
     <p id="saved" class="muted"></p>
   </body>
   <script type="module" src="export.js"></script>

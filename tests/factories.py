@@ -10,7 +10,9 @@ caller deliberately breaks it.
 
 from __future__ import annotations
 
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from server.models import (
@@ -192,11 +194,14 @@ def step(
     text: str = "the tester submits the order form",
     *,
     keyword: str = "When",
+    role: str | None = None,
     event_ids: list[str] | None = None,
     assertions: list[Assertion] | None = None,
     confidence: str = "high",
     **kw: Any,
 ) -> Step:
+    if role is not None:
+        kw["role"] = role
     return Step(
         id=ident,
         keyword=keyword,
@@ -220,6 +225,9 @@ def test_case(
     parameters: list[Parameter] | None = None,
     omitted: list[OmittedSegment] | None = None,
     tags: list[str] | None = None,
+    title: str = "Order checkout",
+    description: str = "Recorded checkout flow.",
+    scenarioName: str = "Submitting a valid order shows the confirmation",
     **kw: Any,
 ) -> TestCaseIR:
     return TestCaseIR(
@@ -227,8 +235,9 @@ def test_case(
         recordingId=recording_id,
         runId=run_id,
         kind="test_case",
-        title="Submitting a valid order shows the confirmation",
-        description="Recorded checkout flow.",
+        title=title,
+        description=description,
+        scenarioName=scenarioName,
         preconditions=preconditions or [],
         tags=tags or [],
         steps=steps if steps is not None else [step()],
@@ -324,3 +333,62 @@ def coverage_suggestion(
     rationale: str = "the field has type=email and a validation message exists",
 ) -> CoverageSuggestion:
     return CoverageSuggestion(id=ident, text=text, rationale=rationale, category=category)
+
+
+def validation_context(
+    *,
+    rendered: dict[str, str] | None = None,
+    ir_doc: IRDocument | None = None,
+    recording_doc: Recording | None = None,
+    runs_dir: Path | None = None,
+) -> Any:
+    """A minimal gate context, for validators that only read the output.
+
+    The gate's shape is fixed by what the strictest validator needs -- the
+    recording, the IR, the trace and the run directory. A validator that only
+    reads rendered text should not have to assemble all of that by hand to be
+    tested, so this builds the uninteresting parts.
+    """
+    from server.pipeline.validators.base import ValidationContext
+    from server.storage.paths import Storage
+
+    root = Path(runs_dir) if runs_dir else Path(tempfile.mkdtemp())
+    storage = Storage(recordings_dir=root / "recordings", runs_dir=root / "runs")
+    document = ir_doc or ir_document()
+    recorded = recording_doc or recording()
+
+    return ValidationContext(
+        recording=recorded,
+        ir=document,
+        trace=agent_trace(),
+        storage=storage,
+        run=storage.run(recorded.id, "run_test01"),
+        rendered=rendered or {},
+    )
+
+
+def agent_trace(**kw: Any) -> Any:
+    from server.models import AgentTrace
+
+    return AgentTrace(
+        schemaVersion="1.0",
+        runId=kw.pop("run_id", "run_test01"),
+        recordingId=kw.pop("recording_id", "rec_test01"),
+        projectId="proj_test",
+        ownerId="owner_test",
+        createdAt=NOW,
+        config={
+            "ablation": "A2",
+            "toolsEnabled": True,
+            "criticEnabled": False,
+            "repairEnabled": False,
+        },
+        toolCalls=kw.pop("tool_calls", []),
+        modelCalls=[],
+        investigations=kw.pop("investigations", []),
+        stages=[],
+        validatorResults=[],
+        repairAttempts=[],
+        decompositionDecisions=[],
+        **kw,
+    )

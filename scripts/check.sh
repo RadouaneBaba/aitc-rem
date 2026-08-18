@@ -43,6 +43,9 @@ step "pytest"        "$PYTHON" -m pytest -q
 # one does.
 if [ -d node_modules ]; then
   step "vitest" pnpm -r --if-present test
+  # The review UI has no unit tests yet; the type checker is what stops it
+  # from drifting out of sync with the API shapes in server/api/app.py.
+  step "ui types" pnpm -r --if-present typecheck
 fi
 
 echo ""

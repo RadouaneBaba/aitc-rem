@@ -29,6 +29,7 @@ from server.pipeline.validators.grounding import (
     no_pruned_assertion,
 )
 from server.pipeline.validators.output import gherkin_parses, no_placeholder_leak
+from server.pipeline.validators.style import gherkin_style
 
 #: Order is presentation only -- every validator always runs. Grounding first
 #: because it is the one the whole architecture exists to make possible.
@@ -39,6 +40,7 @@ VALIDATORS = [
     mutation_claimed,
     event_coverage,
     gherkin_parses,
+    gherkin_style,
     library_verbatim,
     no_placeholder_leak,
     selector_resolvable,

@@ -9,52 +9,64 @@ is handed over up front; then the agent investigates.
 That variance is not inefficiency. It is the observable signature of adaptive
 behaviour (SS3.3), and the trace records it per step so the effort/difficulty
 correlation of SS3.4 can be plotted from production data.
+
+What this stage does NOT decide is the Gherkin keyword. It sees one segment, and
+Given/When/Then is a property of the whole scenario -- asked anyway, a model
+answers `When` every time. It proposes a role instead, composition (SS9.3)
+overrules it with the whole flow in view, and `narrative.py` derives the keyword
+from that.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from typing import Any
 
+from server.config import ProjectConfig
 from server.evidence.store import EvidenceStore
 from server.evidence.tools import ToolRunner
-from server.llm.client import (
-    CompletionRequest,
-    CompletionResponse,
-    Message,
-    ModelClient,
-)
-from server.llm.gemini import parse_json_answer
+from server.llm.client import ModelClient
 from server.models import (
     Assertion,
     Confidence,
-    Evidence,
     ModelCall,
     PipelineStage,
     Segment,
+    SegmentRole,
     StepInvestigation,
-    StopReason,
 )
-from server.util.canonical import canonical_json
+from server.pipeline.investigate import DEFAULT_BUDGET, investigate
 
-DEFAULT_BUDGET = 8
-
-#: Absolute ceiling on turns per step, independent of the tool budget. Guards
-#: against a model that answers neither the question nor the instruction to
-#: stop; without it the loop would spin until the quota ran out.
-MAX_TURNS = 24
-MAX_FORCED_TURNS = 2
+#: How the step sentence is framed, per the project's configured voice.
+_VOICE_RULE = {
+    True: 'Present tense, first person, starting with "I". No trailing full stop.',
+    False: 'Present tense, third person, starting with "{voice}". No trailing full stop.',
+}
 
 SYSTEM_PROMPT = """\
 You are naming one step of a manual QA test case, from a browser recording.
 
 Write ONE sentence describing what the tester was trying to DO. Rules:
 
-* Describe intent, not mechanics. "Submits the order" beats "clicks the blue button".
-* Use the application's own vocabulary, taken from the accessible names you are shown.
+* Describe intent, not mechanics. "Submits the order" beats "clicks the blue
+  button". Never write clicks, taps, presses, types into, selects from the
+  dropdown, or scrolls to -- those describe a mouse, not a test.
+* {voice_rule}
+* Use the application's own vocabulary, taken from the accessible names you are
+  shown.
+* Quote the values that MATTER, exactly as given, in double quotes: the tester
+  enters "PO-4471" as the purchase order number. Redaction placeholders such as
+  <<password>> are values too and are quoted the same way. "Enters the
+  password" tells the person running this test nothing; 'signs in as
+  "<<user_email_1>>" with "<<password>>"' tells them what to supply.
+* ONE sentence, one intent. A segment often holds several actions; describe
+  what they add up to, not each one in turn. If your sentence needs more than
+  one "and", or a comma-separated list of things the tester did, it is
+  describing too much -- name the goal instead and quote only the values a
+  reader needs to reproduce it. "Submits the order with manager approval" beats
+  "enters a purchase order, sets the total, ticks approval and submits".
+* You are shown the step before this one. Do not restate it. If this step
+  genuinely repeats an earlier action, say so -- "places the order again".
 * Never state application state the evidence does not show.
-* Present tense, third person, starting with "the tester". No trailing full stop.
 * If a step-library match exists, reuse its wording verbatim.
 
 You have tools that query the recording. Use them when, and only when, you
@@ -66,47 +78,40 @@ you need anything else.
 
 When you call tools, put a JSON object in your message text first, listing what
 you cannot yet determine:
-    {"uncertainties": ["whether the export produced a file"]}
+    {{"uncertainties": ["whether the export produced a file"]}}
 
 When you are ready to answer, call no tools and reply with ONLY this JSON:
-{
-  "keyword": "Given" | "When" | "Then" | "And",
+{{
+  "role": "setup" | "test_step" | "teardown",
   "text": "the tester submits the order form",
   "confidence": "high" | "medium" | "low",
   "reason": "why confidence is not high (omit when high)",
-  "escalation": "a specific question for the human (only if you genuinely cannot tell)",
-  "expected": {
-    "text": "the confirmation banner appears",
-    "literal": "Order confirmed",
-    "toolCallId": "tc_0447",
-    "eventId": "evt_027",
-    "kind": "semantic_node"
-  }
-}
+  "escalation": "a specific question for the human (only if you genuinely cannot tell)"
+}}
 
-About "expected" -- the result a tester would check for after this step:
+About "role" -- what this step is doing in the test:
 
-* Decide first whether this step produced an observable outcome: a message,
-  a banner, a status or alert, a counter changing, a page moving, a request
-  succeeding. The evidence above shows you what changed.
-* If it did, you MUST ground it, and grounding requires a retrieval. Call
-  `find_text` with the exact string you intend to quote, then cite the id of
-  that call. Do this even when the string is already visible above: a claim is
-  only admissible if a retrieval in THIS conversation returned it.
-* `literal` must be an EXACT string from a tool response you received here.
-  Not paraphrased, not retyped from the summary above.
-* `toolCallId` must be the id of the call that returned it. Every tool result
-  you receive begins with its own `toolCallId` -- copy that value exactly.
-  Do not invent an id or make one up from the tool's name.
-* If the step genuinely produced no observable outcome -- filling a field,
-  opening a menu -- omit `expected`. That is the right answer, not a failure.
-* Never invent an id. An omitted expected result is correct; a fabricated
-  citation is the one thing that must never happen.
-* `text` is free prose and does NOT have to contain the literal.
+* `setup` -- getting to the state under test. Signing in, navigating to the
+  page, seeding data. Not the thing being verified.
+* `test_step` -- the behaviour this test exists to exercise.
+* `teardown` -- cleaning up afterwards.
+
+Judge it against the stated objective. Signing in is `setup` for a test about
+checkout, and `test_step` for a test about authentication.
+
+Do NOT write the expected result. A later stage proposes those, ranked by where
+the intent came from, and it has to retrieve its own evidence to do it. Your job
+is the sentence describing what the tester did.
 
 Never guess silently. If the evidence does not settle it, say so with low
 confidence and a reason, or escalate with a precise question. An agent that
 asks is more useful than one that invents."""
+
+
+def system_prompt(config: ProjectConfig) -> str:
+    """The naming instructions, in this project's voice."""
+    rule = _VOICE_RULE[config.first_person].format(voice=config.voice)
+    return SYSTEM_PROMPT.format(voice_rule=rule)
 
 
 @dataclass
@@ -115,7 +120,7 @@ class NamedStep:
 
     segment_id: str
     step_id: str
-    keyword: str
+    role: SegmentRole
     text: str
     confidence: Confidence
     event_ids: list[str]
@@ -142,6 +147,39 @@ class NamingResult:
         """The x-axis of the effort/difficulty correlation (SS3.4)."""
         return {s.step_id: len(s.investigation.toolCallIds) for s in self.steps}
 
+    def to_artifact(self) -> dict:
+        """`naming.json` -- what this stage decided, before composition sees it.
+
+        SS9.1: each stage reads a file and writes a file, so a wrong sentence
+        can be blamed on naming or on composition without re-running either.
+        """
+        return {
+            "stage": "name",
+            "steps": [
+                {
+                    "id": s.step_id,
+                    "segmentId": s.segment_id,
+                    "text": s.text,
+                    "role": s.role.value,
+                    "confidence": s.confidence.value,
+                    "eventIds": s.event_ids,
+                    "investigationRef": s.investigation.id,
+                    "toolCalls": list(s.investigation.toolCallIds),
+                    **({"escalation": s.escalation} if s.escalation else {}),
+                    **({"reason": s.reason} if s.reason else {}),
+                    "assertions": [
+                        {
+                            "text": a.text,
+                            "literal": a.evidence.literal,
+                            "toolCallId": a.evidence.toolCallId,
+                        }
+                        for a in s.assertions
+                    ],
+                }
+                for s in self.steps
+            ],
+        }
+
 
 def name_segments(
     store: EvidenceStore,
@@ -152,12 +190,16 @@ def name_segments(
     budget: int = DEFAULT_BUDGET,
     tools_enabled: bool = True,
     temperature: float = 0.0,
+    config: ProjectConfig | None = None,
 ) -> NamingResult:
     """Name every segment. One investigation per segment."""
     if store.segments is None:
         raise ValueError("segments must be attached before naming")
 
+    config = config or ProjectConfig()
     result = NamingResult()
+    previous: str | None = None
+
     for index, segment in enumerate(store.segments.segments):
         step_id = f"step_{index + 1:03d}"
         named = _name_one(
@@ -170,9 +212,12 @@ def name_segments(
             budget=budget if tools_enabled else 0,
             tools_enabled=tools_enabled,
             temperature=temperature,
+            config=config,
+            previous=previous,
             sink=result.model_calls,
         )
         result.steps.append(named)
+        previous = named.text
     return result
 
 
@@ -187,211 +232,60 @@ def _name_one(
     budget: int,
     tools_enabled: bool,
     temperature: float,
+    config: ProjectConfig,
+    previous: str | None,
     sink: list[ModelCall],
 ) -> NamedStep:
-    messages = [
-        Message(role="system", content=SYSTEM_PROMPT),
-        Message(role="user", content=_baseline(store, segment)),
-    ]
-    tools = runner.tool_definitions() if tools_enabled else []
-
-    tool_call_ids: list[str] = []
-    uncertainties: list[str] = []
-    narrative: list[str] = []
-    stop_reason = StopReason.no_investigation_needed
-    answer: dict[str, Any] = {}
-    turn = 0
-    #: Times the model was told to stop investigating and answer. A model that
-    #: ignores the instruction would otherwise loop forever, so the loop gives
-    #: up rather than spinning, and the step is surfaced to the human with low
-    #: confidence -- never silently accepted.
-    forced = 0
-
-    while turn < MAX_TURNS:
-        turn += 1
-        request = CompletionRequest(
-            model=model_name,
-            messages=list(messages),
-            tools=tools,
-            temperature=temperature,
-            json_output=not tools,
-        )
-        response = model.complete(request)
-        sink.append(_record(response, step_id, turn))
-
-        if not response.wants_tools:
-            answer = parse_json_answer(response.text)
-            break
-
-        if not tools_enabled:
-            # A0 has no tools; a model asking for them is told so and expected
-            # to answer from what it was given.
-            forced += 1
-            if forced > MAX_FORCED_TURNS:
-                narrative.append("gave up: the model kept asking for tools that do not exist")
-                break
-            messages.append(Message(role="assistant", content=response.text))
-            messages.append(
-                Message(
-                    role="user",
-                    content="No tools are available in this configuration. "
-                    "Answer from the evidence above.",
-                )
-            )
-            continue
-
-        stated = parse_json_answer(response.text).get("uncertainties")
-        if isinstance(stated, list) and not uncertainties:
-            uncertainties = [str(u) for u in stated][:6]
-            narrative.extend(f"could not determine: {u}" for u in uncertainties)
-
-        if len(tool_call_ids) >= budget:
-            stop_reason = StopReason.budget_exhausted
-            forced += 1
-            if forced == 1:
-                narrative.append(f"stopped after {len(tool_call_ids)} calls: budget exhausted")
-            if forced > MAX_FORCED_TURNS:
-                narrative.append("gave up: the model kept investigating past its budget")
-                break
-            messages.append(_assistant_turn(response))
-            messages.append(
-                Message(
-                    role="user",
-                    content=(
-                        "The investigation budget is used up. Answer now with the evidence "
-                        "you have, at the confidence it justifies. If you still cannot tell, "
-                        "escalate with a specific question."
-                    ),
-                )
-            )
-            continue
-
-        # One retrieval per turn, deliberately.
-        #
-        # It matches the investigation SS3.3 describes -- decide, retrieve,
-        # observe, decide again -- and it avoids a concrete provider problem:
-        # Gemini 3 attaches a thought signature only to the FIRST function call
-        # of a parallel batch, then rejects the replayed conversation because
-        # the second one has none. Sequential calls always carry their own.
-        response.tool_calls = response.tool_calls[:1]
-
-        messages.append(_assistant_turn(response))
-        for invocation in response.tool_calls:
-            if len(tool_call_ids) >= budget:
-                break
-            call_id, tool_response = runner.call(
-                invocation.name,
-                invocation.arguments,
-                step_id=step_id,
-                segment_id=segment.id,
-                stage=PipelineStage.name,
-            )
-            tool_call_ids.append(call_id)
-            narrative.append(f"{invocation.name}({_brief(invocation.arguments)}) -> {call_id}")
-            # The id is put INSIDE the content on purpose. Providers carry a
-            # tool_call_id in their own envelope, but the model never sees it,
-            # so asked to cite one it invents a plausible-looking name --
-            # observed in a real run as `find_text_0` against a true claim,
-            # correctly rejected by evidence_retrieved. An agent can only cite
-            # what it was shown.
-            #
-            # The wrapper is for the conversation only. What was stored and
-            # hashed is the raw response, so the citation still resolves to
-            # exactly what the tool returned.
-            messages.append(
-                Message(
-                    role="tool",
-                    name=invocation.name,
-                    tool_call_id=call_id,
-                    content=canonical_json({"toolCallId": call_id, "result": tool_response}),
-                )
-            )
-
-        if stop_reason == StopReason.no_investigation_needed:
-            stop_reason = StopReason.evidence_sufficient
+    enquiry = investigate(
+        runner,
+        model,
+        system_prompt=system_prompt(config),
+        user_prompt=_baseline(store, segment, previous=previous),
+        model_name=model_name,
+        stage=PipelineStage.name,
+        label=step_id,
+        budget=budget,
+        tools_enabled=tools_enabled,
+        temperature=temperature,
+        step_id=step_id,
+        segment_id=segment.id,
+    )
+    sink.extend(enquiry.model_calls)
+    answer = enquiry.answer
 
     escalation = (answer.get("escalation") or "").strip() or None
-    if escalation:
-        stop_reason = StopReason.escalated
-        narrative.append(f"escalated: {escalation}")
-    elif stop_reason == StopReason.evidence_sufficient:
-        narrative.append("evidence sufficient")
-    elif stop_reason == StopReason.no_investigation_needed:
-        narrative.append("answered without investigating: the evidence was already sufficient")
+    enquiry.finish(escalation)
 
     confidence = _confidence(answer.get("confidence"))
     text = (answer.get("text") or "").strip()
     if not text:
         # A model that returns nothing usable must not silently produce a step
         # that reads as confident.
-        text = f"the tester performs an action ({segment.label})"
+        text = f"{config.voice} performs an action ({segment.label})"
         confidence = Confidence.low
         answer.setdefault("reason", "the model returned no usable step text")
 
-    investigation = StepInvestigation(
-        id=f"inv_{step_id.split('_')[-1]}",
-        stepId=step_id,
-        segmentId=segment.id,
+    investigation = enquiry.record(
+        investigation_id=f"inv_{step_id.split('_')[-1]}",
         stage=PipelineStage.name,
-        initialUncertainty=uncertainties,
-        toolCallIds=tool_call_ids,
-        budgetUsed=len(tool_call_ids),
-        budgetMax=budget,
-        stopReason=stop_reason,
-        narrative=narrative,
+        budget=budget,
+        step_id=step_id,
+        segment_id=segment.id,
     )
-    if answer.get("reason"):
-        investigation.stopRationale = str(answer["reason"])
     if escalation:
         investigation.escalationQuestion = escalation
 
     return NamedStep(
         segment_id=segment.id,
         step_id=step_id,
-        keyword=_keyword(answer.get("keyword")),
+        role=_role(answer.get("role")),
         text=text,
         confidence=confidence,
         event_ids=list(segment.eventIds),
         investigation=investigation,
         escalation=escalation,
         reason=str(answer["reason"]) if answer.get("reason") else None,
-        assertions=_assertions(answer.get("expected"), step_id, segment),
     )
-
-
-def _assertions(expected: Any, step_id: str, segment: Segment) -> list[Assertion]:
-    """Turn a claimed expected result into an evidence-bound assertion.
-
-    Nothing is checked here on purpose. Whether the citation is real is the
-    validator's job (SS9.7), and the ablation measures precisely how often each
-    configuration gets it wrong -- so a fabricated citation has to survive this
-    far to be counted.
-    """
-    if not isinstance(expected, dict):
-        return []
-    text = str(expected.get("text") or "").strip()
-    literal = str(expected.get("literal") or "")
-    tool_call_id = str(expected.get("toolCallId") or "")
-    if not (text and literal and tool_call_id):
-        return []
-
-    event_id = str(expected.get("eventId") or "") or segment.eventIds[-1]
-    kind = str(expected.get("kind") or "semantic_node")
-    if kind not in {"semantic_node", "url", "network", "console", "narration", "a11y_node"}:
-        kind = "semantic_node"
-
-    return [
-        Assertion(
-            id=f"asrt_{step_id.split('_')[-1]}",
-            text=text,
-            provenance="inferred",
-            evidence=Evidence(
-                literal=literal, toolCallId=tool_call_id, eventId=event_id, kind=kind
-            ),
-            accepted=True,
-            rank=1,
-        )
-    ]
 
 
 # --------------------------------------------------------------------------
@@ -399,7 +293,7 @@ def _assertions(expected: Any, step_id: str, segment: Segment) -> list[Assertion
 # --------------------------------------------------------------------------
 
 
-def _baseline(store: EvidenceStore, segment: Segment) -> str:
+def _baseline(store: EvidenceStore, segment: Segment, *, previous: str | None = None) -> str:
     """SS9.4's baseline input: the segment's events, its first and last scoped
     snapshots, the diff, a network summary, and the top library matches.
 
@@ -418,6 +312,16 @@ def _baseline(store: EvidenceStore, segment: Segment) -> str:
         else "Stated objective: none given (infer intent from the actions)."
     )
     lines.append("")
+
+    # The previous sentence, so one intent spanning two segments does not come
+    # back as the same sentence twice. A reader who sees the tool stutter stops
+    # believing the rest of the file.
+    if previous:
+        lines.append(f"The step before this one reads: {previous}")
+    else:
+        lines.append("This is the first step of the test.")
+    lines.append("")
+
     lines.append(
         f"Segment {segment.id} ({len(events)} action(s)), began: {segment.boundaryReason.value}"
     )
@@ -504,39 +408,21 @@ def _render_diff(events) -> str:
 # --------------------------------------------------------------------------
 
 
-def _assistant_turn(response: CompletionResponse) -> Message:
-    return Message(role="assistant", content=response.text, tool_calls=response.tool_calls)
-
-
-def _record(response: CompletionResponse, step_id: str, turn: int) -> ModelCall:
-    return ModelCall(
-        id=f"mc_{step_id}_{turn}",
-        stage=PipelineStage.name,
-        stepId=step_id,
-        provider=response.provider or "unknown",
-        model=response.model or "unknown",
-        turn=turn,
-        promptTokens=response.prompt_tokens,
-        completionTokens=response.completion_tokens,
-        cached=response.cached,
-        finishReason=response.finish_reason,
-        timestamp=0.0,
-    )
-
-
-def _confidence(value: Any) -> Confidence:
+def _confidence(value) -> Confidence:
     try:
         return Confidence(str(value).lower())
     except ValueError:
         return Confidence.medium
 
 
-def _keyword(value: Any) -> str:
-    allowed = {"Given", "When", "Then", "And"}
-    text = str(value or "").strip().capitalize()
-    return text if text in allowed else "When"
+def _role(value) -> SegmentRole:
+    """One segment is a weak vantage point for this call, which is why
+    composition overrules it. `test_step` is the safe default: it keeps the
+    step in the narrative, where a wrong `setup` would quietly demote it."""
+    try:
+        return SegmentRole(str(value).strip().lower())
+    except ValueError:
+        return SegmentRole.test_step
 
 
-def _brief(args: dict[str, Any]) -> str:
-    rendered = json.dumps(args, ensure_ascii=False)
-    return rendered if len(rendered) <= 60 else rendered[:57] + "..."
+__all__ = ["DEFAULT_BUDGET", "NamedStep", "NamingResult", "name_segments", "system_prompt"]

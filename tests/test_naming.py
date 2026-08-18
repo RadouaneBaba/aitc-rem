@@ -335,9 +335,7 @@ def test_the_tool_call_id_is_visible_to_the_model(tmp_path: Path):
     model = ScriptedModelClient(script)
     name_segments(store, runner, model, model_name="scripted-1")
 
-    tool_message = next(
-        m for r in model.requests for m in r.messages if m.role == "tool"
-    )
+    tool_message = next(m for r in model.requests for m in r.messages if m.role == "tool")
     payload = json.loads(tool_message.content or "{}")
     assert payload["toolCallId"] == "tc_0001"
     assert "result" in payload

@@ -42,6 +42,33 @@ def recording() -> Recording:
     )
 
 
+def stage_of(request: CompletionRequest) -> str:
+    """Which stage is asking.
+
+    The pipeline runs three agentic stages against one scripted client, and
+    each has its own answer contract. Sniffing the system prompt keeps the
+    stand-in honest: it has to notice what it was asked, exactly as a real
+    model does.
+    """
+    system = request.messages[0].content or ""
+    if system.startswith("You are proposing the expected results"):
+        return "assert"
+    if system.startswith("You are turning a recorded browser session"):
+        return "compose"
+    return "name"
+
+
+def composed(roles: dict[str, str] | None = None) -> str:
+    return json.dumps(
+        {
+            "title": "Order checkout",
+            "scenario": "Submitting a valid order shows the confirmation",
+            "tags": ["checkout"],
+            "roles": roles or {},
+        }
+    )
+
+
 def grounded_model() -> ScriptedModelClient:
     """An agent that retrieves, then cites exactly what it retrieved.
 
@@ -51,12 +78,19 @@ def grounded_model() -> ScriptedModelClient:
     """
 
     def behave(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "compose":
+            return answer(composed())
+
         tool_results = [m for m in request.messages if m.role == "tool"]
         baseline = request.messages[1].content or ""
-        # Only claim a change when the evidence shows one, or mutation_claimed
-        # will rightly reject the step.
-        mutated = "-> 201" in baseline or "-> 200" in baseline
-        text = "the tester places the order" if mutated else "the tester fills in the form"
+
+        if stage == "name":
+            # Only claim a change when the evidence shows one, or
+            # mutation_claimed will rightly reject the step.
+            mutated = "-> 201" in baseline or "-> 200" in baseline
+            text = "the tester places the order" if mutated else "the tester fills in the form"
+            return answer(json.dumps({"role": "test_step", "text": text, "confidence": "high"}))
 
         if not tool_results:
             return calls(
@@ -71,23 +105,24 @@ def grounded_model() -> ScriptedModelClient:
         payload = json.loads(tool_results[-1].content or "{}")
         call_id = payload.get("toolCallId")
         matches = (payload.get("result") or {}).get("matches") or []
-        base = {"keyword": "When", "text": text, "confidence": "high"}
         if not matches:
             # Nothing was found, so there is nothing to claim. Omitting the
             # expected result is the correct outcome, not a failure.
-            return answer(json.dumps(base))
+            return answer(json.dumps({"candidates": []}))
 
         return answer(
             json.dumps(
                 {
-                    **base,
-                    "expected": {
-                        "text": "the confirmation banner appears",
-                        "literal": CONFIRMATION,
-                        "toolCallId": call_id,
-                        "eventId": matches[0]["eventId"],
-                        "kind": "semantic_node",
-                    },
+                    "candidates": [
+                        {
+                            "text": "the confirmation banner appears",
+                            "provenance": "inferred",
+                            "literal": CONFIRMATION,
+                            "toolCallId": call_id,
+                            "eventId": matches[0]["eventId"],
+                            "kind": "semantic_node",
+                        }
+                    ]
                 }
             )
         )
@@ -103,20 +138,32 @@ def fabricating_model() -> ScriptedModelClient:
     """
 
     def behave(request: CompletionRequest):
-        del request
+        stage = stage_of(request)
+        if stage == "compose":
+            return answer(composed())
+        if stage == "name":
+            return answer(
+                json.dumps(
+                    {
+                        "role": "test_step",
+                        "text": "the tester fills in the form",
+                        "confidence": "high",
+                    }
+                )
+            )
         return answer(
             json.dumps(
                 {
-                    "keyword": "When",
-                    "text": "the tester fills in the form",
-                    "confidence": "high",
-                    "expected": {
-                        "text": "the confirmation banner appears",
-                        "literal": CONFIRMATION,
-                        "toolCallId": "tc_0447",
-                        "eventId": "evt_002",
-                        "kind": "semantic_node",
-                    },
+                    "candidates": [
+                        {
+                            "text": "the confirmation banner appears",
+                            "provenance": "inferred",
+                            "literal": CONFIRMATION,
+                            "toolCallId": "tc_0447",
+                            "eventId": "evt_002",
+                            "kind": "semantic_node",
+                        }
+                    ]
                 }
             )
         )
@@ -137,13 +184,22 @@ def storage(tmp_path: Path) -> Storage:
 def test_a_run_produces_every_artifact(storage: Storage):
     result = run_pipeline(recording(), grounded_model(), storage=storage, run_id="run_001")
 
-    for name in ("segments", "ir", "trace"):
+    for name in ("segments", "naming", "assertions", "ir", "trace"):
         assert result.artifacts[name].exists(), f"{name}.json was not written"
     # Each stage reads a file and writes a file, so a wrong output can be
     # traced to the stage that produced it (SS9.1).
-    assert [s.stage.value for s in result.trace.stages] == ["segment", "name", "render", "validate"]
+    assert [s.stage.value for s in result.trace.stages] == [
+        "segment",
+        "name",
+        "assert",
+        "decompose",
+        "render",
+        "validate",
+    ]
     assert result.rendered
     assert list(result.run.root.glob("*.feature"))
+    # The evidence the feature body no longer carries is written beside it.
+    assert list(result.run.root.glob("*.trace.md"))
 
 
 def test_an_honest_run_passes_the_gate_and_grounds_its_assertions(storage: Storage):
@@ -298,11 +354,24 @@ def test_the_spine_runs_over_a_real_recorded_session(storage: Storage):
 
     assert result.report.ok, result.report.summary()
     assert result.grounding_rate == 1.0
-    assert len(result.naming.steps) == len(result.trace.investigations)
+    # Naming and assertion each investigate every step, and composition
+    # investigates the flow. All three record the same way, so SS3.4 can read
+    # effort per step without knowing which stage spent it.
+    steps = len(result.naming.steps)
+    assert len(result.trace.investigations) == steps * 2 + 1
 
     feature = next(iter(result.rendered.values()))
     assert "Feature:" in feature
-    assert "# evidence:" in feature
+    # The evidence left the feature body and became a document beside it. The
+    # binding itself is untouched: the pointer still resolves in the trace,
+    # which is what `evidence_retrieved` reads (SS3.2).
+    sidecar = next(iter(result.sidecars.values()))
+    for case in result.ir.testCases:
+        for step in case.steps:
+            for assertion in step.assertions:
+                assert assertion.evidence.toolCallId in sidecar
+                assert assertion.evidence.literal in sidecar
+
     # Every event in the recording is accounted for in the output.
     covered = {e for c in result.ir.testCases for s in c.steps for e in s.eventIds}
     assert covered == {e.id for e in real.events}

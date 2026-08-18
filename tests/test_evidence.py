@@ -97,6 +97,27 @@ def test_find_text_searches_network_and_console_too(store: EvidenceStore):
     assert any(m["kind"] == "network" for m in matches)
 
 
+def test_find_text_searches_the_page_url(store: EvidenceStore):
+    # SS9.5 counts a meaningful URL change as an outcome signal, and the IR has
+    # a `url` evidence kind for exactly that. Neither was reachable while the
+    # index covered nodes, requests, console and narration but not the page the
+    # tester was on: a URL assertion passed `evidence_retrieved` because the
+    # string really was in the tool response, then failed `assertion_grounding`
+    # because the recording could not be searched where the URL lives. Both
+    # validators were right; the index was incomplete.
+    matches = store.find_text("demo.local/checkout")
+
+    assert any(m["kind"] == "url" for m in matches)
+    assert all(m.get("eventId") for m in matches if m["kind"] == "url")
+
+
+def test_a_url_assertion_can_be_grounded_at_the_event_it_belongs_to(store: EvidenceStore):
+    # The property `assertion_grounding` actually checks: the literal appears
+    # in the recording AT the cited event, not merely somewhere in it.
+    matches = [m for m in store.find_text("demo.local/checkout") if m["kind"] == "url"]
+    assert {m["eventId"] for m in matches} <= {e.id for e in store.recording.events}
+
+
 def test_find_text_reports_nothing_for_a_string_that_was_never_there(store: EvidenceStore):
     # This is the case that stops fabrication: the agent asks, and is told no.
     assert store.find_text("Payment declined") == []

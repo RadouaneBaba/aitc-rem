@@ -238,6 +238,10 @@ class Step(StrictModel):
     """
     Intent, not mechanics. 'Submits the order' beats 'clicks the blue button'.
     """
+    role: common_schema.SegmentRole | None = None
+    """
+    SS9.3 -- what this step does in the narrative. Given/When/Then is a property of the whole scenario, not of one step, so the keyword is derived from this deterministically rather than chosen per step by a model.
+    """
     eventIds: list[str] = Field(..., min_length=1)
     """
     Traceability into the recording. One of the two backlinks that carry the whole trust story (SS10): this one proves the sentence came from the recording.
@@ -274,7 +278,17 @@ class TestCaseIR(StrictModel):
     runId: str
     kind: TestCaseKind = Field(..., title="TestCaseKind")
     title: str
+    """
+    The capability under test, e.g. 'Order approval'. Renders as the Gherkin Feature name. NOT the tester's objective string: a Feature that repeats the Scenario verbatim reads as machine output, which is the first thing a QA lead judges.
+    """
     description: str
+    """
+    One or two sentences of context. Renders as the free-text description block under Feature:, which is where Gherkin natively puts this -- a leading # comment is not.
+    """
+    scenarioName: str | None = None
+    """
+    The specific case this test exercises, e.g. 'An order over EUR500 is held for manager approval'. Renders as the Scenario name. Falls back to `title` only when composition did not run.
+    """
     objective: str | None = None
     """
     The tester's stated objective, verbatim (SS6.6).

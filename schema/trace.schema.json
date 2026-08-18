@@ -228,7 +228,12 @@
         "outputPath": { "type": "string" },
         "startedAt": { "type": "number" },
         "endedAt": { "type": "number" },
-        "status": { "title": "StageStatus", "type": "string", "enum": ["ok", "failed", "skipped"] },
+        "status": {
+          "title": "StageStatus",
+          "type": "string",
+          "enum": ["ok", "failed", "skipped", "degraded"],
+          "description": "degraded -- the stage produced usable output by falling back rather than by doing its job. Distinguished from ok because a fallback that reports success is how a quiet failure becomes permanent."
+        },
         "error": { "type": "string" }
       },
       "required": ["stage", "attempt", "outputPath", "startedAt", "status"],
@@ -249,6 +254,7 @@
             "mutation_claimed",
             "event_coverage",
             "gherkin_parses",
+            "gherkin_style",
             "library_verbatim",
             "no_placeholder_leak",
             "selector_resolvable",

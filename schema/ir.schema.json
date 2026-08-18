@@ -38,8 +38,18 @@
         "runId": { "type": "string" },
         "kind": { "title": "TestCaseKind", "type": "string", "enum": ["test_case", "bug_report"] },
 
-        "title": { "type": "string" },
-        "description": { "type": "string" },
+        "title": {
+          "type": "string",
+          "description": "The capability under test, e.g. 'Order approval'. Renders as the Gherkin Feature name. NOT the tester's objective string: a Feature that repeats the Scenario verbatim reads as machine output, which is the first thing a QA lead judges."
+        },
+        "description": {
+          "type": "string",
+          "description": "One or two sentences of context. Renders as the free-text description block under Feature:, which is where Gherkin natively puts this -- a leading # comment is not."
+        },
+        "scenarioName": {
+          "type": "string",
+          "description": "The specific case this test exercises, e.g. 'An order over EUR500 is held for manager approval'. Renders as the Scenario name. Falls back to `title` only when composition did not run."
+        },
         "objective": {
           "type": "string",
           "description": "The tester's stated objective, verbatim (SS6.6)."
@@ -103,6 +113,10 @@
         "id": { "type": "string" },
         "keyword": { "title": "StepKeyword", "type": "string", "enum": ["Given", "When", "Then", "And"] },
         "text": { "type": "string", "description": "Intent, not mechanics. 'Submits the order' beats 'clicks the blue button'." },
+        "role": {
+          "$ref": "common.schema.json#/$defs/SegmentRole",
+          "description": "SS9.3 -- what this step does in the narrative. Given/When/Then is a property of the whole scenario, not of one step, so the keyword is derived from this deterministically rather than chosen per step by a model."
+        },
 
         "eventIds": {
           "type": "array",

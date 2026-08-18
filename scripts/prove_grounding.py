@@ -37,6 +37,9 @@ class Proof:
     tool_calls: int = 0
     problems: list[str] = field(default_factory=list)
     tool_calls_per_step: dict[str, int] = field(default_factory=dict)
+    #: False for A0, whose whole purpose is to run without retrieval.
+    tools_enabled: bool = True
+    ablation: str = ""
 
     @property
     def ok(self) -> bool:
@@ -57,6 +60,8 @@ def prove(run: Path) -> Proof | None:
     trace = AgentTrace.model_validate(json.loads(trace_path.read_text(encoding="utf-8")))
     calls = {c.id: c for c in trace.toolCalls}
     proof.tool_calls = len(calls)
+    proof.tools_enabled = bool(getattr(trace.config, "toolsEnabled", True))
+    proof.ablation = getattr(trace.config.ablation, "value", str(trace.config.ablation or ""))
     proof.tool_calls_per_step = {i.stepId or i.id: len(i.toolCallIds) for i in trace.investigations}
 
     for case in ir.testCases:
@@ -93,6 +98,10 @@ def prove(run: Path) -> Proof | None:
     return proof
 
 
+def _where(run: Path) -> str:
+    return str(run.relative_to(REPO_ROOT) if run.is_relative_to(REPO_ROOT) else run)
+
+
 def main(argv: list[str]) -> int:
     targets = (
         [Path(a) for a in argv[1:]]
@@ -108,27 +117,52 @@ def main(argv: list[str]) -> int:
         print("No run in those paths has both ir.json and trace.json.")
         return 1
 
-    total_assertions = sum(p.assertions for p in proofs)
-    total_resolved = sum(p.resolved for p in proofs)
-    total_calls = sum(p.tool_calls for p in proofs)
+    # A0 is separated out rather than judged. Its whole purpose is to run
+    # without retrieval, so an assertion it cannot resolve is the thesis
+    # landing, not the pipeline leaking: SS3.2 claims that disabling tools
+    # makes a valid assertion impossible, and these runs are the evidence for
+    # it. Folding them in with the rest would report the expected result as a
+    # failure and make the exit code mean nothing.
+    graded = [p for p in proofs if p.tools_enabled]
+    untooled = [p for p in proofs if not p.tools_enabled]
 
-    for proof in proofs:
+    total_assertions = sum(p.assertions for p in graded)
+    total_resolved = sum(p.resolved for p in graded)
+    total_calls = sum(p.tool_calls for p in graded)
+
+    for proof in graded:
         mark = "ok  " if proof.ok else "FAIL"
         print(
-            f"[{mark}] {proof.run.relative_to(REPO_ROOT) if proof.run.is_relative_to(REPO_ROOT) else proof.run}"
+            f"[{mark}] {_where(proof.run)}"
             f"  {proof.resolved}/{proof.assertions} assertions resolved, "
             f"{proof.tool_calls} tool calls"
         )
         for problem in proof.problems[:10]:
             print(f"         - {problem}")
 
+    for proof in untooled:
+        unresolved = proof.assertions - proof.resolved
+        print(
+            f"[{proof.ablation or 'no tools':>4}] {_where(proof.run)}"
+            f"  {unresolved}/{proof.assertions} assertion(s) ungrounded, as expected "
+            f"with no tools"
+        )
+
     print()
-    print(f"Runs:            {len(proofs)}")
+    print(f"Runs with tools: {len(graded)}")
     print(f"Tool calls:      {total_calls}")
     print(f"Assertions:      {total_assertions}")
     print(f"Resolved:        {total_resolved}")
     rate = total_resolved / total_assertions if total_assertions else 1.0
     print(f"Grounding rate:  {rate:.1%}")
+
+    if untooled:
+        claimed = sum(p.assertions for p in untooled)
+        ungrounded = claimed - sum(p.resolved for p in untooled)
+        print(
+            f"Without tools:   {ungrounded}/{claimed} assertion(s) ungrounded "
+            f"across {len(untooled)} run(s) -- SS3.2, measured"
+        )
 
     # The variance in effort per step is what separates an agent from a chain
     # (SS3.4). A chain is flat here by construction.
@@ -140,7 +174,10 @@ def main(argv: list[str]) -> int:
             f"max {counts[-1]}  ({'varies' if counts[0] != counts[-1] else 'FLAT'})"
         )
 
-    failed = [p for p in proofs if not p.ok]
+    # Only runs that HAD tools are graded. A run that could not retrieve was
+    # never able to ground anything, and calling that a failure would turn the
+    # exit code into a report on how many A0 runs are on disk.
+    failed = [p for p in graded if not p.ok]
     print()
     print(
         "PASS: every assertion resolves to a retrieval."

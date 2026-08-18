@@ -74,6 +74,7 @@ from .generated.recording_schema import (
     UrlChange,
     Viewport,
 )
+from .generated.review_schema import ReviewDocument, ReviewEdit, ReviewEditKind
 from .generated.segments_schema import BoundaryReason, Segment, SegmentsDocument
 from .generated.trace_schema import (
     AblationConfig,
@@ -142,6 +143,10 @@ __all__ = [
     "TitleChange",
     "UrlChange",
     "Viewport",
+    # review
+    "ReviewDocument",
+    "ReviewEdit",
+    "ReviewEditKind",
     # segments
     "BoundaryReason",
     "Segment",

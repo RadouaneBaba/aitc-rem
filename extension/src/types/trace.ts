@@ -19,7 +19,10 @@ export type TruncationStrategy = "head_tail" | "head" | "none";
 export type PipelineStage =
   "segment" | "decompose" | "name" | "assert" | "library" | "validate" | "critic" | "coverage" | "render";
 export type StopReason = "no_investigation_needed" | "evidence_sufficient" | "budget_exhausted" | "escalated";
-export type StageStatus = "ok" | "failed" | "skipped";
+/**
+ * degraded -- the stage produced usable output by falling back rather than by doing its job. Distinguished from ok because a fallback that reports success is how a quiet failure becomes permanent.
+ */
+export type StageStatus = "ok" | "failed" | "skipped" | "degraded";
 export type ValidatorName =
   | "evidence_retrieved"
   | "assertion_grounding"
@@ -27,6 +30,7 @@ export type ValidatorName =
   | "mutation_claimed"
   | "event_coverage"
   | "gherkin_parses"
+  | "gherkin_style"
   | "library_verbatim"
   | "no_placeholder_leak"
   | "selector_resolvable"

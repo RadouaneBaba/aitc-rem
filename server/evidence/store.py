@@ -228,6 +228,36 @@ class EvidenceStore:
                         matches.append(match)
                         break
 
+        # The page URL, which is not a node and not a request.
+        #
+        # SS9.5 counts "a meaningful URL change" as an outcome signal and the IR
+        # has a `url` evidence kind for exactly that, but neither was reachable:
+        # a URL assertion passed `evidence_retrieved` (the string really was in
+        # the tool response) and then failed `assertion_grounding`, because the
+        # recording could not be searched anywhere the URL actually lives. The
+        # validator was right both times; the index was incomplete.
+        for event in self._ordered:
+            seen: set[str] = set()
+            for where, haystack in (
+                ("url", event.url),
+                ("before.url", event.before.url),
+                ("after.url", event.after.url),
+            ):
+                if not haystack or haystack in seen:
+                    continue
+                seen.add(haystack)
+                probe = haystack if case_sensitive else haystack.casefold()
+                if needle in probe:
+                    matches.append(
+                        {
+                            "eventId": event.id,
+                            "kind": "url",
+                            "matchedField": where,
+                            "url": haystack,
+                        }
+                    )
+                    break
+
         for event in self._ordered:
             for call in event.network:
                 for field_name in ("url", "responseBody", "requestBody"):

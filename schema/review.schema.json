@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitc-rem.local/schema/review.schema.json",
+  "title": "ReviewDocument",
+  "description": "SS13 -- the human gate, and what it left behind. Every edit a reviewer makes is recorded: not as analytics, but because it is the `steps edited by a human` column of the ablation (SS3.5) and the y-axis of the effort/difficulty correlation (SS3.4). Collected for free from normal use, which is the only reason it is affordable.",
+  "type": "object",
+
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "recordingId": { "type": "string" },
+    "runId": { "type": "string" },
+    "projectId": { "type": "string" },
+    "ownerId": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+
+    "edits": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ReviewEdit" },
+      "description": "Append-only. An edit is never removed, because the record of what a human changed is the measurement."
+    },
+    "approved": {
+      "type": "boolean",
+      "description": "Approval is what feeds the step library (SS12.2) -- a step is stored only once a human has accepted it, never merely because it was generated."
+    },
+    "approvedAt": { "type": "string", "format": "date-time" },
+    "reviewer": { "type": "string" }
+  },
+  "required": [
+    "schemaVersion",
+    "recordingId",
+    "runId",
+    "projectId",
+    "ownerId",
+    "createdAt",
+    "edits",
+    "approved"
+  ],
+  "additionalProperties": false,
+
+  "$defs": {
+    "ReviewEdit": {
+      "title": "ReviewEdit",
+      "description": "SS13.5 -- which step, what kind of change, how large.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "testCaseId": { "type": "string" },
+        "stepId": { "type": "string" },
+        "assertionId": { "type": "string" },
+        "kind": {
+          "title": "ReviewEditKind",
+          "type": "string",
+          "enum": [
+            "step_text",
+            "step_deleted",
+            "steps_merged",
+            "step_split",
+            "step_moved",
+            "assertion_accepted",
+            "assertion_rejected",
+            "escalation_answered",
+            "case_renamed",
+            "tags_changed"
+          ]
+        },
+        "before": { "type": "string" },
+        "after": { "type": "string" },
+        "magnitude": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How large the change was, in characters. A one-word fix and a rewrite are different signals about how hard the step was."
+        }
+      },
+      "required": ["id", "timestamp", "testCaseId", "kind"],
+      "additionalProperties": false
+    }
+  }
+}
