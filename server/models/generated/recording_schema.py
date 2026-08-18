@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 from typing import Literal
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, ConfigDict, Field
+from server.models.base import StrictModel
 from enum import StrEnum
 from . import common_schema
 
 
-class IframeHop(BaseModel):
+class IframeHop(StrictModel):
     """
     One hop in the path from the top document to the element's document. SS6.2.
     """
@@ -21,7 +22,7 @@ class IframeHop(BaseModel):
     index: int = Field(..., ge=0)
 
 
-class ShadowHop(BaseModel):
+class ShadowHop(StrictModel):
     """
     One hop in the path from the top document to the element's document. SS6.2.
     """
@@ -36,7 +37,7 @@ class ShadowHop(BaseModel):
     """
 
 
-class Viewport(BaseModel):
+class Viewport(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -44,7 +45,7 @@ class Viewport(BaseModel):
     h: int
 
 
-class RecordingMetadata(BaseModel):
+class RecordingMetadata(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -85,7 +86,7 @@ class DialogKind(StrEnum):
     beforeunload = "beforeunload"
 
 
-class DialogInfo(BaseModel):
+class DialogInfo(StrictModel):
     """
     For native dialog events (alert/confirm/prompt/beforeunload).
     """
@@ -98,7 +99,7 @@ class DialogInfo(BaseModel):
     accepted: bool | None = None
 
 
-class BoundingBox(BaseModel):
+class BoundingBox(StrictModel):
     """
     Viewport coordinates. Mainly for canvas interactions, where it is all we have.
     """
@@ -112,7 +113,7 @@ class BoundingBox(BaseModel):
     h: float
 
 
-class Coordinates(BaseModel):
+class Coordinates(StrictModel):
     """
     Click point relative to the target. Only meaningful for canvas_interaction.
     """
@@ -124,7 +125,7 @@ class Coordinates(BaseModel):
     y: float
 
 
-class EventTarget(BaseModel):
+class EventTarget(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -156,7 +157,7 @@ class EventTarget(BaseModel):
     """
 
 
-class SemanticNode(BaseModel):
+class SemanticNode(StrictModel):
     """
     SS6.3 -- role, accessible name, state. Never raw DOM HTML: 2-6 KB vs 50-200 KB, and the raw form overflows the context window and produces incoherent output on any model.
     """
@@ -194,7 +195,7 @@ class SnapshotScope(StrEnum):
     full = "full"
 
 
-class ScopeRoot(BaseModel):
+class ScopeRoot(StrictModel):
     """
     What the scope was anchored to. Absent when scope is 'full'.
     """
@@ -207,7 +208,7 @@ class ScopeRoot(BaseModel):
     landmark: str | None = None
 
 
-class SemanticSnapshot(BaseModel):
+class SemanticSnapshot(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -233,7 +234,7 @@ class SemanticSnapshot(BaseModel):
     """
 
 
-class DiffNode(BaseModel):
+class DiffNode(StrictModel):
     """
     A node in a diff, flattened -- no children, to keep diffs small enough to hand to a model whole.
     """
@@ -252,7 +253,7 @@ class DiffNode(BaseModel):
     """
 
 
-class NodeChange(BaseModel):
+class NodeChange(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -264,7 +265,7 @@ class NodeChange(BaseModel):
     """
 
 
-class UrlChange(BaseModel):
+class UrlChange(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -272,7 +273,7 @@ class UrlChange(BaseModel):
     to: str
 
 
-class TitleChange(BaseModel):
+class TitleChange(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -280,7 +281,7 @@ class TitleChange(BaseModel):
     to: str
 
 
-class SnapshotDiff(BaseModel):
+class SnapshotDiff(StrictModel):
     """
     Computed at capture time (SS6.2), so the pipeline never has to re-derive it.
     """
@@ -302,7 +303,7 @@ class SettleReason(StrEnum):
     timeout = "timeout"
 
 
-class SettleInfo(BaseModel):
+class SettleInfo(StrictModel):
     """
     SS6.5 -- why the recorder decided the application had finished responding. Diagnostic, and the reason a settle_timeout can be explained rather than merely flagged.
     """
@@ -323,7 +324,7 @@ class NetworkInitiator(StrEnum):
     unknown = "unknown"
 
 
-class NetworkCall(BaseModel):
+class NetworkCall(StrictModel):
     """
     SS6.4 -- captured by a fetch/XHR patch in MAIN world. Bodies are redacted in page context before they leave it.
     """
@@ -361,7 +362,7 @@ class ConsoleLevel(StrEnum):
     warning = "warning"
 
 
-class ConsoleEntry(BaseModel):
+class ConsoleEntry(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -384,7 +385,7 @@ class AnnotationKind(StrEnum):
     bug_marker = "bug_marker"
 
 
-class AnnotationTarget(BaseModel):
+class AnnotationTarget(StrictModel):
     """
     For assertion annotations: the element the tester pointed at.
     """
@@ -398,7 +399,7 @@ class AnnotationTarget(BaseModel):
     selectors: common_schema.SelectorSet | None = None
 
 
-class TesterAnnotation(BaseModel):
+class TesterAnnotation(StrictModel):
     """
     SS6.7. The tool must be fully usable with zero annotations -- they raise quality, they are never required.
     """
@@ -420,7 +421,7 @@ class TesterAnnotation(BaseModel):
     """
 
 
-class NarrationSegment(BaseModel):
+class NarrationSegment(StrictModel):
     """
     SS6.6 -- a direct read on the test oracle. Retrieved via get_narration rather than pre-loaded, so an unambiguous step pays nothing for it.
     """
@@ -435,7 +436,7 @@ class NarrationSegment(BaseModel):
     confidence: float | None = Field(None, ge=0.0, le=1.0)
 
 
-class SelectedFile(BaseModel):
+class SelectedFile(StrictModel):
     """
     Name/size/MIME only -- bytes are deliberately not captured (SS4). Rendered as <<fixture: name.csv>>.
     """
@@ -459,7 +460,7 @@ class RedactionCategory(StrEnum):
     body_field = "body_field"
 
 
-class RedactionParameter(BaseModel):
+class RedactionParameter(StrictModel):
     """
     SS7.2 -- placeholders carry forward into the generated test as parameters, which makes Scenario Outline a natural extension rather than a separate feature.
     """
@@ -479,7 +480,7 @@ class RedactionParameter(BaseModel):
     occurrences: int = Field(..., ge=1)
 
 
-class CapturedEvent(BaseModel):
+class CapturedEvent(StrictModel):
     """
     SS6.2 -- a bundle per user action, not a continuous stream. Scroll, hover and mousemove are context, never steps, and do not appear here.
 
@@ -538,7 +539,7 @@ class CapturedEvent(BaseModel):
     """
 
 
-class Recording(BaseModel):
+class Recording(StrictModel):
     """
     The contract between the Chrome extension and the pipeline (SS5). Everything here has already passed through in-browser redaction (SS7) -- no raw secret ever reaches this document.
     """

@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 from enum import StrEnum
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from server.models.base import StrictModel
+from pydantic import AwareDatetime, ConfigDict, Field
 from typing import Any, Literal
 from . import common_schema
 
@@ -30,7 +31,7 @@ class PipelineStage(StrEnum):
     render = "render"
 
 
-class Models(BaseModel):
+class Models(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -55,7 +56,7 @@ class TruncationStrategy(StrEnum):
     none = "none"
 
 
-class TruncationPolicy(BaseModel):
+class TruncationPolicy(StrictModel):
     """
     Pre-declared for A0, which pre-loads all context with no tools and will not fit a long recording in any context window. If A0 truncates silently the ablation measures truncation rather than architecture, so the policy is stated up front and the dropped volume is reported as a metric.
     """
@@ -73,7 +74,7 @@ class TruncationPolicy(BaseModel):
     """
 
 
-class ToolCall(BaseModel):
+class ToolCall(StrictModel):
     """
     SS3.2 -- every call logged with a content-addressed response.
     """
@@ -109,7 +110,7 @@ class ToolCall(BaseModel):
     """
 
 
-class ModelCall(BaseModel):
+class ModelCall(StrictModel):
     """
     Token and latency accounting. Feeds the budget guard and the ablation's cost column.
     """
@@ -146,7 +147,7 @@ class StopReason(StrEnum):
     escalated = "escalated"
 
 
-class StepInvestigation(BaseModel):
+class StepInvestigation(StrictModel):
     """
     SS3.3 -- agency includes deciding how much work a decision deserves. A step with an obvious outcome should cost zero calls; an ambiguous one should cost eight. That variance is the observable signature of adaptive behaviour.
     """
@@ -183,7 +184,7 @@ class StageStatus(StrEnum):
     skipped = "skipped"
 
 
-class StageRecord(BaseModel):
+class StageRecord(StrictModel):
     """
     SS9.1 -- each stage reads a file and writes a file, so when output is wrong you open the intermediate artifact and see exactly which stage lied.
     """
@@ -232,7 +233,7 @@ class ValidatorAction(StrEnum):
     hard_fail = "hard_fail"
 
 
-class ValidatorResult(BaseModel):
+class ValidatorResult(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -258,7 +259,7 @@ class RepairTrigger(StrEnum):
     critic = "critic"
 
 
-class RepairAttempt(BaseModel):
+class RepairAttempt(StrictModel):
     """
     SS9.9 -- findings are not merely reported; the offending stage re-runs with the criticism as input. Bounded at 3 attempts per stage.
     """
@@ -284,7 +285,7 @@ class DecompositionKind(StrEnum):
     shared_setup = "shared_setup"
 
 
-class DecompositionDecision(BaseModel):
+class DecompositionDecision(StrictModel):
     """
     SS9.3 -- no deterministic rule can tell a false start from a legitimate test step, so the rationale is recorded.
     """
@@ -300,7 +301,7 @@ class DecompositionDecision(BaseModel):
     toolCallIds: list[str] | None = None
 
 
-class RunMetrics(BaseModel):
+class RunMetrics(StrictModel):
     """
     SS3.5 -- six of seven ablation metrics come from machinery built for other reasons. These are those.
     """
@@ -332,7 +333,7 @@ class RunMetrics(BaseModel):
     durationMs: float | None = None
 
 
-class RunConfig(BaseModel):
+class RunConfig(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -357,7 +358,7 @@ class RunConfig(BaseModel):
     a0Truncation: TruncationPolicy | None = None
 
 
-class AgentTrace(BaseModel):
+class AgentTrace(StrictModel):
     """
     SS9.10 -- a schema'd artifact versioned with the run, designed as a product artifact rather than a log file. Consumed by the validators, the review UI's 'why this step' panel, and the ablation.
     """

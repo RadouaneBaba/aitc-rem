@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 from enum import StrEnum
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, ConfigDict, Field
+from server.models.base import StrictModel
 from . import common_schema
 from typing import Literal
 
@@ -29,7 +30,7 @@ class EvidenceKind(StrEnum):
     a11y_node = "a11y_node"
 
 
-class Evidence(BaseModel):
+class Evidence(StrictModel):
     """
     SS3.2 -- the single most important structure in the system. A claim is valid only if its literal appeared in a tool response THIS agent actually received during THIS run.
     """
@@ -49,7 +50,7 @@ class Evidence(BaseModel):
     kind: EvidenceKind = Field(..., title="EvidenceKind")
 
 
-class Precondition(BaseModel):
+class Precondition(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -62,7 +63,7 @@ class Precondition(BaseModel):
     """
 
 
-class Parameter(BaseModel):
+class Parameter(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -79,7 +80,7 @@ class SelectorStrategy(StrEnum):
     css = "css"
 
 
-class SelectorHint(BaseModel):
+class SelectorHint(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -93,7 +94,7 @@ class OmissionReason(StrEnum):
     abandoned = "abandoned"
 
 
-class OmittedSegment(BaseModel):
+class OmittedSegment(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -118,7 +119,7 @@ class SuggestionCategory(StrEnum):
     visible_branch = "visible_branch"
 
 
-class CoverageSuggestion(BaseModel):
+class CoverageSuggestion(StrictModel):
     """
     SS9.8 -- a prompt for the tester, not an artifact. Must never contaminate grounded output.
     """
@@ -149,7 +150,7 @@ class WarningSeverity(StrEnum):
     error = "error"
 
 
-class Warning(BaseModel):
+class Warning(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -161,7 +162,7 @@ class Warning(BaseModel):
     code: str | None = None
 
 
-class Viewport(BaseModel):
+class Viewport(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -169,7 +170,7 @@ class Viewport(BaseModel):
     h: int
 
 
-class TestCaseMetadata(BaseModel):
+class TestCaseMetadata(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -182,7 +183,7 @@ class TestCaseMetadata(BaseModel):
     ownerId: str
 
 
-class BugEnvironment(BaseModel):
+class BugEnvironment(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -191,7 +192,7 @@ class BugEnvironment(BaseModel):
     url: str
 
 
-class BugDetail(BaseModel):
+class BugDetail(StrictModel):
     """
     SS14.2 -- present only when kind is 'bug_report'. `expected` and `actual` are subject to the same evidence binding as any assertion: `actual` must quote something the agent retrieved.
     """
@@ -209,7 +210,7 @@ class BugDetail(BaseModel):
     environment: BugEnvironment = Field(..., title="BugEnvironment")
 
 
-class Assertion(BaseModel):
+class Assertion(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -227,7 +228,7 @@ class Assertion(BaseModel):
     """
 
 
-class Step(BaseModel):
+class Step(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -264,7 +265,7 @@ class Step(BaseModel):
     criticNotes: list[str] | None = None
 
 
-class TestCaseIR(BaseModel):
+class TestCaseIR(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -304,7 +305,7 @@ class TestCaseIR(BaseModel):
     bug: BugDetail | None = None
 
 
-class IRDocument(BaseModel):
+class IRDocument(StrictModel):
     """
     SS10 -- one canonical structure. Gherkin, Excel and Jira are renderers over it: no format is second-class, and a fourth output means writing a renderer, not touching the pipeline. A recording produces an array of test cases (SS9.3).
     """

@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 from typing import Any
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, ConfigDict, Field, RootModel
 from enum import StrEnum
+from server.models.base import StrictModel
 
 
 class Common(RootModel[Any]):
@@ -32,7 +33,7 @@ class FidelityFlag(StrEnum):
     network_incomplete = "network_incomplete"
 
 
-class SelectorSet(BaseModel):
+class SelectorSet(StrictModel):
     """
     Ranked, most-stable first. SS6.2. Only `css` is guaranteed present -- it is the last resort, not the preference.
     """
@@ -82,7 +83,7 @@ class Confidence(StrEnum):
     low = "low"
 
 
-class OwnershipFields(BaseModel):
+class OwnershipFields(StrictModel):
     """
     SS16 -- carried from day one so multi-user needs no migration. Unused locally.
     """

@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 from enum import StrEnum
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, ConfigDict, Field
+from server.models.base import StrictModel
 from . import common_schema
 from typing import Literal
 
@@ -23,7 +24,7 @@ class BoundaryReason(StrEnum):
     hard_cap = "hard_cap"
 
 
-class Segment(BaseModel):
+class Segment(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -55,7 +56,7 @@ class Segment(BaseModel):
     role: common_schema.SegmentRole | None = None
 
 
-class SegmentsDocument(BaseModel):
+class SegmentsDocument(StrictModel):
     """
     SS9.2 -- output of the deterministic segmenter. The same recording always produces the same segment count, which is what makes the audit trail meaningful and merge/split in the review UI predictable.
     """

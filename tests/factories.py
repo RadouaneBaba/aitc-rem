@@ -17,13 +17,18 @@ from server.models import (
     Assertion,
     CapturedEvent,
     ConsoleEntry,
+    CoverageSuggestion,
     DiffNode,
     EventTarget,
     Evidence,
     IRDocument,
     NetworkCall,
+    OmittedSegment,
+    Parameter,
+    Precondition,
     Recording,
     RecordingMetadata,
+    SelectorHint,
     SelectorSet,
     SemanticNode,
     SemanticSnapshot,
@@ -211,6 +216,10 @@ def test_case(
     steps: list[Step] | None = None,
     recording_id: str = "rec_test01",
     run_id: str = "run_test01",
+    preconditions: list[Precondition] | None = None,
+    parameters: list[Parameter] | None = None,
+    omitted: list[OmittedSegment] | None = None,
+    tags: list[str] | None = None,
     **kw: Any,
 ) -> TestCaseIR:
     return TestCaseIR(
@@ -220,11 +229,11 @@ def test_case(
         kind="test_case",
         title="Submitting a valid order shows the confirmation",
         description="Recorded checkout flow.",
-        preconditions=[],
-        tags=[],
+        preconditions=preconditions or [],
+        tags=tags or [],
         steps=steps if steps is not None else [step()],
-        parameters=[],
-        omitted=[],
+        parameters=parameters or [],
+        omitted=omitted or [],
         metadata=TestCaseMetadata(
             capturedAt=NOW,
             durationMs=1000.0,
@@ -273,3 +282,45 @@ def annotation(
 
 def diff_node(ref: str, role: str, name: str) -> DiffNode:
     return DiffNode(ref=ref, role=role, name=name)
+
+
+def precondition(
+    ident: str = "pre_001",
+    text: str = "the tester is signed in",
+    event_ids: list[str] | None = None,
+) -> Precondition:
+    return Precondition(id=ident, text=text, eventIds=event_ids or [])
+
+
+def selector_hint(
+    strategy: str = "css", value: str = "button.submit", stability: str = "medium"
+) -> SelectorHint:
+    return SelectorHint(strategy=strategy, value=value, stability=stability)
+
+
+def parameter(
+    name: str = "user_email_1", placeholder: str = "<<user_email_1>>", category: str = "email"
+) -> Parameter:
+    return Parameter(name=name, placeholder=placeholder, category=category)
+
+
+def omitted_segment(
+    segment_id: str = "seg_004",
+    reason: str = "exploratory",
+    count: int = 3,
+    summary: str = "browsed the reports page, returned",
+    after_step_id: str | None = None,
+) -> OmittedSegment:
+    seg = OmittedSegment(segmentId=segment_id, reason=reason, eventCount=count, summary=summary)
+    if after_step_id:
+        seg.afterStepId = after_step_id
+    return seg
+
+
+def coverage_suggestion(
+    ident: str = "sug_001",
+    text: str = "an invalid-email path is untested",
+    category: str = "validation_path",
+    rationale: str = "the field has type=email and a validation message exists",
+) -> CoverageSuggestion:
+    return CoverageSuggestion(id=ident, text=text, rationale=rationale, category=category)

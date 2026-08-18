@@ -73,7 +73,8 @@ generate_into() {
     --field-constraints \
     --collapse-root-models \
     --formatters ruff-format \
-    --use-title-as-name
+    --use-title-as-name \
+    --base-class server.models.base.StrictModel
   rm -rf "$staged"
 
   # Field names are left in camelCase on purpose: the models are wire-format

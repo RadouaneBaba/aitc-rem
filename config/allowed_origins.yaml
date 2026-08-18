@@ -1,0 +1,20 @@
+# Origins a recording may touch before the pipeline will send it to a
+# training-eligible endpoint (SS7.3, SS9.12).
+#
+# Free-tier prompts may be used to improve the provider's products and may be
+# read by human reviewers, so only demo and public applications belong here.
+# Recording a real application means moving to a paid endpoint carrying a
+# no-training term -- which is a billing change, not a code change.
+#
+# `--allow-any-origin` downgrades the refusal to a warning, for exactly that case.
+
+allowed:
+  # The bundled fixture app.
+  - http://localhost:5173
+  - http://127.0.0.1:5173
+
+  # Public demo applications, safe to send anywhere.
+  - https://www.saucedemo.com
+  - https://the-internet.herokuapp.com
+  - https://demo.opencart.com
+  - https://opensource-demo.orangehrmlive.com
