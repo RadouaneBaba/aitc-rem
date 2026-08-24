@@ -8,6 +8,7 @@ export type ReviewEditKind =
   | "step_moved"
   | "assertion_accepted"
   | "assertion_rejected"
+  | "assertion_text"
   | "escalation_answered"
   | "case_renamed"
   | "tags_changed";

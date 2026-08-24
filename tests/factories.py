@@ -137,6 +137,8 @@ def recording(
     events: list[CapturedEvent] | None = None,
     objective: str | None = None,
     origins: list[str] | None = None,
+    annotations: list[TesterAnnotation] | None = None,
+    narration: list[Any] | None = None,
     **kw: Any,
 ) -> Recording:
     evts = events if events is not None else [event()]
@@ -156,8 +158,8 @@ def recording(
             origins=origins or ["https://demo.local"],
         ),
         events=evts,
-        narration=[],
-        annotations=[],
+        narration=narration or [],
+        annotations=annotations or [],
         parameters=[],
         **kw,
     )
@@ -285,8 +287,37 @@ def annotation(
     kind: str = "checkpoint",
     at: float = 0.0,
     text: str | None = None,
+    *,
+    role: str | None = None,
+    name: str | None = None,
+    value: str | None = None,
+    event_id: str | None = None,
 ) -> TesterAnnotation:
-    return TesterAnnotation(id=ident, kind=kind, timestamp=at, **({"text": text} if text else {}))
+    """A tester annotation (SS6.7).
+
+    Pass `role`/`name` to build the `assertion` kind's target -- the element the
+    tester pointed at and said "this is what I'm verifying".
+    """
+    target = (
+        {
+            "target": {
+                "role": role or "alert",
+                "name": name or "",
+                **({"value": value} if value else {}),
+                "selectors": {"css": ".marked"},
+            }
+        }
+        if role or name
+        else {}
+    )
+    return TesterAnnotation(
+        id=ident,
+        kind=kind,
+        timestamp=at,
+        **({"text": text} if text else {}),
+        **({"eventId": event_id} if event_id else {}),
+        **target,
+    )
 
 
 def diff_node(ref: str, role: str, name: str) -> DiffNode:

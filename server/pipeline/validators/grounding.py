@@ -270,3 +270,92 @@ def no_pruned_assertion(ctx: ValidationContext) -> Iterable[ValidatorResult]:
             ctx,
             f"no assertion rests on any of {len(pruned_events)} pruned event(s)",
         )
+
+
+def provenance_supported(ctx: ValidationContext) -> Iterable[ValidatorResult]:
+    """A claim about where a claim came from must itself be supported.
+
+    SS9.5's ladder decides which candidate is accepted, so `annotated` is worth
+    more than any other word a model can write -- and until now nothing checked
+    it. A model could label a pure inference `annotated` and it would outrank
+    every genuinely-supported candidate in the step.
+
+    `assertions.py` demotes an unsupported claim at parse time, deterministically
+    and before ranking, which is where the fix belongs. This is the net: if a
+    provenance ever reaches the IR that the recording cannot support, the
+    demotion has regressed or something wrote the IR without going through the
+    stage.
+
+    Warn rather than reject. The claim itself may be perfectly grounded -- what
+    is wrong is its rank, and rejecting a true assertion because it was
+    over-credited would cost the reader an expected result to make a point.
+    """
+    store = ctx.store
+    checked = 0
+    offences = 0
+
+    for case, step, assertion in _assertions(ctx):
+        provenance = _provenance_value(assertion)
+        if provenance in {"inferred", "confirmed"}:
+            continue
+        checked += 1
+
+        window = _step_window(ctx, step)
+        if window is None:
+            continue
+        start, end = window
+
+        if provenance == "annotated":
+            supported = bool(store.annotations(start, end, kind="assertion"))
+        elif provenance == "narrated":
+            supported = bool(store.narration(start, end))
+        elif provenance == "objective":
+            supported = bool(store.objective)
+        else:
+            supported = True
+
+        if supported:
+            continue
+
+        offences += 1
+        yield result(
+            ValidatorName.provenance_supported,
+            ValidatorStatus.warn,
+            ValidatorAction.warn,
+            ctx,
+            message=(
+                f"assertion claims provenance {provenance!r}, but the recording has nothing "
+                f"of that kind covering this step. It is an inference wearing a higher rank."
+            ),
+            test_case_id=case.id,
+            step_id=step.id,
+            assertion_id=assertion.id,
+        )
+
+    if offences:
+        return
+    if not checked:
+        yield skipped(
+            ValidatorName.provenance_supported,
+            ctx,
+            "every assertion is inferred, so there is no provenance claim to check",
+        )
+        return
+    yield passed(
+        ValidatorName.provenance_supported,
+        ctx,
+        f"{checked} assertion(s) claim more than inference, and the recording supports each",
+    )
+
+
+def _provenance_value(assertion) -> str:
+    provenance = assertion.provenance
+    return provenance.value if hasattr(provenance, "value") else str(provenance)
+
+
+def _step_window(ctx: ValidationContext, step) -> tuple[float, float] | None:
+    """The time span a step covers, plus the settle tail its outcome lands in."""
+    times = [ctx.store.event(e).timestamp for e in step.eventIds if ctx.store.has_event(e)]
+    if not times:
+        return None
+    return min(times), max(times) + 2000

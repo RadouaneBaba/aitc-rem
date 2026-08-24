@@ -47,6 +47,7 @@ async function assemble(): Promise<{ recording: Recording; screenshots: { key: s
   });
 
   attributeObservations(rows, await allObservations());
+  attributeAnnotations(events, session.annotations);
 
   const fidelitySummary: Record<string, number> = {};
   for (const e of events) {
@@ -125,6 +126,43 @@ function attributeObservations(
 
     if (obs.kind === 'network') owner.event.network.push(obs.payload as NetworkCall);
     else owner.event.console.push(obs.payload as ConsoleEntry);
+  }
+}
+
+/**
+ * Bind each annotation to the action it was about.
+ *
+ * Same reason network calls are attributed here rather than in the frame: a
+ * frame does not know when the next action starts. But the direction is the
+ * opposite one. A tester marks what they are verifying AFTER doing the thing
+ * that produced it -- they click Place order, the banner appears, then they
+ * point at the banner -- so an annotation belongs to the most recent action at
+ * or before its timestamp, and a small lead is not enough. `assertions.py`
+ * reads `CapturedEvent.annotations`, which nothing populated until now.
+ *
+ * Session-level annotations stay on the recording too: `checkpoint` and
+ * `scenario_break` are boundaries between steps rather than facts about one,
+ * and `segment.py` reads them from there.
+ */
+function attributeAnnotations(
+  events: Recording['events'],
+  annotations: Recording['annotations'],
+): void {
+  for (const event of events) delete event.annotations;
+
+  for (const annotation of annotations) {
+    // Boundaries are not about any single action.
+    if (annotation.kind === 'checkpoint' || annotation.kind === 'scenario_break') continue;
+
+    let owner: Recording['events'][number] | undefined;
+    for (const event of events) {
+      if (event.timestamp <= annotation.timestamp) owner = event;
+      else break;
+    }
+    if (!owner) owner = events[0];
+    if (!owner) continue;
+
+    owner.annotations = [...(owner.annotations ?? []), { ...annotation, eventId: owner.id }];
   }
 }
 
@@ -217,11 +255,15 @@ async function main(): Promise<void> {
           : '');
     } catch (error) {
       // A tester who pressed Send and got silence cannot tell a stopped server
-      // from a slow one.
+      // from a slow one. SS13 says they never touch a terminal, so the message
+      // must not hand them a command to run -- it tells them what is true and
+      // what they can do from here, and the command lives in the developer
+      // runbook where somebody who can act on it will find it.
       $('sent').innerHTML =
-        `<span class="bad">Could not reach ${base}.</span> Start it with ` +
-        `<code>python -m server.cli serve</code>, or save the file below instead. ` +
-        `(${(error as Error).message})`;
+        `<span class="bad">Nothing is listening at ${base}.</span> The review ` +
+        `server is not running &mdash; whoever set this up needs to start it. ` +
+        `Your recording is safe: save it below and send it once the server is ` +
+        `up. <span class="muted">(${(error as Error).message})</span>`;
     } finally {
       button.disabled = false;
     }

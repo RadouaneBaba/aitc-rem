@@ -19,7 +19,7 @@ from that.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from server.config import ProjectConfig
 from server.evidence.store import EvidenceStore
@@ -33,8 +33,13 @@ from server.models import (
     Segment,
     SegmentRole,
     StepInvestigation,
+    StopReason,
 )
 from server.pipeline.investigate import DEFAULT_BUDGET, investigate
+
+#: An outcome lands after the action that caused it, so a window that stops at
+#: the last event misses the annotation describing what the tester saw.
+SETTLE_TAIL_MS = 2000
 
 #: How the step sentence is framed, per the project's configured voice.
 _VOICE_RULE = {
@@ -60,14 +65,39 @@ Write ONE sentence describing what the tester was trying to DO. Rules:
   "<<user_email_1>>" with "<<password>>"' tells them what to supply.
 * ONE sentence, one intent. A segment often holds several actions; describe
   what they add up to, not each one in turn. If your sentence needs more than
-  one "and", or a comma-separated list of things the tester did, it is
-  describing too much -- name the goal instead and quote only the values a
-  reader needs to reproduce it. "Submits the order with manager approval" beats
-  "enters a purchase order, sets the total, ticks approval and submits".
+  one "and", or a comma-separated list, it is describing too much.
+* NEVER gloss what a value is for. "with \"PO-4471\" as the purchase order
+  number, \"615\" as the order total, and manager approval" is a form being
+  filled in, read out field by field. It is not an intent, and no step
+  definition will ever match it.
+  Name the goal and quote at most the one or two values that identify THIS
+  case. Every example below still opens with the subject, because every step
+  does:
+      GOOD  {voice} submits the order with manager approval
+      GOOD  {voice} submits an order totalling "615" with manager approval
+      BAD   {voice} enters a purchase order, sets the total, ticks approval and
+            submits
+      BAD   {voice} submits the order with "PO-4471" as the purchase order
+            number and "615" as the order total
+      BAD   submits the order with manager approval   (no subject at all)
+  Sign-in is the exception that proves the rule: two placeholders, no gloss --
+  'signs in as "<<user_email_1>>" with "<<password>>"'.
 * You are shown the step before this one. Do not restate it. If this step
   genuinely repeats an earlier action, say so -- "places the order again".
 * Never state application state the evidence does not show.
-* If a step-library match exists, reuse its wording verbatim.
+* If a request in this step was REJECTED, do not describe the action as
+  completed. The tester tried; the application refused, and that refusal is
+  very often the thing the test exists to check.
+      GOOD  {voice} submits an order over the approval threshold
+      GOOD  {voice} tries to place an order totalling "900"
+      BAD   {voice} places an order totalling "900"   (the server returned 409)
+* SEARCH BEFORE YOU INVENT. Call `search_step_library` with the sentence you
+  were about to write. If a match comes back with `reuse: true`, copy its
+  `text` EXACTLY, character for character, and put its `id` in `libraryRef`.
+  That is what stops one action being called three things across a suite, and
+  it is the main reason a generated suite becomes unmaintainable.
+  A match with `reuse: false` is similar but says something different -- read
+  it, then write your own sentence and leave `libraryRef` out.
 
 You have tools that query the recording. Use them when, and only when, you
 cannot tell what happened from the evidence you already have. A step with an
@@ -86,7 +116,8 @@ When you are ready to answer, call no tools and reply with ONLY this JSON:
   "text": "the tester submits the order form",
   "confidence": "high" | "medium" | "low",
   "reason": "why confidence is not high (omit when high)",
-  "escalation": "a specific question for the human (only if you genuinely cannot tell)"
+  "escalation": "a specific question for the human (only if you genuinely cannot tell)",
+  "libraryRef": "lib_... (ONLY when text is copied exactly from a library match)"
 }}
 
 About "role" -- what this step is doing in the test:
@@ -109,9 +140,83 @@ asks is more useful than one that invents."""
 
 
 def system_prompt(config: ProjectConfig) -> str:
-    """The naming instructions, in this project's voice."""
+    """The naming instructions, in this project's voice.
+
+    The worked examples are rendered in the project's voice too, not left
+    generic. Written without a subject once, they taught the model to drop it:
+    a real run came back "submits an order totalling \"615\"" with nobody
+    doing the submitting. Examples outweigh rules, so the examples have to be
+    right.
+    """
     rule = _VOICE_RULE[config.first_person].format(voice=config.voice)
-    return SYSTEM_PROMPT.format(voice_rule=rule)
+    return SYSTEM_PROMPT.format(voice_rule=rule, voice=config.voice)
+
+
+def split_named(naming: NamingResult, splits: list) -> tuple[NamingResult, set[str]]:
+    """Cut named steps the way composition asked, before assertions are redone.
+
+    The IR-level `apply_splits` happens later and does the same cut; this one
+    exists so the assertion stage has the two halves as real steps to reason
+    about. A step created by a split is not the step this pipeline proposed
+    expected results for, and inheriting them is how the retry ended up with no
+    expected result at all -- while "Order confirmed", the outcome the whole
+    test exists to reach, went unmentioned.
+    """
+    if not splits:
+        return naming, set()
+
+    by_step = {getattr(sp, "step_id", ""): sp for sp in splits}
+    out = NamingResult(model_calls=naming.model_calls)
+    touched: set[str] = set()
+
+    for named in naming.steps:
+        split = by_step.get(named.step_id)
+        after = getattr(split, "after_event_id", None)
+        cut = named.event_ids.index(after) + 1 if after in named.event_ids else 0
+        if split is None or not (0 < cut < len(named.event_ids)):
+            out.steps.append(named)
+            continue
+
+        first, second = getattr(split, "texts", ("", ""))
+        head = replace(
+            named,
+            text=first or named.text,
+            event_ids=named.event_ids[:cut],
+            assertions=[],
+        )
+        tail = replace(
+            named,
+            step_id=f"{named.step_id}b",
+            text=second or named.text,
+            event_ids=named.event_ids[cut:],
+            assertions=[],
+        )
+        out.steps.extend([head, tail])
+        touched.update({head.step_id, tail.step_id})
+
+    return out, touched
+
+
+def with_subject(text: str, config: ProjectConfig) -> str:
+    """Make sure the step says who is doing it.
+
+    A step is a sentence about a person. Dropped, it reads as an instruction to
+    the reader and matches no step definition -- and it happens: a prompt edit
+    whose worked examples omitted the subject produced "submits an order
+    totalling \"615\"" with nobody submitting anything.
+
+    Deterministic rather than another prompt line, because the prompt already
+    says it twice and said it while the examples showed the opposite. Left
+    alone if any plausible subject is already there, so a step naming a
+    different actor -- "the approver releases the order" -- is not rewritten
+    into nonsense.
+    """
+    if config.first_person:
+        return text
+    lowered = text.lower()
+    if lowered.startswith(config.voice.lower()) or lowered.startswith(("the ", "an ", "a ")):
+        return text
+    return f"{config.voice} {text[0].lower() + text[1:]}"
 
 
 @dataclass
@@ -199,6 +304,7 @@ def name_segments(
     config = config or ProjectConfig()
     result = NamingResult()
     previous: str | None = None
+    dictated = intent_notes(store)
 
     for index, segment in enumerate(store.segments.segments):
         step_id = f"step_{index + 1:03d}"
@@ -214,11 +320,87 @@ def name_segments(
             temperature=temperature,
             config=config,
             previous=previous,
+            note=dictated.get(segment.id),
             sink=result.model_calls,
         )
         result.steps.append(named)
         previous = named.text
     return result
+
+
+def intent_notes(store: EvidenceStore) -> dict[str, str]:
+    """Map each segment to the note the tester typed for it, if any (SS6.7).
+
+    Attribution needs every segment in view, so it happens here rather than
+    inside `_name_one` -- the same reason network calls are attributed at
+    assembly rather than in the frame.
+
+    A note names the step that starts NEXT. Typing one means stopping, opening
+    the popup and describing something, which a tester does before doing the
+    thing, and the timestamps say so: in the annotated fixture the note lands
+    between the sign-in click and the add-to-cart click, and it describes adding
+    to the cart. Falling back to the segment containing it covers the tester who
+    narrates after the fact instead.
+    """
+    notes = [
+        n for n in store.annotations(0, float("inf"), kind="intent_note") if (n.text or "").strip()
+    ]
+    if not notes or store.segments is None:
+        return {}
+
+    spans: list[tuple[float, float, str]] = []
+    for segment in store.segments.segments:
+        events = [store.event(e) for e in segment.eventIds if store.has_event(e)]
+        if events:
+            spans.append((events[0].timestamp, events[-1].timestamp + SETTLE_TAIL_MS, segment.id))
+    spans.sort()
+
+    out: dict[str, str] = {}
+    for note in notes:
+        upcoming = next((sid for start, _end, sid in spans if start >= note.timestamp), None)
+        containing = next(
+            (sid for start, end, sid in spans if start <= note.timestamp <= end), None
+        )
+        target = upcoming or containing
+        # First note wins: a tester who typed twice for one step meant the first
+        # description, and silently concatenating them would produce a sentence
+        # neither of them wrote.
+        if target and target not in out:
+            out[target] = note.text.strip()
+    return out
+
+
+def _dictated_step(segment: Segment, step_id: str, note: str) -> NamedStep:
+    """SS6.7 -- an intent note becomes the step name VERBATIM.
+
+    The popup says so to the tester's face ("It will be used word for word")
+    and nothing on this side read the annotation, so the promise was never kept
+    and a tester who took the trouble to type a step name watched the tool
+    rewrite it anyway. That is worse than not offering the feature at all.
+
+    Verbatim is enforced by not calling a model, rather than by asking one not
+    to paraphrase. It also costs no quota, which is the small consolation for a
+    step the tester had to describe themselves.
+    """
+    return NamedStep(
+        segment_id=segment.id,
+        step_id=step_id,
+        role=_role(None),
+        text=note,
+        # The tester wrote it. Nothing about it is uncertain.
+        confidence=Confidence.high,
+        event_ids=list(segment.eventIds),
+        investigation=StepInvestigation(
+            id=f"inv_{step_id}",
+            stage=PipelineStage.name,
+            initialUncertainty=[],
+            toolCallIds=[],
+            budgetUsed=0,
+            budgetMax=0,
+            stopReason=StopReason.no_investigation_needed,
+            narrative=["the tester named this step themselves; used word for word (SS6.7)"],
+        ),
+    )
 
 
 def _name_one(
@@ -234,8 +416,12 @@ def _name_one(
     temperature: float,
     config: ProjectConfig,
     previous: str | None,
+    note: str | None,
     sink: list[ModelCall],
 ) -> NamedStep:
+    if note is not None:
+        return _dictated_step(segment, step_id, note)
+
     enquiry = investigate(
         runner,
         model,
@@ -264,6 +450,8 @@ def _name_one(
         text = f"{config.voice} performs an action ({segment.label})"
         confidence = Confidence.low
         answer.setdefault("reason", "the model returned no usable step text")
+    else:
+        text = with_subject(text, config)
 
     investigation = enquiry.record(
         investigation_id=f"inv_{step_id.split('_')[-1]}",
@@ -285,7 +473,24 @@ def _name_one(
         investigation=investigation,
         escalation=escalation,
         reason=str(answer["reason"]) if answer.get("reason") else None,
+        library_ref=_library_ref(runner, answer.get("libraryRef"), text),
     )
+
+
+def _library_ref(runner: ToolRunner, claimed, text: str) -> str | None:
+    """Honour a reuse claim only when the text really is the entry (SS12.2).
+
+    A model that copies approved wording *almost* exactly and still claims reuse
+    would reintroduce the step explosion the library exists to prevent -- with a
+    `libraryRef` on it saying the opposite. `library_verbatim` rejects that at
+    the gate; this refuses to record it in the first place, so the common case
+    never becomes a rejection a human has to read.
+    """
+    library = getattr(runner, "library", None)
+    if library is None or not str(claimed or "").strip():
+        return None
+    entry = library.exact(text)
+    return entry.id if entry is not None else None
 
 
 # --------------------------------------------------------------------------
@@ -356,7 +561,14 @@ def _baseline(store: EvidenceStore, segment: Segment, *, previous: str | None = 
     if calls:
         for call in calls[:8]:
             status = call.status if call.status is not None else "no response"
-            lines.append(f"  {call.method} {call.url} -> {status}")
+            # Say plainly when the server refused. "-> 409" is a number a model
+            # can skim past, and one that did: a step went out saying "places an
+            # order" for a submission the server rejected, which `mutation_claimed`
+            # then correctly failed for claiming a change that never happened.
+            verdict = ""
+            if isinstance(call.status, int):
+                verdict = "  <-- REJECTED" if call.status >= 400 else ""
+            lines.append(f"  {call.method} {call.url} -> {status}{verdict}")
     else:
         lines.append("  (no requests)")
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from server.llm.client import ModelClient
 from server.models import AblationConfig, Recording
@@ -46,7 +47,25 @@ class ConfigMetrics:
     tool_calls_per_step: float = 0.0
     #: Steps whose tool-call count differs from the run's mean. A chain is flat
     #: here by construction, so any spread at all separates the architectures.
+    #:
+    #: Counts INVESTIGATION only. `tool_calls_per_step` above is total cost and
+    #: includes the search-before-invent call SS12.2 mandates on every step;
+    #: this excludes it, because a call the process requires regardless of
+    #: difficulty is a constant, and adding a constant to every reading makes an
+    #: adaptive agent look like a chain. See `run._calls_per_step`.
     effort_spread: float = 0.0
+    #: SS3.5's missing column. Grounding proves a claim points at a retrieval;
+    #: it says nothing about whether the test would run. Counted only over cases
+    #: a replay actually attempted -- "could not run" is not evidence.
+    replayed: int = 0
+    replays_passed: int = 0
+    #: Accepted assertions that were re-checked in a browser, and how many still
+    #: held. `execution_rate` on its own is vacuous in exactly the way
+    #: `grounding_rate` is -- a test case that asserts nothing cannot have an
+    #: assertion fail -- so the two are always read together.
+    replay_assertions: int = 0
+    replay_assertions_held: int = 0
+    selector_rank_total: float = 0.0
     uncached_model_calls: int = 0
     prompt_tokens: int = 0
     duration_ms: float = 0.0
@@ -61,6 +80,35 @@ class ConfigMetrics:
         grounds everything. `grounded_yield` is what separates them.
         """
         return self.grounded / self.assertions if self.assertions else 1.0
+
+    @property
+    def execution_rate(self) -> float:
+        """Share of replayed test cases that ran green.
+
+        Read beside `grounding_rate`, not instead of it: a configuration that
+        asserts nothing executes perfectly, for the same reason it grounds
+        perfectly.
+        """
+        return self.replays_passed / self.replayed if self.replayed else 0.0
+
+    @property
+    def assertions_held_rate(self) -> float:
+        """Of the accepted expected results a browser could re-check, how many
+        were still true. This is the column that separates a test case that
+        works from one that merely has nothing to say."""
+        return (
+            self.replay_assertions_held / self.replay_assertions if self.replay_assertions else 0.0
+        )
+
+    @property
+    def mean_selector_rank(self) -> float:
+        """How far down the fallback chain a replay had to go, on average.
+
+        0 means the most stable selector always worked. The demo app has no
+        `data-testid` anywhere, so this measures the role+name path that is the
+        normal case for an application nobody built for testing.
+        """
+        return self.selector_rank_total / self.replayed if self.replayed else 0.0
 
     @property
     def grounded_yield(self) -> float:
@@ -87,6 +135,11 @@ class ConfigMetrics:
             "toolCalls": self.tool_calls,
             "toolCallsPerStep": round(self.tool_calls_per_step, 3),
             "effortSpread": round(self.effort_spread, 3),
+            "replayed": self.replayed,
+            "executionRate": round(self.execution_rate, 4),
+            "replayAssertions": self.replay_assertions,
+            "assertionsHeldRate": round(self.assertions_held_rate, 4),
+            "meanSelectorRank": round(self.mean_selector_rank, 3),
             "uncachedModelCalls": self.uncached_model_calls,
             "promptTokens": self.prompt_tokens,
             "durationMs": round(self.duration_ms, 1),
@@ -113,6 +166,9 @@ class AblationReport:
             ("validatorFirstPassRate", "Valid1st", 9),
             ("toolCallsPerStep", "Calls/step", 11),
             ("effortSpread", "Spread", 7),
+            ("executionRate", "Executes", 9),
+            ("replayAssertions", "Rechecked", 10),
+            ("assertionsHeldRate", "Held", 6),
             ("promptTokens", "PromptTok", 10),
         ]
         header = "  ".join(title.rjust(width) for _, title, width in columns)
@@ -168,8 +224,16 @@ def run_ablation(
     configs: list[AblationConfig] | None = None,
     budget: int = 8,
     run_prefix: str = "abl",
+    replay: bool = False,
+    replay_parameters: dict[str, str] | None = None,
 ) -> AblationReport:
-    """Run every configuration over every recording."""
+    """Run every configuration over every recording.
+
+    `replay` additionally drives each generated test case against the demo app
+    and fills the `Executes` column. Off by default: it needs the application
+    running, and an ablation that silently depends on a live server is one
+    nobody else can reproduce.
+    """
     report = AblationReport()
 
     for config in configs or CONFIGS:
@@ -189,6 +253,8 @@ def run_ablation(
                 run_id=f"{run_prefix}_{config.value}_{recording.id}",
                 options=options,
             )
+            if replay:
+                _replay(metrics, result, recording, replay_parameters or {})
             _accumulate(metrics, result)
             report.runs.append(
                 {
@@ -231,6 +297,40 @@ def _accumulate(metrics: ConfigMetrics, result: PipelineResult) -> None:
         mean = sum(per_step) / len(per_step)
         spread = (sum((v - mean) ** 2 for v in per_step) / len(per_step)) ** 0.5
         metrics.effort_spread += (spread - metrics.effort_spread) / n
+
+
+def _replay(
+    metrics: ConfigMetrics,
+    result: Any,
+    recording: Recording,
+    parameters: dict[str, str],
+) -> None:
+    """Fill SS3.5's correctness column for one run.
+
+    A blocked replay -- no application listening, a parameter nobody supplied --
+    is not counted at all. It is an absence of evidence about the test case, and
+    scoring it as a failure would make the column measure the harness.
+    """
+    from server.runners import replay_all
+
+    try:
+        outcomes = replay_all(
+            result.ir,
+            recording=recording,
+            out_dir=result.run.root,
+            parameters=parameters,
+        )
+    except Exception:  # noqa: BLE001 - a broken replay must not lose the run
+        return
+
+    for outcome in outcomes:
+        if outcome.blocked or not outcome.ran:
+            continue
+        metrics.replayed += 1
+        metrics.replays_passed += 1 if outcome.passed else 0
+        metrics.replay_assertions += outcome.assertions_checked
+        metrics.replay_assertions_held += outcome.assertions_held
+        metrics.selector_rank_total += outcome.mean_selector_rank
 
 
 def write_report(report: AblationReport, path: Path) -> Path:

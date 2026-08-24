@@ -24,6 +24,7 @@ export function StepDetail({
   onEdit,
   onDelete,
   onAssertion,
+  onRewordAssertion,
   onAnswer,
 }: {
   step: Step;
@@ -31,6 +32,7 @@ export function StepDetail({
   onEdit: (text: string) => void;
   onDelete: () => void;
   onAssertion: (id: string, accepted: boolean) => void;
+  onRewordAssertion: (id: string, text: string) => void;
   onAnswer: (answer: string) => void;
 }) {
   const [draft, setDraft] = useState(step.text);
@@ -76,6 +78,7 @@ export function StepDetail({
               assertion={assertion}
               busy={busy}
               onToggle={(accepted) => onAssertion(assertion.id, accepted)}
+              onReword={(text) => onRewordAssertion(assertion.id, text)}
             />
           ))}
         </ul>
@@ -101,11 +104,26 @@ function Candidate({
   assertion,
   busy,
   onToggle,
+  onReword,
 }: {
   assertion: Assertion;
   busy: boolean;
   onToggle: (accepted: boolean) => void;
+  onReword: (text: string) => void;
 }) {
+  // Most steps get exactly one candidate, which is the right answer -- inventing
+  // a second for a step with one obvious outcome manufactures the weak claim the
+  // ranking exists to demote. But it leaves one checkbox, and rejecting it
+  // leaves the step with no expected result at all. So the sentence is editable.
+  // The literal below it is not: rewording is the reviewer's, grounding is not.
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const commit = () => {
+    const next = (draft ?? '').trim();
+    setDraft(null);
+    if (next && next !== assertion.text) onReword(next);
+  };
+
   return (
     <li className={assertion.accepted ? 'accepted' : ''}>
       <label>
@@ -115,7 +133,28 @@ function Candidate({
           disabled={busy}
           onChange={(e) => onToggle(e.target.checked)}
         />
-        <span className="text">{assertion.text}</span>
+        {draft === null ? (
+          <span
+            className="text"
+            title="click to reword — the evidence below stays as it is"
+            onClick={() => setDraft(assertion.text)}
+          >
+            {assertion.text}
+          </span>
+        ) : (
+          <input
+            className="text-edit"
+            autoFocus
+            value={draft}
+            disabled={busy}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit();
+              if (e.key === 'Escape') setDraft(null);
+            }}
+          />
+        )}
       </label>
       <div className="meta">
         <span

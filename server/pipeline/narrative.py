@@ -175,6 +175,78 @@ def apply_merges(
     return out
 
 
+def apply_splits(steps: list[Step], splits: list) -> list[Step]:
+    """Cut a step the segmenter joined but that holds two attempts (SS9.3).
+
+    The counterpart to `apply_merges`, and needed for a reason the merge side
+    cannot cover: `segment.py` deliberately does not end a step on a rejected
+    request, because a rejection usually means a typo being corrected rather
+    than a second attempt. When the rejection is what the test is ABOUT, that
+    rule produces a step which contradicts its own expected result -- granting
+    approval and then expecting to be told approval is required. Every literal
+    in it is true; the test case is still wrong, and only a replay caught it.
+
+    Assertions are not reassigned by hand: each follows its own
+    `evidence.eventId` into whichever half actually produced it. That is the
+    whole trick. The claim about the rejection stays with the attempt that was
+    rejected, because that is where its evidence is, and nothing has to guess.
+    """
+    if not splits:
+        return list(steps)
+
+    by_step = {getattr(sp, "step_id", ""): sp for sp in splits}
+    out: list[Step] = []
+
+    for step in steps:
+        split = by_step.get(step.id)
+        after = getattr(split, "after_event_id", None)
+        # `.index()` would raise on an event this step does not have. The
+        # compose parser filters those out, but this is a public function and a
+        # caller with a stale step id should get "no split", not a crash that
+        # loses the run.
+        cut = step.eventIds.index(after) + 1 if after in step.eventIds else 0
+        if split is None or not (0 < cut < len(step.eventIds)):
+            out.append(step)
+            continue
+
+        head_ids = step.eventIds[:cut]
+        tail_ids = step.eventIds[cut:]
+
+        head = step.model_copy(deep=True)
+        head.eventIds = head_ids
+        tail = step.model_copy(deep=True)
+        tail.id = f"{step.id}b"
+        tail.eventIds = tail_ids
+
+        first, second = getattr(split, "texts", ("", ""))
+        if first:
+            head.text = first
+        if second:
+            tail.text = second
+
+        head.assertions, tail.assertions = _partition_assertions(step, head_ids, tail_ids)
+        out.extend([head, tail])
+
+    return out
+
+
+def _partition_assertions(
+    step: Step, head_ids: list[str], tail_ids: list[str]
+) -> tuple[list[Assertion], list[Assertion]]:
+    """Send each assertion to the half its evidence came from.
+
+    An assertion whose `eventId` is in neither half -- which should not happen,
+    but a model can write anything -- stays with the first, where it was before.
+    Losing a grounded claim to a bookkeeping edge case would be the worse error.
+    """
+    head: list[Assertion] = []
+    tail: list[Assertion] = []
+    for assertion in step.assertions:
+        event_id = assertion.evidence.eventId
+        (tail if event_id in tail_ids and event_id not in head_ids else head).append(assertion)
+    return head, tail
+
+
 def merge_repeats(steps: list[Step]) -> list[Step]:
     """Collapse adjacent steps that say the same thing.
 
@@ -218,7 +290,13 @@ def _lay_out(steps: list[Step]) -> list[Line]:
         # follows it -- but rendering that as `Given` after a `Then` produces
         # Given/When/Then in an order no one writes, and reads as the scenario
         # restarting mid-way.
-        if keyword == GIVEN and acting:
+        #
+        # The second clause is the same rule seen from the other side: a step
+        # that produced something worth checking is not a precondition. A real
+        # run rendered `Given the tester signs in ...` immediately followed by
+        # `Then the user is redirected ...`, which asserts during the setup and
+        # before any `When`. If it is worth a `Then`, it is a `When`.
+        if keyword == GIVEN and (acting or _asserts(step)):
             keyword = WHEN
         elif keyword != GIVEN:
             acting = True
@@ -282,6 +360,15 @@ def keyword_for_role(role: SegmentRole | None) -> str:
     silently lost. Until that lands they read as ordinary steps.
     """
     return GIVEN if role == SegmentRole.setup else WHEN
+
+
+def _asserts(step: Step) -> bool:
+    """Does this step carry an expected result the reader will actually see?
+
+    Rejected candidates do not count: an assertion nobody accepted renders
+    nothing, so it cannot make the step read as the thing under test.
+    """
+    return any(a.accepted for a in step.assertions)
 
 
 def _base_keyword(step: Step) -> str:
@@ -352,6 +439,7 @@ __all__ = [
     "Line",
     "Narrative",
     "apply_merges",
+    "apply_splits",
     "build_narrative",
     "keyword_for_role",
     "sync_keywords",

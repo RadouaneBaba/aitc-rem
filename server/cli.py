@@ -15,7 +15,9 @@ import sys
 from pathlib import Path
 
 from server.ablation import run_ablation, write_report
+from server.api.review import new_review
 from server.config import load_allowed_origins, load_project_config
+from server.library import StepLibrary, library_path
 from server.llm.cassette import CassetteClient
 from server.llm.chain import BudgetGuard, FallbackChain, RateLimiter, RetryingClient
 from server.llm.client import ModelClient
@@ -67,13 +69,24 @@ def load_recording(path: Path) -> Recording:
     return Recording.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
 
-def check_origins(recording: Recording, *, allow: bool) -> None:
+def check_origins(recording: Recording, *, allow: bool, policy: str = "warn") -> None:
     """The pre-send gate (SS7.3, SS9.12).
 
-    Free-tier prompts are eligible for training and human review, so a
-    recording of a real application must not be sent to one. The allowlist
-    makes that a mechanical check rather than a note in a document.
+    What this guards is a property of the *tier*, not of the provider: free-tier
+    prompts are eligible for training and readable by human reviewers, so a
+    recording of a real application should not go to one. On a paid endpoint
+    carrying a no-training term the question does not arise at all.
+
+    That is why the strength is configurable, and why `warn` is the default.
+    Refusing was the wrong shape of gate twice over: the API path in
+    `server/api/app.py` has always reported rather than refused, so the two
+    entry points disagreed about the same recording; and a tester deliberately
+    pointing this at a real site is not doing anything wrong. They need to know
+    what it costs, not to be stopped. `allowlist` restores the refusal.
     """
+    if policy == "off":
+        return
+
     allowed = load_allowed_origins()
     unknown = [o for o in recording.metadata.origins if o not in allowed]
     if not unknown:
@@ -83,10 +96,10 @@ def check_origins(recording: Recording, *, allow: bool) -> None:
         f"This recording touches origins that are not on the allowlist: {', '.join(unknown)}.\n"
         f"Free-tier prompts may be used for training and read by human reviewers, so only\n"
         f"demo and public applications belong there. Add the origin to\n"
-        f"config/allowed_origins.yaml, or pass --allow-any-origin if this endpoint carries a\n"
-        f"no-training term."
+        f"config/allowed_origins.yaml, set origin_policy in config/project.yaml, or use a\n"
+        f"paid endpoint carrying a no-training term."
     )
-    if allow:
+    if allow or policy == "warn":
         print(f"WARNING: {message}\n", file=sys.stderr)
         return
     raise SystemExit(f"refusing to send.\n\n{message}")
@@ -94,22 +107,30 @@ def check_origins(recording: Recording, *, allow: bool) -> None:
 
 def cmd_run(args: argparse.Namespace) -> int:
     recording = load_recording(Path(args.recording))
-    check_origins(recording, allow=args.allow_any_origin)
+    # House style is project configuration, not a pipeline argument (SS9.12's
+    # posture applied to output): it changes how the artifact reads and never
+    # what it claims. Loaded before the gate because the gate's strength is one
+    # of its settings.
+    project = load_project_config()
+    check_origins(recording, allow=args.allow_any_origin, policy=project.origin_policy)
 
     storage = Storage()
     model = build_model(model=args.model, offline=args.offline, rpm=args.rpm)
-    # House style is project configuration, not a pipeline argument (SS9.12's
-    # posture applied to output): it changes how the artifact reads and never
-    # what it claims.
-    project = load_project_config()
     options = PipelineOptions.for_config(
         AblationConfig(args.config),
         model_name=args.model,
         budget=args.budget,
         project=project,
+        library=StepLibrary(library_path()),
     )
 
     result = run_pipeline(recording, model, storage=storage, run_id=args.run_id, options=options)
+
+    # An empty review, so this run's effort data has something to join against
+    # (SS3.4). "Never reviewed" and "reviewed and nobody changed anything" are
+    # different facts, and an absent file conflates them -- the second is the
+    # untouched half of the correlation and is the more common half.
+    storage.save_artifact(result.run, "review", new_review(result.ir))
 
     print(f"Recording:      {recording.id}  ({len(recording.events)} events)")
     print(f"Run:            {result.run.root}")
@@ -144,8 +165,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_ablate(args: argparse.Namespace) -> int:
     recordings = [load_recording(Path(p)) for p in args.recordings]
+    policy = load_project_config().origin_policy
     for recording in recordings:
-        check_origins(recording, allow=args.allow_any_origin)
+        check_origins(recording, allow=args.allow_any_origin, policy=policy)
 
     storage = Storage()
     # SS9.12 -- the ablation pins one provider and one model and disables
@@ -153,7 +175,13 @@ def cmd_ablate(args: argparse.Namespace) -> int:
     model = build_model(model=args.model, offline=args.offline, fallback=False, rpm=args.rpm)
 
     report = run_ablation(
-        recordings, model, storage=storage, model_name=args.model, budget=args.budget
+        recordings,
+        model,
+        storage=storage,
+        model_name=args.model,
+        budget=args.budget,
+        replay=args.replay,
+        replay_parameters=_replay_parameters(args.replay_param),
     )
     print(report.table())
     print()
@@ -162,6 +190,57 @@ def cmd_ablate(args: argparse.Namespace) -> int:
     out = Path(args.out)
     write_report(report, out)
     print(f"\nWritten to {out}")
+    return 0
+
+
+def _replay_parameters(pairs: list[str]) -> dict[str, str]:
+    """SS7.2's placeholders, supplied for a replay.
+
+    A generated test case genuinely needs them: `<<password>>` is a parameter,
+    and a replay that cannot fill it is blocked rather than failed.
+    """
+    out: dict[str, str] = {}
+    for pair in pairs:
+        name, _, value = pair.partition("=")
+        if name.strip():
+            out[name.strip().strip("<>")] = value
+    return out
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Bring a Chrome DevTools Recorder export in as a recording.
+
+    Worth being explicit about what it costs: a DevTools recording carries no
+    network calls, no console and no DOM snapshots, so a whole class of
+    assertion becomes inadmissible. That is SS3.2 working, not a bug, and the
+    run will say so rather than quietly producing fewer expected results.
+    """
+    from server.importers import import_devtools
+
+    document = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    recording = import_devtools(document, recording_id=args.recording_id)
+
+    storage = Storage()
+    path = storage.save_recording_json(
+        recording.id, json.loads(recording.model_dump_json(exclude_none=True))
+    )
+    print(f"Imported:  {recording.id}  ({len(recording.events)} events)")
+    print(f"Written:   {path}")
+    if recording.parameters:
+        names = ", ".join(p.placeholder for p in recording.parameters)
+        print(f"Redacted:  {names}")
+    print()
+    print(
+        "No network, console or DOM snapshots came with it, so expect fewer expected\n"
+        "results than a session recorded with the extension: there is nothing for a\n"
+        "claim to cite, so none is made.\n\n"
+        "Chrome's Recorder does not redact, so values were redacted HERE rather than in\n"
+        "the browser. That is best-effort and pattern-based -- there is no DOM to ask\n"
+        "whether a field was a password, only its label. Read the file before sending it\n"
+        "anywhere.\n\n"
+        "Run it with:\n"
+        f"    python -m server.cli run {path}"
+    )
     return 0
 
 
@@ -179,13 +258,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
     storage = Storage()
     project = load_project_config()
     options = PipelineOptions.for_config(
-        AblationConfig(args.config), model_name=args.model, budget=args.budget, project=project
+        AblationConfig(args.config),
+        model_name=args.model,
+        budget=args.budget,
+        project=project,
+        library=StepLibrary(library_path()),
     )
     app = create_app(
         storage=storage,
-        model_factory=lambda: build_model(
-            model=args.model, offline=args.offline, rpm=args.rpm
-        ),
+        model_factory=lambda: build_model(model=args.model, offline=args.offline, rpm=args.rpm),
         options=options,
         config=project,
     )
@@ -222,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     common.add_argument(
         "--allow-any-origin",
         action="store_true",
-        help="send even when an origin is not on the allowlist (paid, no-training endpoints)",
+        help="send even when an origin is not on the allowlist; overrides origin_policy",
     )
 
     run = sub.add_parser("run", parents=[common], help="run the pipeline over one recording")
@@ -239,11 +320,26 @@ def main(argv: list[str] | None = None) -> int:
     ablate = sub.add_parser("ablate", parents=[common], help="run A0/A1/A2 and print the table")
     ablate.add_argument("recordings", nargs="+")
     ablate.add_argument("--out", default=str(REPO_ROOT / "runs" / "ablation.json"))
+    ablate.add_argument(
+        "--replay",
+        action="store_true",
+        help="also drive each generated test case against the demo app (needs `pnpm demo`)",
+    )
+    ablate.add_argument(
+        "--replay-param",
+        action="append",
+        default=[],
+        metavar="name=value",
+        help="a value for a redaction placeholder, e.g. --replay-param password=hunter2",
+    )
     ablate.set_defaults(func=cmd_ablate)
 
-    serve = sub.add_parser(
-        "serve", parents=[common], help="run the local server and the review UI"
-    )
+    imp = sub.add_parser("import", help="bring in a Chrome DevTools Recorder JSON as a recording")
+    imp.add_argument("file")
+    imp.add_argument("--recording-id", default=None)
+    imp.set_defaults(func=cmd_import)
+
+    serve = sub.add_parser("serve", parents=[common], help="run the local server and the review UI")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--config", default="A2", choices=[c.value for c in AblationConfig])

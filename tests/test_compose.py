@@ -204,3 +204,47 @@ def test_a_recording_with_no_steps_is_not_composed(harness):
 
     assert result.degraded
     assert model.requests == [], "an empty flow must not cost a model call"
+
+
+# --------------------------------------------------------------------------
+# decomposition (SS9.3)
+# --------------------------------------------------------------------------
+
+
+def cases_from(value, naming, store):
+    from server.pipeline.compose import _cases
+
+    return _cases(value, naming, store)
+
+
+def test_a_partial_decomposition_is_refused(harness):
+    # Worse than no decomposition: the steps left out would vanish from every
+    # artifact, and `event_coverage` would then fail somewhere with no way to
+    # trace it back to here.
+    store, _runner, naming = harness
+    ids = [s.step_id for s in naming.steps]
+    groups = cases_from([{"scenario": "a", "steps": ids[:1]}], naming, store)
+    assert groups == []
+
+
+def test_a_step_claimed_by_two_cases_is_only_placed_once(harness):
+    store, _runner, naming = harness
+    ids = [s.step_id for s in naming.steps]
+    if len(ids) < 2:
+        pytest.skip("this fixture produced a single step")
+    groups = cases_from(
+        [
+            {"scenario": "first", "steps": ids},
+            {"scenario": "second", "steps": ids},
+        ],
+        naming,
+        store,
+    )
+    # The second case is left with nothing, so this is not a decomposition.
+    assert groups == []
+
+
+def test_one_case_is_not_a_decomposition(harness):
+    store, _runner, naming = harness
+    ids = [s.step_id for s in naming.steps]
+    assert cases_from([{"scenario": "everything", "steps": ids}], naming, store) == []

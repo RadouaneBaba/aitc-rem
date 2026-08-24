@@ -60,6 +60,22 @@ export interface IRDocument {
   testCases: TestCase[];
 }
 
+/**
+ * A pipeline run in flight. `detail` is prose for a tester, not a stage name:
+ * a run takes minutes on purpose, and the difference between "deliberately
+ * slow" and "hung" has to be visible or the tester presses Stop again.
+ */
+export interface Job {
+  id: string;
+  recordingId: string;
+  state: 'queued' | 'running' | 'done' | 'failed';
+  detail: string;
+  runId: string | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
 export interface Investigation {
   id: string;
   stepId?: string;
@@ -141,6 +157,8 @@ const patch = (body: unknown): RequestInit => ({ method: 'PATCH', body: JSON.str
 export const api = {
   runs: () => call<{ runs: RunSummary[] }>('/api/runs'),
 
+  jobs: () => call<{ jobs: Job[] }>('/api/jobs'),
+
   run: (rec: string, run: string) => call<RunBody>(`/api/runs/${rec}/${run}`),
 
   toolResponse: (rec: string, run: string, id: string) =>
@@ -156,6 +174,14 @@ export const api = {
     call<RunBody>(
       `/api/runs/${rec}/${run}/steps/${stepId}/assertions/${id}`,
       patch({ accepted }),
+    ),
+
+  /** Reword an expected result. The literal and its toolCallId are not editable
+   *  from here at all -- the sentence is the reviewer's, the citation is not. */
+  rewordAssertion: (rec: string, run: string, stepId: string, id: string, text: string) =>
+    call<RunBody>(
+      `/api/runs/${rec}/${run}/steps/${stepId}/assertions/${id}`,
+      patch({ text }),
     ),
 
   answerEscalation: (rec: string, run: string, stepId: string, answer: string) =>

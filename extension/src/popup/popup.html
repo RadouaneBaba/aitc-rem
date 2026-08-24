@@ -18,6 +18,10 @@
       .hint { font-size: 11px; color: #5b6470; margin-top: 10px; line-height: 1.45; }
       .ann { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
       .ann button { font-size: 12px; padding: 6px 8px; }
+      button.wide { width: 100%; }
+      .help { margin: 8px 0 0; font-size: 11px; color: #5b6470; line-height: 1.4; }
+      .help dt { font-weight: 600; color: #1c1f23; margin-top: 5px; }
+      .help dd { margin: 0; }
     </style>
   </head>
   <body>
@@ -35,18 +39,33 @@
       <div class="stat"><span class="muted">Annotations</span><strong id="annotations">0</strong></div>
       <div class="stat"><span class="muted">Origins</span><strong id="origins">-</strong></div>
 
+      <div class="row">
+        <button class="primary wide" id="pick">Mark what I&rsquo;m verifying</button>
+      </div>
+      <p class="hint">Point at the thing you are checking &mdash; a banner, a total, a badge.
+        It becomes the expected result word for word, instead of the tool guessing which of
+        the changes on screen mattered. This is the single biggest thing you can do for the
+        output.</p>
+
       <div class="ann">
-        <button class="ghost" data-kind="checkpoint">Checkpoint</button>
-        <button class="ghost" data-kind="scenario_break">New scenario</button>
-        <button class="ghost" data-kind="bug_marker">Mark a bug</button>
+        <button class="ghost" data-kind="checkpoint" title="Alt+Shift+C">Checkpoint</button>
+        <button class="ghost" data-kind="scenario_break" title="Alt+Shift+S">New scenario</button>
+        <button class="ghost" data-kind="bug_marker" title="Alt+Shift+B">Mark a bug</button>
         <button class="ghost" data-kind="intent_note">Note&hellip;</button>
       </div>
+      <dl class="help">
+        <dt>Checkpoint</dt><dd>Ends the current step here, when the tool would have run two together.</dd>
+        <dt>New scenario</dt><dd>A separate test case starts from this point.</dd>
+        <dt>Mark a bug</dt><dd>Something went wrong here. Flags the session and the step.</dd>
+        <dt>Note</dt><dd>Type the step name yourself. Used word for word, never rewritten.</dd>
+      </dl>
 
       <div class="row">
         <button class="stop" id="stop">Stop</button>
         <button class="ghost" id="export">Stop &amp; export</button>
       </div>
-      <p class="hint">Annotations are never required. They raise quality; the tool must be fully usable without them.</p>
+      <p class="hint">None of this is required &mdash; the tool works with zero annotations.
+        They raise quality; they are never the price of admission.</p>
     </div>
   </body>
   <script src="popup.js"></script>

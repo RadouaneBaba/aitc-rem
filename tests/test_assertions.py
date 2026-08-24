@@ -56,15 +56,35 @@ def recording():
                 diff=f.confirmation_diff(),
                 network=[f.network_call(status=201)],
                 after=f.snapshot(live=[f.node("live.0", "alert", CONFIRMATION)]),
+                annotations=[
+                    f.annotation(
+                        "ann_1",
+                        "assertion",
+                        at=3000.0,
+                        name=CONFIRMATION,
+                        event_id="evt_002",
+                    )
+                ],
             ),
         ],
         objective="Check that an order over EUR500 requires approval",
     )
 
 
+def unannotated():
+    """The same recording with nothing marked, for the demotion tests."""
+    rec = recording()
+    for event in rec.events:
+        event.annotations = None
+    return rec
+
+
 @pytest.fixture
 def harness(tmp_path: Path):
-    rec = recording()
+    return _harness(tmp_path, recording())
+
+
+def _harness(tmp_path: Path, rec):
     segments = segment_recording(rec, run_id="run_001")
     store = EvidenceStore(recording=rec, segments=segments)
     storage = Storage(recordings_dir=tmp_path / "rec", runs_dir=tmp_path / "runs")
@@ -366,3 +386,108 @@ def test_a_skipped_step_is_still_recorded(harness):
     assert quiet.investigation is not None
     assert quiet.investigation.stopReason.value == "no_investigation_needed"
     assert any("nothing a tester could check" in line for line in quiet.investigation.narrative)
+
+
+# --------------------------------------------------------------------------
+# provenance is verified, not taken on trust
+# --------------------------------------------------------------------------
+
+
+def test_a_claim_of_annotated_with_no_annotation_is_demoted(tmp_path: Path):
+    # The ladder decides which candidate is accepted, so a claim ABOUT where a
+    # claim came from is load-bearing -- and it was the one thing in the system
+    # nobody checked. `annotated` outranks everything and costs a model nothing
+    # but the word, which is exactly the shape of an unverified claim this
+    # project exists to refuse.
+    #
+    # Verified in code rather than asked for in the prompt, for the same reason
+    # noise suppression is: a rule the model is only told about holds most of
+    # the time, and most of the time is not a gate.
+    harness = _harness(tmp_path, unannotated())
+    result = propose(
+        harness,
+        {
+            "candidates": [
+                candidate(text="the confirmation banner appears", provenance="annotated"),
+            ]
+        },
+    )
+    assert first(result).candidates[0].provenance == Provenance.inferred
+
+
+def test_a_claim_of_narrated_with_no_narration_is_demoted(tmp_path: Path):
+    harness = _harness(tmp_path, unannotated())
+    result = propose(
+        harness,
+        {"candidates": [candidate(text="the banner appears", provenance="narrated")]},
+    )
+    assert first(result).candidates[0].provenance == Provenance.inferred
+
+
+def test_objective_survives_because_this_recording_has_one(tmp_path: Path):
+    # The check demotes what the evidence does not support; it must not demote
+    # what it does. A stated objective is right there in the recording.
+    harness = _harness(tmp_path, unannotated())
+    result = propose(
+        harness,
+        {"candidates": [candidate(text="the order needs approval", provenance="objective")]},
+    )
+    assert first(result).candidates[0].provenance == Provenance.objective
+
+
+def test_an_annotation_the_tester_really_made_still_outranks_inference(tmp_path: Path):
+    # The other half: verification must not quietly flatten the ladder into
+    # "everything is inferred", or SS9.5 stops doing anything at all.
+    harness = _harness(tmp_path, recording())
+    result = propose(
+        harness,
+        {
+            "candidates": [
+                candidate(text="a timestamp updated", provenance="inferred"),
+                candidate(text="the confirmation banner appears", provenance="annotated"),
+            ]
+        },
+    )
+    step = first(result)
+    assert step.candidates[0].provenance == Provenance.annotated
+    assert step.candidates[0].accepted
+
+
+def test_a_guess_about_a_precondition_is_proposed_but_not_accepted(tmp_path: Path):
+    # "the catalog page is displayed", under a Given that signs the tester in,
+    # in a test about the EUR500 approval rule. True, grounded, and beside the
+    # point -- and this stage's own prompt says such an assertion is worse than
+    # none, because somebody has to read it and decide it was pointless.
+    #
+    # Proposed rather than dropped: it stays in the sidecar with its evidence
+    # intact, the reviewer can accept it, and the ablation still counts it. What
+    # it does not do is put a Then under a Given on nobody's authority.
+    harness = _harness(tmp_path, unannotated())
+    store, runner, naming = harness
+    for step in naming.steps:
+        step.role = SegmentRole.setup
+
+    result = propose(harness, {"candidates": [candidate(text="the catalog page is displayed")]})
+    step = first(result)
+    assert step.candidates[0].provenance == Provenance.inferred
+    assert not step.candidates[0].accepted
+    # Nothing was thrown away.
+    assert step.candidates[0].evidence.literal == CONFIRMATION
+
+
+def test_a_marked_precondition_is_still_accepted(tmp_path: Path):
+    # The other half. If the tester pointed at it, they are saying the
+    # precondition IS what they were checking, and that outranks our guess about
+    # what preconditions are for.
+    harness = _harness(tmp_path, recording())
+    store, runner, naming = harness
+    for step in naming.steps:
+        step.role = SegmentRole.setup
+
+    result = propose(
+        harness,
+        {"candidates": [candidate(text="the confirmation appears", provenance="annotated")]},
+    )
+    step = first(result)
+    assert step.candidates[0].provenance == Provenance.annotated
+    assert step.candidates[0].accepted

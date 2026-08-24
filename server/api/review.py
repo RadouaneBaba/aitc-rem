@@ -19,6 +19,7 @@ to edit (SS3.2).
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from server.models import (
     IRDocument,
@@ -97,6 +98,46 @@ def set_assertion(
         case=case,
         step_id=step_id,
         assertion_id=assertion_id,
+        after=assertion.text,
+    )
+    return step
+
+
+def edit_assertion_text(
+    ir: IRDocument, review: ReviewDocument, *, step_id: str, assertion_id: str, text: str
+) -> Step:
+    """Reword an expected result, keeping the evidence it was bound to.
+
+    The assertion stage proposes one candidate for most steps, which is right --
+    manufacturing a second for a step with one obvious outcome produces exactly
+    the weak incidental claim the ranking exists to demote. But it leaves the
+    reviewer with a single checkbox: reject it and the step has no expected
+    result at all, and SS13.2's loop assumes there is something to choose.
+
+    So the reviewer may say the same thing better. What they may not do is
+    change `literal` or `toolCallId` (SS3.2): the sentence is prose and free,
+    the citation is what makes it checkable, and making an ungrounded assertion
+    grounded is not a reviewer's to give.
+    """
+    case, step = _locate(ir, step_id)
+    assertion = next((a for a in step.assertions if a.id == assertion_id), None)
+    if assertion is None:
+        raise ReviewError(f"step {step_id} has no assertion {assertion_id}")
+    if not text.strip():
+        raise ReviewError("an expected result cannot be empty")
+
+    before = assertion.text
+    if before == text.strip():
+        return step
+
+    assertion.text = text.strip()
+    _record(
+        review,
+        kind=ReviewEditKind.assertion_text,
+        case=case,
+        step_id=step_id,
+        assertion_id=assertion_id,
+        before=before,
         after=assertion.text,
     )
     return step
@@ -254,20 +295,39 @@ def rename_case(
 
 
 def approve(
-    ir: IRDocument, review: ReviewDocument, *, reviewer: str | None = None
+    ir: IRDocument,
+    review: ReviewDocument,
+    *,
+    reviewer: str | None = None,
+    library: Any = None,
 ) -> ReviewDocument:
     """Approval is what feeds the step library (SS12.2).
 
     A step enters the library because a human accepted it, never because it was
     generated -- which is the difference between a vocabulary and a pile of
-    phrasings.
+    phrasings. It is also what makes the library the project's memory: the only
+    thing that gets remembered is work somebody signed off.
+
+    Approving is the whole gesture. There is no separate "add to library"
+    button, because a reviewer who has just read a test case and said yes has
+    already made the only judgement the library needs, and asking twice would
+    get the second answer wrong.
     """
-    del ir
     review.approved = True
     review.approvedAt = datetime.now(UTC)
     if reviewer:
         review.reviewer = reviewer
     review.updatedAt = datetime.now(UTC)
+
+    if library is not None:
+        for case in ir.testCases:
+            for step in case.steps:
+                library.add(
+                    step.text,
+                    role=step.role.value if step.role else None,
+                    recording_id=ir.recordingId,
+                    run_id=ir.runId,
+                )
     return review
 
 
@@ -359,6 +419,7 @@ __all__ = [
     "answer_escalation",
     "approve",
     "delete_step",
+    "edit_assertion_text",
     "edit_step_text",
     "edited_step_ids",
     "merge_steps",

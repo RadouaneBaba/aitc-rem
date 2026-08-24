@@ -71,7 +71,12 @@ def render_test_case(
     config = config or ProjectConfig()
     date = generated_on or (ir.createdAt.date().isoformat() if ir else "")
 
-    narrative = build_narrative(case.steps, lift_background=False)
+    # SS9.3 -- `Background` is indirection with a single scenario: the whole test
+    # reads better top to bottom and a reader has one place to look. It earns
+    # its keep only when a recording produced several cases that share setup,
+    # which is exactly when repeating the sign-in three times would be worse.
+    siblings = len(ir.testCases) if ir else 1
+    narrative = build_narrative(case.steps, lift_background=siblings > 1)
     outline = _outline_names(case, narrative, config)
 
     lines: list[str] = []
@@ -122,6 +127,15 @@ def _tags(case: TestCaseIR, narrative: Narrative, config: ProjectConfig) -> list
     # sentence that a step definition has to match.
     if any(needs_review(step) for step in case.steps) and REVIEW_TAG not in tags:
         tags.append(REVIEW_TAG)
+
+    # Xray's feature-file import reads `@TEST_<KEY>` as "update this existing
+    # Test rather than creating another one", which is how a re-import stops
+    # being a duplicate. Off unless a project asks: for everyone else it is a
+    # meaningless tag in a file they have to read.
+    if config.xray_test_key:
+        key = f"TEST_{config.xray_test_key.lstrip('@').removeprefix('TEST_')}"
+        if key not in tags:
+            tags.insert(0, key)
 
     return [" ".join(f"@{t}" for t in tags)] if tags else []
 

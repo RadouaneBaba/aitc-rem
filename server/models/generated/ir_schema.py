@@ -27,6 +27,7 @@ class EvidenceKind(StrEnum):
     network = "network"
     console = "console"
     narration = "narration"
+    annotation = "annotation"
     a11y_node = "a11y_node"
 
 
@@ -224,7 +225,7 @@ class Assertion(StrictModel):
     accepted: bool
     rank: int | None = None
     """
-    Candidate ordering within the step. Each step gets 2-3 ranked candidates, never one (SS9.5).
+    Candidate ordering within the step. Two or three where the step genuinely produced more than one checkable outcome, one where only one thing mattered, none where nothing observable happened (SS9.5). Forcing a second candidate onto a step with one obvious outcome manufactures exactly the weak incidental assertion the ranking exists to demote.
     """
 
 

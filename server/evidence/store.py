@@ -28,6 +28,7 @@ from server.models import (
     SegmentsDocument,
     SemanticNode,
     SemanticSnapshot,
+    TesterAnnotation,
 )
 
 When = Literal["before", "after", "transient"]
@@ -303,8 +304,68 @@ class EvidenceStore:
                     }
                 )
 
+        # Annotations. This index is what `assertion_grounding` reads, so a gap
+        # in it looks exactly like a validator bug: a page-URL assertion once
+        # passed `evidence_retrieved` and failed `assertion_grounding` because
+        # URLs were not indexed, and both validators were right. An annotation
+        # is the same shape of hole -- a tester points at "Order confirmed", the
+        # model quotes what they pointed at, and the claim is rejected as
+        # ungrounded despite being the best-supported one in the run.
+        for annotation in self._annotations():
+            for matched_field, value in (
+                ("text", annotation.text),
+                ("name", annotation.target.name if annotation.target else None),
+                ("value", annotation.target.value if annotation.target else None),
+            ):
+                if not value:
+                    continue
+                probe = value if case_sensitive else value.casefold()
+                if needle not in probe:
+                    continue
+                matches.append(
+                    {
+                        **({"eventId": annotation.eventId} if annotation.eventId else {}),
+                        "kind": "annotation",
+                        "matchedField": matched_field,
+                        "annotationKind": annotation.kind.value,
+                        "timestamp": annotation.timestamp,
+                        "text": value,
+                    }
+                )
+
         matches.sort(key=lambda m: str(m.get("eventId", "")))
         return matches[:MAX_MATCHES]
+
+    def _annotations(self) -> list[TesterAnnotation]:
+        """Every annotation, session-level and per-event, deduplicated by id.
+
+        `export.ts` writes an annotation in both places on purpose -- the
+        session list is what the segmenter reads for boundaries, the per-event
+        copy is what the assertion stage reads for intent -- so an index built
+        naively over both would report every match twice.
+        """
+        seen: dict[str, TesterAnnotation] = {}
+        for annotation in self.recording.annotations:
+            seen[annotation.id] = annotation
+        for event in self.recording.events:
+            for annotation in event.annotations or []:
+                seen[annotation.id] = annotation
+        return list(seen.values())
+
+    def annotations(
+        self, from_ms: float, to_ms: float, *, kind: str | None = None
+    ) -> list[TesterAnnotation]:
+        """Annotations landing in a time window, newest signal first.
+
+        The mirror of `narration()`: the assertion stage asks "did the tester
+        say anything about this step", and this answers "did they point at
+        anything during it".
+        """
+        return [
+            a
+            for a in self._annotations()
+            if from_ms <= a.timestamp <= to_ms and (kind is None or a.kind.value == kind)
+        ]
 
     def query_element(
         self,

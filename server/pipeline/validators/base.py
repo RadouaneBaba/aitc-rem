@@ -41,6 +41,12 @@ class ValidationContext:
     #: testCaseId -> rendered Gherkin, when the renderer has already run.
     rendered: dict[str, str] = field(default_factory=dict)
     attempt: int = 1
+    #: SS12's approved phrasing. Not evidence -- it is what a team agreed to
+    #: call things, and no assertion may be grounded in it. `library_verbatim`
+    #: is the only validator that reads it, and it rejects rather than skips
+    #: when a step claims reuse and this is absent: a claim that cannot be
+    #: checked is not admissible.
+    library: Any = None
 
     _store: EvidenceStore | None = field(default=None, init=False, repr=False)
 

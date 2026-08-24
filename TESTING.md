@@ -1,10 +1,14 @@
 # Testing against a real website
 
-A runbook for recording a public site and putting it through the pipeline.
+A developer runbook: record a public site, run it through the pipeline from a
+terminal, and read the trace when something looks wrong.
 
-Nothing here has been validated against a real site yet — only against the
-bundled fixture app. Expect to find something. The last section is about what to
-do when you do.
+**If you are a QA tester, you want [docs/RECORDING.md](docs/RECORDING.md)
+instead** — everything here can be done from a browser, and that document is
+about doing it well rather than about the plumbing.
+
+This has now been run against a real site in a real browser. The last section is
+about what to do when you find something anyway.
 
 ---
 
@@ -187,10 +191,16 @@ what the agent did, and what the gate thought of it.
 So you are not surprised:
 
 - **One test case per recording.** Splitting a long session into several is
-  Phase 2, so a fifteen-minute session becomes one long test case.
-- **At most one expected result per step**, always `inferred`. Ranked candidates
-  from annotations and narration are Phase 2.
-- **No review UI.** You read the terminal and the `.feature` file.
-- **No Excel or Jira export.** Gherkin only.
+  still open, so a fifteen-minute session becomes one long test case.
+- **No step library.** Phrasing is invented fresh each run, so two recordings of
+  the same login can word it two ways.
 - **No multi-tab capture.** An OAuth popup will not be recorded.
-- **Narration is not wired in.** Audio is not captured yet.
+- **Narration is not wired in.** No audio is captured at all — not "captured but
+  unused". Annotations are the working half of that story.
+- **Nothing executes the generated test case.** It parses and it is grounded;
+  whether it would run is not yet measured.
+
+Built since this file was last accurate, in case you remember otherwise: the
+review UI (`python -m server.cli serve`), Excel and Jira export, ranked
+assertions with a verified provenance ladder, and the "mark what I'm verifying"
+annotation.

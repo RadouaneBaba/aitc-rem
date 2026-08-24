@@ -45,6 +45,7 @@ from server.models import (
     PipelineStage,
     Provenance,
     Segment,
+    SegmentRole,
     StepInvestigation,
     StopReason,
 )
@@ -126,6 +127,22 @@ NEVER propose an assertion about: a time or date, a relative time like "2
 minutes ago", a uuid or generated id, or anything that would obviously differ
 the next time somebody runs this test.
 
+How to write the sentence:
+
+* State the OUTCOME, not the mechanism that showed it. "the order requires
+  manager approval" beats "the system displays an approval requirement alert",
+  which describes a widget rather than a fact about the application.
+* Never begin with "the system displays", "a message appears saying" or "the UI
+  shows". Say what became true.
+* Refer to the person executing the test as "{voice}" if you refer to them at
+  all, the same as the step above. One test case, one person: steps that say
+  "the tester" beside an expected result that says "the user" read as two
+  documents spliced together.
+      GOOD  the cart shows two items
+      GOOD  the order is held for manager approval
+      BAD   the system displays an approval requirement alert
+      BAD   the user is redirected to the catalog page   (when the steps say "the tester")
+
 Reply with ONLY this JSON, most important candidate first:
 {
   "candidates": [
@@ -167,6 +184,17 @@ must never happen.
 
 You may call at most ONE tool per turn. Look at what it returns before deciding
 whether you need anything else."""
+
+
+def system_prompt(config: ProjectConfig) -> str:
+    """The assertion instructions, in this project's voice.
+
+    `replace` rather than `format`: this prompt contains the literal JSON the
+    model must reply with, braces and all, and doubling every one of them to
+    survive `str.format` would make the example unreadable and one missed brace
+    would turn a prompt edit into a crash.
+    """
+    return SYSTEM_PROMPT.replace("{voice}", config.voice)
 
 
 @dataclass
@@ -235,12 +263,26 @@ def propose_assertions(
     tools_enabled: bool = True,
     temperature: float = 0.0,
     config: ProjectConfig | None = None,
+    only: set[str] | None = None,
 ) -> AssertionResult:
-    """Propose ranked expected results for every named step."""
-    del config  # house style does not reach this stage; what is true is not a preference
+    """Propose ranked expected results for every named step.
+
+    `only` limits the pass to particular step ids. Used after composition splits
+    a step: the two halves are different steps from the ones this stage was
+    asked about, so their expected results have to be reconsidered rather than
+    inherited. Two extra calls, and only when a split actually happened.
+    """
+    # House style reaches the SENTENCE and nothing else. What is true is not a
+    # preference -- the literal, the citation and the ranking are untouched by
+    # this -- but the prose around it is prose, and a test case that calls the
+    # same person "the tester" in its steps and "the user" in its expected
+    # results reads as two documents spliced together. That really happened.
+    config = config or ProjectConfig()
     result = AssertionResult()
 
     for named in naming.steps:
+        if only is not None and named.step_id not in only:
+            continue
         segment = store.segment(named.segment_id)
 
         # A step the recorder saw produce nothing cannot have an expected
@@ -263,6 +305,7 @@ def propose_assertions(
             budget=budget if tools_enabled else 0,
             tools_enabled=tools_enabled,
             temperature=temperature,
+            config=config,
             sink=result.model_calls,
         )
         result.steps.append(proposed)
@@ -331,12 +374,13 @@ def _propose_one(
     budget: int,
     tools_enabled: bool,
     temperature: float,
+    config: ProjectConfig,
     sink: list[ModelCall],
 ) -> StepAssertions:
     enquiry = investigate(
         runner,
         model,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt(config),
         user_prompt=_baseline(store, named, segment),
         model_name=model_name,
         stage=PipelineStage.assert_,
@@ -350,7 +394,7 @@ def _propose_one(
     sink.extend(enquiry.model_calls)
     enquiry.finish()
 
-    candidates, suppressed = _candidates(enquiry.answer.get("candidates"), named, segment)
+    candidates, suppressed = _candidates(enquiry.answer.get("candidates"), store, named, segment)
     for reason in suppressed:
         enquiry.narrative.append(f"suppressed as noise: {reason}")
 
@@ -373,7 +417,9 @@ def _propose_one(
 # --------------------------------------------------------------------------
 
 
-def _candidates(value, named: NamedStep, segment: Segment) -> tuple[list[Assertion], list[str]]:
+def _candidates(
+    value, store: EvidenceStore, named: NamedStep, segment: Segment
+) -> tuple[list[Assertion], list[str]]:
     """Rank, filter and number the proposals.
 
     Nothing here checks whether a citation is REAL -- that is the validator's
@@ -403,7 +449,10 @@ def _candidates(value, named: NamedStep, segment: Segment) -> tuple[list[Asserti
 
         kept.append((order, raw))
 
-    provenance_of = [(_provenance(raw.get("provenance")), order, raw) for order, raw in kept]
+    supported = _supported_provenance(store, named, segment)
+    provenance_of = [
+        (_provenance(raw.get("provenance"), supported), order, raw) for order, raw in kept
+    ]
     provenance_of.sort(key=lambda item: (PROVENANCE_RANK[item[0]], item[1]))
 
     out: list[Assertion] = []
@@ -424,12 +473,30 @@ def _candidates(value, named: NamedStep, segment: Segment) -> tuple[list[Asserti
             # the rest ride along as proposals -- visible in the sidecar, absent
             # from the feature file, so nobody is handed three expected results
             # nobody chose.
-            accepted=rank == 1,
+            #
+            # A GUESS about a precondition is not one of them. Checking that
+            # signing in reached the catalog page, in a test about the EUR500
+            # approval rule, is true and beside the point -- and this prompt
+            # says two paragraphs up that such an assertion is worse than none,
+            # because somebody has to read it and decide it was pointless. If
+            # the tester marked it or said it, that is different: they are
+            # telling us the precondition IS the point, and it stands.
+            accepted=rank == 1 and not _incidental(named, provenance),
             rank=rank,
         )
         out.append(assertion)
 
     return out, suppressed
+
+
+def _incidental(named: NamedStep, provenance: Provenance) -> bool:
+    """An inferred claim about a step that is only there to reach the state.
+
+    Still proposed, still grounded, still counted -- it appears in the sidecar
+    and the reviewer can accept it. It just does not get to put a `Then` under a
+    `Given` on nobody's authority.
+    """
+    return named.role == SegmentRole.setup and provenance == Provenance.inferred
 
 
 def _noise_in(literal: str) -> str:
@@ -440,14 +507,54 @@ def _noise_in(literal: str) -> str:
     return ""
 
 
-def _provenance(value) -> Provenance:
+def _supported_provenance(
+    store: EvidenceStore, named: NamedStep, segment: Segment
+) -> set[Provenance]:
+    """Which provenance claims this step could honestly make.
+
+    The ladder decides which candidate is accepted, so a claim about where a
+    claim came from is load-bearing -- and it was the one thing in the system
+    nobody checked. `annotated` outranks everything, and asserting it costs a
+    model nothing but the word.
+
+    Verified deterministically here rather than asked for in the prompt, the
+    same way noise suppression is code: a rule the model is merely told about
+    is a rule that holds most of the time.
+    """
+    ok = {Provenance.inferred, Provenance.confirmed}
+
+    events = [store.event(e) for e in named.event_ids]
+    if any(
+        a.kind.value == "assertion" for e in events for a in (e.annotations or [])
+    ) or store.annotations(events[0].timestamp, events[-1].timestamp + 2000, kind="assertion"):
+        ok.add(Provenance.annotated)
+
+    if store.narration(events[0].timestamp, events[-1].timestamp + 2000):
+        ok.add(Provenance.narrated)
+
+    if store.objective:
+        ok.add(Provenance.objective)
+
+    del segment
+    return ok
+
+
+def _provenance(value, supported: set[Provenance] | None = None) -> Provenance:
     """`inferred` is the honest default. Claiming a tester pointed at something
     when the field was unreadable would launder a guess into a statement of
-    intent, which is the one direction this ranking must not slip."""
+    intent, which is the one direction this ranking must not slip.
+
+    `supported` closes the same door from the other side: a claim of `annotated`
+    on a step with no annotation is a guess wearing the top rank, so it is
+    demoted to what it actually is.
+    """
     try:
-        return Provenance(str(value).strip().lower())
+        claimed = Provenance(str(value).strip().lower())
     except ValueError:
         return Provenance.inferred
+    if supported is not None and claimed not in supported:
+        return Provenance.inferred
+    return claimed
 
 
 # --------------------------------------------------------------------------

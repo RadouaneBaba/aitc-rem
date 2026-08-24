@@ -13,22 +13,23 @@ dependencies = [
     "pyyaml>=6.0",
 
     # Evidence store + MCP tool server (SS8)
-    "mcp>=1.2",
+    "mcp>=1.2,<2",
 
-    # Renderers (SS11)
-    "gherkin-official>=33.0",
+    # Renderers (SS11). gherkin-official is bounded on purpose: it has shipped
+    # nine majors recently, and a new AST shape would silently change what
+    # `gherkin_parses` reports -- a reproducibility bug in an ablation.
+    "gherkin-official>=33,<43",
     "openpyxl>=3.1",
+
+    # Step library (SS12). Lexical near-duplicate matching, no dependencies
+    # of its own. The requirement is wording reuse, not paraphrase search.
+    "rapidfuzz>=3.14",
 ]
 
 [project.optional-dependencies]
 # Kept separate: heavy, and not needed for MM0-MM7 which make no model calls.
 models = [
     "google-genai>=1.0",
-]
-# Phase 2 -- step library embeddings (SS15.1). Heavy (torch); install when needed.
-library = [
-    "sentence-transformers>=3.4",
-    "sqlite-vec>=0.1.6",
 ]
 # Phase 2 -- local narration transcription (SS6.6).
 transcription = [
@@ -37,8 +38,11 @@ transcription = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
-    "ruff>=0.9",
-    "datamodel-code-generator>=0.28",
+    # Pinned exactly, not floored: `schema/codegen.sh --check` regenerates and
+    # diffs, so a newer generator or formatter than the one that produced the
+    # committed output reads as SCHEMA DRIFT on a clean machine.
+    "ruff==0.16.3",
+    "datamodel-code-generator==0.74.0",
 ]
 
 [build-system]

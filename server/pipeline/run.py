@@ -16,7 +16,9 @@ into the same shape without changing it.
 
 from __future__ import annotations
 
+import contextlib
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,11 +31,14 @@ from server.llm.client import ModelClient
 from server.models import (
     AblationConfig,
     AgentTrace,
+    Confidence,
     IRDocument,
     PipelineStage,
     Recording,
     RunConfig,
     RunMetrics,
+    SegmentRole,
+    SelectorHint,
     StageRecord,
     StageStatus,
     Step,
@@ -51,9 +56,10 @@ from server.pipeline.compose import (
     fallback_composition,
 )
 from server.pipeline.investigate import DEFAULT_BUDGET
-from server.pipeline.name import NamingResult, name_segments
+from server.pipeline.name import NamingResult, name_segments, split_named
 from server.pipeline.narrative import (
     apply_merges,
+    apply_splits,
     keyword_for_role,
     merge_repeats,
     sync_keywords,
@@ -91,6 +97,15 @@ class PipelineOptions:
     #: recording. Silent truncation would make the ablation measure truncation
     #: rather than architecture.
     a0_token_budget: int = 120_000
+    #: Called as each stage begins. The run takes minutes -- deliberately, per
+    #: SS9.11 -- but "deliberately slow" and "hung" look identical to someone
+    #: watching a browser tab, and the second thing they do is press Stop again.
+    #: Observation only: a callback that raises must not lose a run, so the
+    #: caller's exceptions are swallowed at the call site.
+    on_stage: Callable[[PipelineStage], None] | None = None
+    #: SS12's approved phrasing, shared by the naming stage and the validator.
+    #: `None` is a project with no history, which every project starts as.
+    library: Any = None
 
     @classmethod
     def for_config(cls, config: AblationConfig, **overrides: Any) -> PipelineOptions:
@@ -154,7 +169,19 @@ def run_pipeline(
     run = storage.run(recording.id, run_id)
     stages: list[StageRecord] = []
 
+    def announce(stage: PipelineStage) -> None:
+        """Tell the caller which stage is starting, and never fail because of it.
+
+        A progress callback is the least important thing in this function and
+        must not be able to end a run that was otherwise going to succeed.
+        """
+        if options.on_stage is None:
+            return
+        with contextlib.suppress(Exception):
+            options.on_stage(stage)
+
     # -- 1. segment (deterministic) ---------------------------------------
+    announce(PipelineStage.segment)
     t0 = time.time()
     segments = segment_recording(recording, run_id=run_id)
     path = storage.save_artifact(run, "segments", segments)
@@ -170,9 +197,12 @@ def run_pipeline(
     )
 
     store = EvidenceStore(recording=recording, segments=segments)
-    runner = ToolRunner(store=store, storage=storage, run=run, stage=PipelineStage.name)
+    runner = ToolRunner(
+        store=store, storage=storage, run=run, stage=PipelineStage.name, library=options.library
+    )
 
     # -- 2. name (agentic) -------------------------------------------------
+    announce(PipelineStage.name)
     t0 = time.time()
     naming = name_segments(
         store,
@@ -198,6 +228,7 @@ def run_pipeline(
     )
 
     # -- 3. assert (agentic) -----------------------------------------------
+    announce(PipelineStage.assert_)
     #
     # Before composition, so the roles and the scenario name are decided with
     # the expected results in view: a step that produced a checkable outcome is
@@ -218,8 +249,34 @@ def run_pipeline(
     )
 
     # -- 4. compose (agentic) ---------------------------------------------
+    announce(PipelineStage.decompose)
     t0 = time.time()
     composed = _compose(store, runner, model, naming, options)
+
+    # A split makes two steps out of one, and neither is the step the assertion
+    # stage was asked about. Reconsider just those, and only when it happened:
+    # inheriting the old step's expected results is how the successful retry
+    # ended up saying nothing while "Order confirmed" -- the outcome the test
+    # exists to reach -- went unmentioned.
+    if composed.splits:
+        naming, resplit = split_named(naming, composed.splits)
+        proposed = _merge_assertions(
+            proposed,
+            propose_assertions(
+                store,
+                runner,
+                model,
+                naming,
+                model_name=options.model_name,
+                budget=ASSERT_BUDGET if options.tools_enabled else 0,
+                tools_enabled=options.tools_enabled,
+                temperature=options.temperature,
+                config=options.project,
+                only=resplit,
+            ),
+            replacing=resplit,
+        )
+
     ir = _assemble(recording, run_id, naming, composed, proposed)
     path = storage.save_artifact(run, "ir", ir)
     stages.append(
@@ -235,6 +292,7 @@ def run_pipeline(
     )
 
     # -- 5. render ---------------------------------------------------------
+    announce(PipelineStage.render)
     t0 = time.time()
     trace = _trace(recording, run_id, options, runner, naming, composed, proposed)
     rendered = render_document(ir, config=options.project)
@@ -254,6 +312,7 @@ def run_pipeline(
     )
 
     # -- 6. validate (deterministic gate) ----------------------------------
+    announce(PipelineStage.validate)
     t0 = time.time()
     ctx = ValidationContext(
         recording=recording,
@@ -263,12 +322,20 @@ def run_pipeline(
         run=run,
         segments=segments,
         rendered=rendered,
+        library=options.library,
     )
     report = validate(ctx)
     trace.validatorResults = report.results
     rate = grounding_rate(ctx, report)
     trace.metrics = _metrics(
-        ir, naming, composed, proposed, report, rate, time.perf_counter() - started
+        ir,
+        naming,
+        composed,
+        proposed,
+        report,
+        rate,
+        time.perf_counter() - started,
+        trace.toolCalls,
     )
     stages.append(
         StageRecord(
@@ -395,6 +462,7 @@ def _assemble(
             assertions=candidates.get(named.step_id, []),
             confidence=named.confidence,
             fidelity=_flags(recording, named.event_ids),
+            selectorHints=_selector_hints(recording, named.event_ids),
             **({"escalation": named.escalation} if named.escalation else {}),
             **({"libraryRef": named.library_ref} if named.library_ref else {}),
         )
@@ -404,15 +472,23 @@ def _assemble(
     # Merging happens once, here, so `ir.json` and the rendered feature always
     # show the same steps. Composition supplies the judgment (it read the whole
     # flow); `merge_repeats` is the net for an exact repeat it did not catch.
+    # Splits first. A split can turn one step into two that a merge group was
+    # never written about, whereas a merge can absorb a step a split was going
+    # to cut -- doing it the other way round loses the cut silently.
     steps = merge_repeats(
         apply_merges(
-            steps,
+            apply_splits(steps, composed.splits),
             [group.step_ids for group in composed.merges],
             texts={
                 sid: group.text for group in composed.merges for sid in group.step_ids if group.text
             },
         )
     )
+    # SS9.3 -- a recorded sitting is a person working, and their wrong turns are
+    # not test steps. Pruned rather than deleted: `omitted` is rendered where it
+    # happened, so a reader knows the narrative is not the whole session and
+    # does not trust it for something it never covered.
+    steps, omitted = _prune(steps, {n.step_id: n.segment_id for n in naming.steps})
     sync_keywords(steps)
 
     # Fidelity totals belong with the evidence, not above the Feature line. A
@@ -431,22 +507,174 @@ def _assemble(
         )
     ]
 
+    # SS9.3 -- one recording can hold several test cases. Split here, after
+    # merging and splitting, so every case is built from the same final steps
+    # the feature file will show.
+    groups = _case_groups(steps, composed)
+    cases: list[TestCaseIR] = []
+    earlier_setup: list[Step] = []
+    for index, (scenario, group_steps) in enumerate(groups, start=1):
+        cases.append(
+            _build_case(
+                recording,
+                run_id,
+                group_steps,
+                composed,
+                scenario=scenario,
+                warnings=warnings,
+                index=index,
+                of=len(groups),
+                inherited_setup=list(earlier_setup),
+                omitted=omitted,
+            )
+        )
+        earlier_setup.extend(s for s in group_steps if s.role == SegmentRole.setup)
+
+    return IRDocument(
+        schemaVersion="1.0",
+        recordingId=recording.id,
+        runId=run_id,
+        projectId=recording.projectId,
+        ownerId=recording.ownerId,
+        createdAt=datetime.now(UTC),
+        testCases=cases,
+    )
+
+
+PRUNED_ROLES = {SegmentRole.exploratory, SegmentRole.abandoned}
+
+
+def _prune(steps: list[Step], segment_of: dict[str, str]) -> tuple[list[Step], list[dict]]:
+    """Separate the wrong turns from the test case (SS9.3).
+
+    Every pruned step is reported with the id of the last step that survived
+    before it, so the marker lands where the detour actually happened rather
+    than in a footnote. `event_coverage` accepts an event covered by an
+    omission, so nothing goes missing -- and `no_pruned_assertion` then has a
+    subject: an assertion grounded in pruned evidence is one the reader cannot
+    see the basis for, however true it is.
+    """
+    kept: list[Step] = []
+    omitted: list[dict] = []
+    for step in steps:
+        if step.role not in PRUNED_ROLES:
+            kept.append(step)
+            continue
+        # The SEGMENT id, not the step id: `event_coverage` and
+        # `no_pruned_assertion` both resolve an omission back to the segment to
+        # find out which events it covered, and a step id resolves to nothing --
+        # which would report every pruned event as unaccounted for.
+        omitted.append(
+            {
+                "segmentId": segment_of.get(step.id, step.id),
+                "reason": step.role.value,
+                "eventCount": len(step.eventIds),
+                "summary": step.text,
+                "afterStepId": kept[-1].id if kept else "",
+            }
+        )
+    return kept, omitted
+
+
+def _scenario_from(steps: list[Step], composed: ComposeResult, index: int, of: int) -> str:
+    """A name for a case the deterministic split created.
+
+    Composition names the cases it proposes. When the tester's own scenario
+    break overrode it, nobody named these -- and reusing composition's one name
+    for all of them puts two identical `Scenario:` lines in a suite, which is
+    the same defect as a Feature that repeats its Scenario, wearing a new hat.
+
+    So it is named after what it VERIFIES -- its last accepted expected result --
+    rather than after what it does. A scenario line that repeats the `When`
+    under it is the same defect as a Feature that repeats its Scenario, and a
+    reader scanning a list of them learns nothing from either. Falls back to the
+    last step only when the case checks nothing, which is itself worth seeing.
+    """
+    if of == 1:
+        return composed.scenario_name
+
+    tested = [s for s in steps if s.role != SegmentRole.setup] or steps
+    checks = [a.text for s in tested for a in s.assertions if a.accepted]
+    text = (checks[-1] if checks else (tested[-1].text if tested else "")).strip()
+    return (text[:1].upper() + text[1:]) if text else composed.scenario_name
+
+
+def _case_groups(steps: list[Step], composed: ComposeResult) -> list[tuple[str, list[Step]]]:
+    """Partition the finished steps into test cases.
+
+    Falls back to one case whenever the decomposition does not account for
+    exactly the steps that exist -- which it may not, because merges and splits
+    ran after composition decided. A partial decomposition is worse than none:
+    the steps left out would vanish from every artifact.
+    """
+    if not composed.cases:
+        return [(composed.scenario_name, steps)]
+
+    by_id = {step.id: step for step in steps}
+    groups: list[tuple[str, list[Step]]] = []
+    claimed: set[str] = set()
+    for group in composed.cases:
+        members = [by_id[sid] for sid in group.step_ids if sid in by_id]
+        if not members:
+            continue
+        claimed.update(s.id for s in members)
+        groups.append((group.scenario, members))
+
+    if len(groups) < 2 or claimed != set(by_id):
+        return [(composed.scenario_name, steps)]
+    return groups
+
+
+def _build_case(
+    recording: Recording,
+    run_id: str,
+    steps: list[Step],
+    composed: ComposeResult,
+    *,
+    scenario: str,
+    warnings: list[Warning],
+    index: int,
+    of: int,
+    inherited_setup: list[Step] | None = None,
+    omitted: list[dict] | None = None,
+) -> TestCaseIR:
     case = TestCaseIR(
-        id=f"tc_{recording.id}",
+        id=f"tc_{recording.id}" if of == 1 else f"tc_{recording.id}_{index:02d}",
         recordingId=recording.id,
         runId=run_id,
         kind="test_case",
         title=composed.title,
-        description=composed.description or composed.scenario_name,
-        scenarioName=composed.scenario_name,
-        preconditions=[],
+        description=composed.description or scenario,
+        scenarioName=scenario or _scenario_from(steps, composed, index, of),
+        # SS9.3 -- the second test case out of a recording cannot start halfway
+        # through a session. The setup earlier cases performed becomes this
+        # one's preconditions, which the renderer emits as a `Background`, so
+        # every case is runnable on its own. Preconditions rather than steps on
+        # purpose: they carry no event ids, so `event_coverage` still accounts
+        # for each event exactly once.
+        preconditions=[
+            {
+                "id": f"pre_{i + 1:03d}",
+                "text": step.text,
+                "shared": True,
+                # Kept so a reader can trace a precondition back to the events
+                # that established it, exactly as they can a step.
+                "eventIds": list(step.eventIds),
+            }
+            for i, step in enumerate(inherited_setup or [])
+        ],
         tags=composed.tags,
         steps=steps,
         parameters=[
             {"name": p.name, "placeholder": p.placeholder, "category": p.category.value}
             for p in recording.parameters
         ],
-        omitted=[],
+        omitted=[
+            o
+            for o in (omitted or [])
+            # An omission belongs to the case the pruned work happened inside.
+            if o["afterStepId"] in {step.id for step in steps} or not o["afterStepId"]
+        ],
         metadata=TestCaseMetadata(
             capturedAt=recording.metadata.capturedAt,
             durationMs=recording.metadata.durationMs,
@@ -460,16 +688,7 @@ def _assemble(
     )
     if recording.objective:
         case.objective = recording.objective
-
-    return IRDocument(
-        schemaVersion="1.0",
-        recordingId=recording.id,
-        runId=run_id,
-        projectId=recording.projectId,
-        ownerId=recording.ownerId,
-        createdAt=datetime.now(UTC),
-        testCases=[case],
-    )
+    return case
 
 
 def _write_output(
@@ -552,16 +771,86 @@ def _trace(
     )
 
 
-def _calls_per_step(naming: NamingResult, proposed: AssertionResult) -> dict[str, int]:
+#: Calls made because the process requires them on every step, not because this
+#: step was hard. Excluded from the effort metrics below.
+ROUTINE_TOOLS = {"search_step_library"}
+
+
+def _merge_assertions(
+    original: AssertionResult, redone: AssertionResult, *, replacing: set[str]
+) -> AssertionResult:
+    """Swap in freshly proposed results for the steps a split created."""
+    merged = AssertionResult(model_calls=[*original.model_calls, *redone.model_calls])
+    merged.steps = [s for s in original.steps if s.step_id not in replacing]
+    merged.steps.extend(redone.steps)
+    return merged
+
+
+def _selector_hints(recording: Recording, event_ids: list[str]) -> list[SelectorHint]:
+    """Carry the recorder's selectors onto the step, ranked.
+
+    `SelectorHint` has existed since Phase 1 and nothing in `server/` had ever
+    constructed one, so `selector_resolvable` skipped on every run this project
+    has made. The data was always there -- every event's target carries a
+    `SelectorSet` -- it just never reached the IR.
+
+    Ranked most-stable first, which is the order a replay should try them in:
+    a `data-testid` is put there on purpose and survives a redesign; role and
+    accessible name survive a class rename and are the normal case for an
+    application that was not built for testing; text is brittle to copy edits;
+    a CSS path is the last resort and is why it is last.
+
+    Recording which rank actually resolved is what makes "how robust are these
+    selectors" a measurement rather than an opinion.
+    """
+    by_id = {e.id: e for e in recording.events}
+    seen: set[tuple[str, str]] = set()
+    hints: list[SelectorHint] = []
+    for event_id in event_ids:
+        event = by_id.get(event_id)
+        if event is None:
+            continue
+        selectors = event.target.selectors
+        for strategy, value, stability in (
+            ("testId", selectors.testId, Confidence.high),
+            ("role", selectors.role, Confidence.high),
+            ("text", selectors.text, Confidence.medium),
+            ("css", selectors.css, Confidence.low),
+        ):
+            if not value or (strategy, value) in seen:
+                continue
+            seen.add((strategy, value))
+            hints.append(SelectorHint(strategy=strategy, value=value, stability=stability))
+    return hints
+
+
+def _calls_per_step(
+    naming: NamingResult, proposed: AssertionResult, trace_calls: list | None = None
+) -> dict[str, int]:
     """The x-axis of the effort/difficulty correlation (SS3.4).
 
     Summed across every stage that investigated the step. Effort is what the
     agent spent on a decision about that step, not what one stage spent.
+
+    Search-before-invent (SS12.2) is deliberately NOT counted. The metric it
+    feeds is SS3.3's claim that effort varies with difficulty -- "a step with an
+    obvious outcome costs zero calls; an ambiguous one costs several" -- and a
+    call the process mandates on every step regardless of difficulty is a
+    constant added to every reading. Measured: introducing the library lifted
+    calls-per-step from 1.56 to 2.17 and collapsed the spread from 1.08 to 0.16,
+    which reads as an agent that stopped adapting when nothing of the sort
+    happened. `toolCallsTotal` still counts them -- they are real calls that
+    cost real quota -- but they are not evidence of investigation.
     """
-    per_step = naming.tool_calls_per_step()
+    routine = {c.id for c in (trace_calls or []) if getattr(c, "tool", None) in ROUTINE_TOOLS}
+
+    def effort(ids: list[str]) -> int:
+        return sum(1 for i in ids if i not in routine)
+
+    per_step = {s.step_id: effort(s.investigation.toolCallIds) for s in naming.steps}
     for step in proposed.steps:
         if step.investigation is not None:
-            per_step[step.step_id] = per_step.get(step.step_id, 0) + len(
+            per_step[step.step_id] = per_step.get(step.step_id, 0) + effort(
                 step.investigation.toolCallIds
             )
     return per_step
@@ -575,6 +864,7 @@ def _metrics(
     report: ValidationReport,
     rate: float,
     elapsed: float,
+    trace_calls: list | None = None,
 ) -> RunMetrics:
     total = sum(len(s.assertions) for c in ir.testCases for s in c.steps)
     ungrounded = round(total * (1 - rate))
@@ -595,7 +885,7 @@ def _metrics(
         toolCallsTotal=sum(
             len(i.toolCallIds) for i in [*naming.investigations, *proposed.investigations]
         ),
-        toolCallsPerStep=_calls_per_step(naming, proposed),
+        toolCallsPerStep=_calls_per_step(naming, proposed, trace_calls),
         promptTokensTotal=sum(m.promptTokens or 0 for m in model_calls),
         completionTokensTotal=sum(m.completionTokens or 0 for m in model_calls),
         uncachedModelCalls=len([m for m in model_calls if not m.cached]),

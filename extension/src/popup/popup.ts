@@ -55,4 +55,12 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('.ann button')
   });
 }
 
+$('pick').addEventListener('click', async () => {
+  // The popup has to close: the tester is about to click something on the page,
+  // and a popup with focus swallows the first click. The picker runs in the
+  // content script and reports the annotation back on its own.
+  await send({ type: 'pick' });
+  window.close();
+});
+
 void send<RecorderState>({ type: 'query-state' }).then(render);

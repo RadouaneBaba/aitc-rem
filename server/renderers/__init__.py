@@ -17,12 +17,14 @@ from server.config import ProjectConfig
 from server.models import IRDocument
 from server.renderers.base import Exporter, ExportResult, case_stem, review_warnings
 from server.renderers.jira import JiraExporter
+from server.renderers.qase import QaseExporter
 from server.renderers.xlsx import ExcelExporter
 
 #: Formats a project can ask for by name in `config/project.yaml`.
 EXPORTERS: dict[str, type] = {
     ExcelExporter.name: ExcelExporter,
     JiraExporter.name: JiraExporter,
+    QaseExporter.name: QaseExporter,
 }
 
 

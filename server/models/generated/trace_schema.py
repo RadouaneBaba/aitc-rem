@@ -213,6 +213,7 @@ class StageRecord(StrictModel):
 class ValidatorName(StrEnum):
     evidence_retrieved = "evidence_retrieved"
     assertion_grounding = "assertion_grounding"
+    provenance_supported = "provenance_supported"
     element_exists = "element_exists"
     mutation_claimed = "mutation_claimed"
     event_coverage = "event_coverage"

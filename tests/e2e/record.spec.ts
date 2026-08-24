@@ -276,3 +276,228 @@ test('captures the hard paths: iframe, shadow roots, canvas, slow endpoint', asy
     'utf8',
   );
 });
+
+/**
+ * The annotation path (SS6.7), end to end and in a real browser.
+ *
+ * This fixture exists because the ranking machinery of SS9.5 had never once
+ * been exercised: no recording anywhere contained an annotation or a spoken
+ * word, so every assertion the tool has ever made was `inferred` -- a guess at
+ * which of the changes on screen was the one under test. `annotated` sits at
+ * the top of that ladder and had no UI to produce it at all.
+ *
+ * Written to its OWN fixture file. Regenerating checkout/hardpaths would
+ * invalidate every cassette keyed on their contents, which is ~145 recorded
+ * model responses and a day of free-tier quota to rebuild.
+ */
+test('records what the tester pointed at and what they named', async () => {
+  const page = await startRecording('Check that adding an item updates the cart badge');
+
+  await page.fill('#email', 'tester@example.com');
+  await pause(page);
+  await page.fill('#password', 'hunter2');
+  await pause(page);
+  await page.click('button:has-text("Sign in")');
+  await pause(page);
+  await expect(page.locator('nav.appnav')).toBeVisible();
+
+  // The tester names this step themselves. SS6.7 says it is used word for word.
+  await annotate('intent_note', 'the tester adds a widget to the cart');
+  await page.bringToFront();
+  await page.click('button:has-text("Add Blue Widget to cart")');
+  await pause(page);
+  await expect(page.locator('.cart-badge')).toHaveText('1');
+
+  // ...and then points at the thing they are actually verifying.
+  await pick(page, '.cart-badge');
+
+  await page.close();
+  const recording = await stopRecording();
+
+  const marked = recording.annotations.filter((a) => a.kind === 'assertion');
+  expect(marked).toHaveLength(1);
+  // Role and ACCESSIBLE NAME, the same vocabulary every event uses -- an
+  // annotation described differently could not be matched to a step or grounded
+  // against a snapshot. Note this is the badge's aria-label rather than its
+  // visible "1": the accessible name is what `find_text` indexes, so it is the
+  // string an assertion quoting this annotation can actually be grounded on.
+  expect(marked[0].target?.name).toContain('Cart contains 1');
+  expect(marked[0].target?.selectors.css).toBeTruthy();
+
+  const notes = recording.annotations.filter((a) => a.kind === 'intent_note');
+  expect(notes).toHaveLength(1);
+  expect(notes[0].text).toBe('the tester adds a widget to the cart');
+
+  // Attribution happens at assembly, not in the frame: `assertions.py` reads
+  // `CapturedEvent.annotations` to decide whether `annotated` is a claim this
+  // recording can support.
+  const owning = recording.events.filter((e) =>
+    (e.annotations ?? []).some((a) => a.kind === 'assertion'),
+  );
+  expect(owning).toHaveLength(1);
+  // The action that PRODUCED what was marked, not the marking itself. The
+  // picker's own click must never be recorded as something the tester did --
+  // that would put a step in the test case that never happened.
+  expect(owning[0].target.name).toContain('Blue Widget');
+  expect(recording.events.some((e) => e.target.name?.includes('Cart contains'))).toBe(false);
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'annotated.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+});
+
+/** Fire an annotation from the popup, the way a tester would. */
+async function annotate(kind: string, text?: string): Promise<void> {
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  if (text !== undefined) popup.once('dialog', (d) => void d.accept(text));
+  await popup.click(`.ann button[data-kind="${kind}"]`);
+  await popup.waitForTimeout(150);
+  await popup.close();
+}
+
+/**
+ * "Mark what I'm verifying": arm the picker from the popup, then click the
+ * element in the page. The popup closes itself for the same reason it does for
+ * a real tester -- a focused popup swallows the first click on the page.
+ */
+async function pick(page: Page, selector: string): Promise<void> {
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  // The popup closes itself here -- that is the feature, not a race: a focused
+  // popup swallows the first click on the page, which is the click that picks.
+  await popup.click('#pick').catch(() => undefined);
+  await page.waitForTimeout(200);
+  if (!popup.isClosed()) await popup.close();
+
+  await page.bringToFront();
+  await page.hover(selector);
+  await page.click(selector);
+  await pause(page);
+}
+
+/**
+ * Two test cases in one sitting (SS9.3).
+ *
+ * A tester checks several things in a session -- that is what a session is --
+ * and one test case covering all of it is a test nobody can run in isolation
+ * and nobody can say has failed for a single reason. Decomposition is the stage
+ * that undoes that, and it had never had a recording to do it to: both existing
+ * fixtures are a single flow, so "one recording -> N test cases" could be
+ * asserted and not shown.
+ *
+ * The tester presses "New scenario" between the two. That annotation has been
+ * in the popup since the beginning and nothing downstream had ever read it.
+ */
+test('records two flows separated by a scenario break', async () => {
+  const page = await startRecording('Check the cart badge, then that a large order needs approval');
+
+  await page.fill('#email', 'tester@example.com');
+  await pause(page);
+  await page.fill('#password', 'hunter2');
+  await pause(page);
+  await page.click('button:has-text("Sign in")');
+  await pause(page);
+  await expect(page.locator('nav.appnav')).toBeVisible();
+
+  // --- first flow: the cart badge ------------------------------------------
+  await page.click('button:has-text("Add Blue Widget to cart")');
+  await pause(page);
+  await expect(page.locator('.cart-badge')).toHaveText('1');
+
+  // The tester says, at the time, that a separate test starts here.
+  await annotate('scenario_break');
+  await page.bringToFront();
+
+  // --- second flow: the approval rule --------------------------------------
+  await page.click('nav.appnav button:has-text("Checkout")');
+  await pause(page);
+  await page.fill('#po', 'PO-9001');
+  await pause(page);
+  await page.fill('#total', '900');
+  await pause(page);
+  await page.click('button:has-text("Place order")');
+  await pause(page);
+  await expect(page.locator('[role=alert]')).toContainText('approval');
+
+  await page.close();
+  const recording = await stopRecording();
+
+  const breaks = recording.annotations.filter((a) => a.kind === 'scenario_break');
+  expect(breaks).toHaveLength(1);
+  // It lands between the two flows, which is what makes it a boundary rather
+  // than a label on one of them.
+  const at = breaks[0].timestamp;
+  const before = recording.events.filter((e) => e.timestamp < at);
+  const after = recording.events.filter((e) => e.timestamp > at);
+  expect(before.length).toBeGreaterThan(2);
+  expect(after.length).toBeGreaterThan(2);
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'twoflows.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+});
+
+/**
+ * A tester who wanders (SS9.3).
+ *
+ * A recorded sitting is a person working, and people look for things. Opening
+ * Reports while trying to check out is real and is not a test step, and
+ * transcribing it into a test case somebody has to execute is how the artifact
+ * becomes unusable.
+ *
+ * `Reports.tsx` says in its own docstring that it exists to be wandered into.
+ * Nothing had ever wandered there: `no_pruned_assertion` has skipped on every
+ * run this project has made, for want of a recording with a wrong turn in it.
+ */
+test('records a session with a wrong turn in it', async () => {
+  const page = await startRecording('Check that an order over EUR500 requires approval');
+
+  await page.fill('#email', 'tester@example.com');
+  await pause(page);
+  await page.fill('#password', 'hunter2');
+  await pause(page);
+  await page.click('button:has-text("Sign in")');
+  await pause(page);
+  await expect(page.locator('nav.appnav')).toBeVisible();
+
+  // --- the wrong turn ------------------------------------------------------
+  // Looking for the order total, finds a reports page, reads it, leaves.
+  await page.click('nav.appnav button:has-text("Reports")');
+  await pause(page);
+  await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible();
+  await page.click('nav.appnav button:has-text("Catalog")');
+  await pause(page);
+
+  // --- the actual test -----------------------------------------------------
+  await page.click('button:has-text("Add Blue Widget to cart")');
+  await pause(page);
+  await page.click('nav.appnav button:has-text("Checkout")');
+  await pause(page);
+  await page.fill('#total', '750');
+  await pause(page);
+  await page.click('button:has-text("Place order")');
+  await pause(page);
+  await expect(page.locator('[role=alert]')).toContainText('approval');
+
+  await page.close();
+  const recording = await stopRecording();
+
+  // The detour is in the recording -- pruning it is the pipeline's job, and it
+  // cannot be judged from a single segment, only against the objective.
+  const visited = recording.events.filter((e) => e.url.includes('reports'));
+  expect(visited.length).toBeGreaterThan(0);
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'wander.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+});

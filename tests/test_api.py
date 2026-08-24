@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from server.api.app import create_app
+from server.library import StepLibrary
 from server.storage.paths import Storage
 from tests.test_pipeline import grounded_model, recording
 
@@ -32,8 +33,14 @@ def storage(tmp_path: Path) -> Storage:
 
 
 @pytest.fixture
-def client(storage: Storage):
-    app = create_app(storage=storage, model_factory=grounded_model)
+def client(storage: Storage, tmp_path: Path):
+    # A temporary library, or approving in a test would write into the real
+    # project's remembered phrasing (SS12) and quietly change later runs.
+    app = create_app(
+        storage=storage,
+        model_factory=grounded_model,
+        library=StepLibrary(tmp_path / "library.db"),
+    )
     with TestClient(app) as client:
         client.app.state.storage = storage
         yield client
@@ -79,13 +86,15 @@ def test_posting_a_recording_starts_a_job_and_produces_a_run(client):
     assert client.get("/api/runs").json()["runs"]
 
 
-def test_a_failed_job_says_why_rather_than_going_quiet(storage: Storage):
+def test_a_failed_job_says_why_rather_than_going_quiet(storage: Storage, tmp_path: Path):
     # A tester who pressed Stop and got silence cannot tell a crash from a slow
     # run, and the second thing they do is press Stop again.
     def broken():
         raise RuntimeError("no model configured")
 
-    app = create_app(storage=storage, model_factory=broken)
+    app = create_app(
+        storage=storage, model_factory=broken, library=StepLibrary(tmp_path / "library.db")
+    )
     with TestClient(app) as client:
         payload = json.loads(recording().model_dump_json(exclude_none=True))
         job = client.post("/api/recordings", json=payload).json()["job"]
@@ -180,14 +189,11 @@ def test_rejecting_an_assertion_removes_it_from_the_output(client):
     # candidate is not part of the test case.
     recording_id, run_id = a_run(client)
     body = get_run(client, recording_id, run_id)
-    step = next(
-        s for c in body["ir"]["testCases"] for s in c["steps"] if s["assertions"]
-    )
+    step = next(s for c in body["ir"]["testCases"] for s in c["steps"] if s["assertions"])
     assertion = step["assertions"][0]
 
     response = client.patch(
-        f"/api/runs/{recording_id}/{run_id}/steps/{step['id']}"
-        f"/assertions/{assertion['id']}",
+        f"/api/runs/{recording_id}/{run_id}/steps/{step['id']}/assertions/{assertion['id']}",
         json={"accepted": False},
     )
     assert response.status_code == 200, response.text
@@ -205,9 +211,7 @@ def test_answering_an_escalation_turns_it_into_confirmed_provenance(client):
     # Put a question on the step the way the naming stage would have.
     path = Path(client.app.state.storage.runs_dir) / recording_id / run_id / "ir.json"
     ir = json.loads(path.read_text(encoding="utf-8"))
-    target = next(
-        s for c in ir["testCases"] for s in c["steps"] if s["id"] == step["id"]
-    )
+    target = next(s for c in ir["testCases"] for s in c["steps"] if s["id"] == step["id"])
     target["escalation"] = "did a file download?"
     path.write_text(json.dumps(ir), encoding="utf-8")
 
@@ -218,10 +222,7 @@ def test_answering_an_escalation_turns_it_into_confirmed_provenance(client):
     assert response.status_code == 200, response.text
 
     edited = next(
-        s
-        for c in response.json()["ir"]["testCases"]
-        for s in c["steps"]
-        if s["id"] == step["id"]
+        s for c in response.json()["ir"]["testCases"] for s in c["steps"] if s["id"] == step["id"]
     )
     assert "escalation" not in edited or not edited["escalation"]
     assert all(a["provenance"] == "confirmed" for a in edited["assertions"] if a["accepted"])
@@ -244,10 +245,7 @@ def test_merging_two_steps_keeps_every_event(client):
     assert response.status_code == 200, response.text
 
     after = {
-        e
-        for c in response.json()["ir"]["testCases"]
-        for s in c["steps"]
-        for e in s["eventIds"]
+        e for c in response.json()["ir"]["testCases"] for s in c["steps"] for e in s["eventIds"]
     }
     assert after == before
 
@@ -322,8 +320,7 @@ def test_an_edit_that_changes_nothing_is_not_recorded(client):
     assertion = step["assertions"][0]
 
     client.patch(
-        f"/api/runs/{recording_id}/{run_id}/steps/{step['id']}"
-        f"/assertions/{assertion['id']}",
+        f"/api/runs/{recording_id}/{run_id}/steps/{step['id']}/assertions/{assertion['id']}",
         json={"accepted": assertion["accepted"]},
     )
     assert get_run(client, recording_id, run_id)["review"]["edits"] == []
@@ -352,9 +349,7 @@ def test_approval_is_recorded_because_it_is_what_feeds_the_step_library(client):
 def test_a_reviewer_can_export_and_download_without_a_terminal(client):
     recording_id, run_id = a_run(client)
 
-    response = client.post(
-        f"/api/runs/{recording_id}/{run_id}/export", json={"formats": ["xlsx"]}
-    )
+    response = client.post(f"/api/runs/{recording_id}/{run_id}/export", json={"formats": ["xlsx"]})
     assert response.status_code == 200, response.text
     files = response.json()["exports"][0]["files"]
     assert files
@@ -366,7 +361,73 @@ def test_a_reviewer_can_export_and_download_without_a_terminal(client):
 
 def test_a_download_cannot_escape_the_run_directory(client):
     recording_id, run_id = a_run(client)
-    response = client.get(
-        f"/api/runs/{recording_id}/{run_id}/files/..%2F..%2F..%2Fpyproject.toml"
-    )
+    response = client.get(f"/api/runs/{recording_id}/{run_id}/files/..%2F..%2F..%2Fpyproject.toml")
     assert response.status_code == 404
+
+
+def test_a_reviewer_can_reword_an_expected_result_without_touching_its_evidence(client):
+    # Most steps get one candidate, which is correct -- a second invented for a
+    # step with one obvious outcome is exactly the weak claim SS9.5 demotes. But
+    # that leaves the reviewer a single checkbox, and rejecting it leaves the
+    # step with no expected result at all. So the sentence is theirs to fix.
+    #
+    # The citation is not. `literal` and `toolCallId` are what make the claim
+    # admissible (SS3.2), and handing a reviewer the ability to edit them would
+    # let anyone turn a guess into a grounded assertion.
+    recording_id, run_id = a_run(client)
+    body = get_run(client, recording_id, run_id)
+    step = next(s for c in body["ir"]["testCases"] for s in c["steps"] if s["assertions"])
+    assertion = step["assertions"][0]
+
+    response = client.patch(
+        f"/api/runs/{recording_id}/{run_id}/steps/{step['id']}/assertions/{assertion['id']}",
+        json={"text": "the cart shows two items"},
+    )
+    assert response.status_code == 200, response.text
+
+    after = next(
+        a
+        for c in response.json()["ir"]["testCases"]
+        for s in c["steps"]
+        for a in s["assertions"]
+        if a["id"] == assertion["id"]
+    )
+    assert after["text"] == "the cart shows two items"
+    assert after["evidence"] == assertion["evidence"]
+
+    edit = next(e for e in response.json()["review"]["edits"] if e["kind"] == "assertion_text")
+    assert edit["assertionId"] == assertion["id"]
+    assert edit["before"] == assertion["text"]
+
+
+def test_an_expected_result_cannot_be_reworded_into_nothing(client):
+    recording_id, run_id = a_run(client)
+    body = get_run(client, recording_id, run_id)
+    step = next(s for c in body["ir"]["testCases"] for s in c["steps"] if s["assertions"])
+    response = client.patch(
+        f"/api/runs/{recording_id}/{run_id}/steps/{step['id']}"
+        f"/assertions/{step['assertions'][0]['id']}",
+        json={"text": "   "},
+    )
+    assert response.status_code == 400
+
+
+def test_approving_is_what_teaches_the_tool_its_own_vocabulary(client):
+    # SS12.2: a step enters the library because a human accepted it, never
+    # because it was generated. That is the difference between a vocabulary and
+    # a pile of phrasings, and it is also what makes the library the project's
+    # memory -- the only thing remembered is work somebody signed off.
+    recording_id, run_id = a_run(client)
+    library = client.app.state.library
+    assert library.entries() == []
+
+    body = get_run(client, recording_id, run_id)
+    texts = [s["text"] for c in body["ir"]["testCases"] for s in c["steps"]]
+
+    response = client.post(f"/api/runs/{recording_id}/{run_id}/approve", json={})
+    assert response.status_code == 200, response.text
+
+    remembered = {e.text for e in library.entries()}
+    assert remembered == set(texts)
+    # And it is findable next time by the sentence a model would have drafted.
+    assert library.exact(texts[0]) is not None

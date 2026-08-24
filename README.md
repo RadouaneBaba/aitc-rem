@@ -3,7 +3,14 @@
 **Recorded browser session → structured, formal test case.**
 
 Every claim the system makes is licensed by evidence it went and retrieved.
-See [SPEC.md](SPEC.md) for the design; this file is how to run it.
+
+| If you are | Read |
+|---|---|
+| a QA tester recording a session | **[docs/RECORDING.md](docs/RECORDING.md)** -- no terminal needed |
+| running the pipeline yourself | this file |
+| recording a real public site | [TESTING.md](TESTING.md) |
+| changing the code | [CLAUDE.md](CLAUDE.md), then [SPEC.md](SPEC.md) |
+| wondering what is next | [PLAN.md](PLAN.md) |
 
 Phase 1 (the provable spine) is implemented: recorder, evidence store,
 deterministic segmentation, agentic naming, the validation gate, the Gherkin

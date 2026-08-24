@@ -66,13 +66,25 @@ def segment_recording(
     current_reason = BoundaryReason.recording_start
 
     checkpoint_times = _annotation_times(recording, {"checkpoint", "scenario_break"})
+    # Session-level, because a boundary sits BETWEEN two actions rather than on
+    # one of them -- which is exactly why `export.ts` declines to attach these
+    # to an event. The cut below already honours them; this is what lets the
+    # resulting segment say which annotation opened it, so decomposition can
+    # tell "the tester declared a new test case here" from its own guess.
+    break_times = _annotation_times(recording, {"scenario_break"})
+    # The FIRST event after each break, resolved once. Comparing timestamps
+    # inside the segment builder marked every later segment too: "starts after
+    # the break" is true of all of them, and only one of them opens it.
+    break_openers = {
+        next((e.id for e in recording.events if e.timestamp >= t), "") for t in break_times
+    } - {""}
 
     for index, event in enumerate(recording.events):
         previous = recording.events[index - 1] if index else None
 
         opening = _opens_before(event, previous, checkpoint_times)
         if current and opening is not None:
-            segments.append(_build(current, len(segments), current_reason))
+            segments.append(_build(current, len(segments), current_reason, break_openers))
             current = []
             current_reason = opening
 
@@ -80,12 +92,12 @@ def segment_recording(
 
         closing = _closes_after(event, len(current))
         if closing is not None:
-            segments.append(_build(current, len(segments), current_reason))
+            segments.append(_build(current, len(segments), current_reason, break_openers))
             current = []
             current_reason = closing
 
     if current:
-        segments.append(_build(current, len(segments), current_reason))
+        segments.append(_build(current, len(segments), current_reason, break_openers))
 
     document = SegmentsDocument(
         schemaVersion="1.0",
@@ -204,7 +216,12 @@ def _checkpoint_between(previous: CapturedEvent, event: CapturedEvent, times: li
 # --------------------------------------------------------------------------
 
 
-def _build(events: list[CapturedEvent], index: int, reason: BoundaryReason) -> Segment:
+def _build(
+    events: list[CapturedEvent],
+    index: int,
+    reason: BoundaryReason,
+    break_openers: set[str] | None = None,
+) -> Segment:
     fidelity: list[FidelityFlag] = []
     for event in events:
         for flag in event.fidelity:
@@ -236,7 +253,10 @@ def _build(events: list[CapturedEvent], index: int, reason: BoundaryReason) -> S
         segment.fidelity = fidelity
     if any(a.kind.value == "checkpoint" for a in annotations):
         segment.hasCheckpoint = True
-    if any(a.kind.value == "scenario_break" for a in annotations):
+    # A scenario break marks the segment that STARTS after it: the tester said
+    # "a new test case begins here", and here is the next thing they did.
+    opened_by_break = events[0].id in (break_openers or set())
+    if opened_by_break or any(a.kind.value == "scenario_break" for a in annotations):
         segment.hasScenarioBreak = True
     return segment
 

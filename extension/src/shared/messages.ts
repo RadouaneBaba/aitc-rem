@@ -119,6 +119,16 @@ export interface AnnotationAdded {
   annotation: TesterAnnotation;
 }
 
+/**
+ * SS6.7's assertion annotation: the tester points at the thing they are
+ * checking. Sent by the popup, forwarded by the worker to the recording tab,
+ * and handled by the content script -- it has to run in the page because the
+ * element being pointed at lives there.
+ */
+export interface StartPicking {
+  type: 'pick';
+}
+
 export interface QueryState {
   type: 'query-state';
 }
@@ -134,6 +144,7 @@ export type WorkerInbound =
   | NetworkObserved
   | ConsoleObserved
   | AnnotationAdded
+  | StartPicking
   | QueryState
   | ExportRecording;
 

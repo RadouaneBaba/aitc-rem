@@ -170,7 +170,7 @@
         "accepted": { "type": "boolean" },
         "rank": {
           "type": "integer",
-          "description": "Candidate ordering within the step. Each step gets 2-3 ranked candidates, never one (SS9.5)."
+          "description": "Candidate ordering within the step. Two or three where the step genuinely produced more than one checkable outcome, one where only one thing mattered, none where nothing observable happened (SS9.5). Forcing a second candidate onto a step with one obvious outcome manufactures exactly the weak incidental assertion the ranking exists to demote."
         }
       },
       "required": ["id", "text", "provenance", "evidence", "accepted"],
@@ -194,7 +194,7 @@
         "kind": {
           "title": "EvidenceKind",
           "type": "string",
-          "enum": ["semantic_node", "url", "network", "console", "narration", "a11y_node"]
+          "enum": ["semantic_node", "url", "network", "console", "narration", "annotation", "a11y_node"]
         }
       },
       "required": ["literal", "toolCallId", "eventId", "kind"],

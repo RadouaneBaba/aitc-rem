@@ -15,7 +15,7 @@ import pytest
 
 from server.ablation import run_ablation, write_report
 from server.llm import CompletionRequest, ScriptedModelClient, answer, calls
-from server.models import AblationConfig, Recording
+from server.models import AblationConfig, Recording, ValidatorAction, ValidatorStatus
 from server.pipeline.run import PipelineOptions, run_pipeline
 from server.storage.paths import Storage
 from tests import factories as f
@@ -375,3 +375,331 @@ def test_the_spine_runs_over_a_real_recorded_session(storage: Storage):
     # Every event in the recording is accounted for in the output.
     covered = {e for c in result.ir.testCases for s in c.steps for e in s.eventIds}
     assert covered == {e.id for e in real.events}
+
+
+def test_an_intent_note_becomes_the_step_name_word_for_word(tmp_path: Path):
+    # The popup tells the tester "It will be used word for word" as they type
+    # it, and until now nothing on this side read the annotation at all -- the
+    # naming stage rewrote it like any other step. A promise made in the UI and
+    # broken in the pipeline is worse than not offering the feature.
+    #
+    # Verbatim is enforced by not calling a model, rather than by asking one not
+    # to paraphrase.
+    from server.evidence.store import EvidenceStore
+    from server.evidence.tools import ToolRunner
+    from server.llm.scripted import ScriptedModelClient
+    from server.models import Confidence, PipelineStage
+    from server.pipeline.name import name_segments
+    from server.pipeline.segment import segment_recording
+
+    note = "the tester approves the order as a line manager"
+    recording = f.recording(
+        events=[
+            f.event("evt_001", 0, at=0.0, tgt=f.target("button", "Approve")),
+        ],
+        annotations=[f.annotation("ann_1", "intent_note", at=0.0, text=note)],
+    )
+    segments = segment_recording(recording, run_id="run_001")
+    store = EvidenceStore(recording=recording, segments=segments)
+    storage = Storage(recordings_dir=tmp_path / "rec", runs_dir=tmp_path / "runs")
+    runner = ToolRunner(
+        store=store,
+        storage=storage,
+        run=storage.run(recording.id, "run_001"),
+        stage=PipelineStage.name,
+    )
+
+    def refuse(_request):
+        raise AssertionError("a dictated step must not reach a model at all")
+
+    result = name_segments(
+        store, runner, ScriptedModelClient(refuse), model_name="test", tools_enabled=False
+    )
+    assert [s.text for s in result.steps] == [note]
+    assert result.steps[0].confidence == Confidence.high
+
+
+def test_library_verbatim_rejects_a_reuse_claim_that_was_rewritten(tmp_path: Path):
+    # 47 lines of this validator have existed since Phase 1 and never once run,
+    # because nothing ever set `libraryRef`. It is the thing that makes reuse
+    # real rather than aspirational: a model that paraphrases an approved step
+    # while claiming to reuse it reintroduces the step explosion the library
+    # exists to prevent, and does it with a citation saying otherwise.
+    from server.library import StepLibrary
+    from server.pipeline.validators.consistency import library_verbatim
+
+    library = StepLibrary(tmp_path / "library.db")
+    entry = library.add("the tester signs in")
+    assert entry is not None
+
+    honest = f.step("step_001", "the tester signs in", assertions=[])
+    honest.libraryRef = entry.id
+    liar = f.step("step_002", "the tester logs in to the app", assertions=[])
+    liar.libraryRef = entry.id
+
+    ctx = f.validation_context(ir_doc=f.ir_document(test_cases=[f.test_case(steps=[honest, liar])]))
+    ctx.library = library
+    results = list(library_verbatim(ctx))
+
+    failures = [r for r in results if r.status == ValidatorStatus.fail]
+    assert len(failures) == 1
+    assert failures[0].stepId == "step_002"
+    assert failures[0].action == ValidatorAction.reject
+
+
+def test_a_reuse_claim_with_no_library_is_not_admissible(tmp_path: Path):
+    # A claim that cannot be checked is not a claim. Rejecting rather than
+    # skipping is the same posture as SS3.2's evidence binding: the gate does
+    # not wave through what it was unable to verify.
+    from server.pipeline.validators.consistency import library_verbatim
+
+    step = f.step("step_001", "the tester signs in", assertions=[])
+    step.libraryRef = "lib_whatever"
+    ctx = f.validation_context(ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]))
+    results = list(library_verbatim(ctx))
+    assert [r.action for r in results] == [ValidatorAction.reject]
+
+
+def test_a_step_always_says_who_is_doing_it():
+    # A step is a sentence about a person. Dropped, it reads as an instruction
+    # to whoever is holding the document and matches no step definition. This
+    # is not hypothetical: a prompt edit whose worked examples omitted the
+    # subject produced "submits an order totalling "615"" with nobody
+    # submitting anything, and the prompt had said to include it twice.
+    from server.config import ProjectConfig
+    from server.pipeline.name import with_subject
+
+    config = ProjectConfig()
+    assert with_subject('submits an order totalling "615"', config) == (
+        'the tester submits an order totalling "615"'
+    )
+    # Already correct, and a different actor, both left alone -- rewriting
+    # "the approver releases the order" would produce nonsense.
+    assert with_subject("the tester signs in", config) == "the tester signs in"
+    assert with_subject("the approver releases the order", config) == (
+        "the approver releases the order"
+    )
+    # First person needs no subject: "I" is the subject.
+    assert with_subject("submit the order", ProjectConfig(voice="I")) == "submit the order"
+
+
+def test_a_mandatory_search_is_not_evidence_of_investigation():
+    # SS3.3's claim is that effort varies with difficulty -- "a step with an
+    # obvious outcome costs zero calls; an ambiguous one costs several" -- and
+    # the ablation's Spread column is how that is measured. A call the process
+    # mandates on EVERY step is a constant added to every reading, and it does
+    # real damage: introducing search-before-invent lifted calls-per-step from
+    # 1.56 to 2.17 and collapsed spread from 1.08 to 0.16, which would read as
+    # an agent that stopped adapting when nothing of the sort had happened.
+    #
+    # They still count as tool calls -- they are real, and they cost quota. They
+    # are just not evidence that this step was hard.
+    from server.models import Confidence, PipelineStage, SegmentRole, StepInvestigation, ToolCall
+    from server.pipeline.assertions import AssertionResult
+    from server.pipeline.name import NamedStep, NamingResult
+    from server.pipeline.run import _calls_per_step
+
+    def call(ident: str, tool: str) -> ToolCall:
+        return ToolCall(
+            id=ident,
+            stage=PipelineStage.name,
+            tool=tool,
+            args={},
+            responsePath=f"tools/{ident}.json",
+            responseHash="sha256:0",
+            timestamp=0.0,
+            durationMs=0.0,
+        )
+
+    naming = NamingResult()
+    naming.steps.append(
+        NamedStep(
+            segment_id="seg_001",
+            step_id="step_001",
+            role=SegmentRole.test_step,
+            text="the tester signs in",
+            confidence=Confidence.high,
+            event_ids=["evt_001"],
+            investigation=StepInvestigation(
+                id="inv_001",
+                stage=PipelineStage.name,
+                initialUncertainty=[],
+                toolCallIds=["tc_0001", "tc_0002"],
+                budgetUsed=2,
+                budgetMax=8,
+                stopReason="evidence_sufficient",
+            ),
+        )
+    )
+
+    calls = [call("tc_0001", "search_step_library"), call("tc_0002", "find_text")]
+    assert _calls_per_step(naming, AssertionResult(), calls) == {"step_001": 1}
+    # With no trace supplied, nothing is excluded -- the metric degrades to the
+    # old behaviour rather than silently reporting zero effort everywhere.
+    assert _calls_per_step(naming, AssertionResult(), None) == {"step_001": 2}
+
+
+def test_a_step_about_a_refused_change_satisfies_mutation_claimed():
+    # The tester submits an order over the approval threshold, the server says
+    # no, and the expected result cites that refusal. "No successful mutation"
+    # is the finding here, not a defect -- and it is exactly what a test about
+    # an approval rule looks like.
+    #
+    # Judged on evidence, not on reading the sentence: an accepted assertion has
+    # to be grounded IN the rejected request's own event, which a step that
+    # merely failed cannot fake.
+    from server.pipeline.validators.consistency import mutation_claimed
+
+    assertion = f.assertion("a1", "the order requires manager approval")
+    assertion.evidence.eventId = "evt_001"
+    step = f.step(
+        "step_001",
+        "the tester submits an order that is rejected",
+        assertions=[assertion],
+        event_ids=["evt_001"],
+    )
+    recording = f.recording(events=[f.event("evt_001", 0, network=[f.network_call(status=409)])])
+    ctx = f.validation_context(
+        ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]),
+        recording_doc=recording,
+    )
+    assert not [r for r in mutation_claimed(ctx) if r.status == ValidatorStatus.fail]
+
+
+def test_a_step_claiming_a_change_that_never_happened_still_fails():
+    # The other half. Without a grounded rejection to point at, a step that says
+    # data changed and shows no successful request is making a claim the
+    # recording does not support.
+    from server.pipeline.validators.consistency import mutation_claimed
+
+    step = f.step(
+        "step_001",
+        "the tester submits the order and it is saved",
+        assertions=[],
+        event_ids=["evt_001"],
+    )
+    recording = f.recording(events=[f.event("evt_001", 0, network=[])])
+    ctx = f.validation_context(
+        ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]),
+        recording_doc=recording,
+    )
+    assert [r for r in mutation_claimed(ctx) if r.status == ValidatorStatus.fail]
+
+
+def test_a_declared_scenario_break_is_not_the_models_to_overrule():
+    # SS6.7 says a scenario break OVERRIDES decomposition, and override means
+    # override: the tester pressed the button while they were there and we were
+    # not. Composition is agentic and answered differently on two consecutive
+    # runs of the same recording -- with a boundary the tester declared sitting
+    # inside the single case it returned the second time.
+    from server.models import Confidence, PipelineStage, SegmentRole, StepInvestigation
+    from server.pipeline.compose import _split_on_declared_breaks
+    from server.pipeline.name import NamedStep, NamingResult
+
+    naming = NamingResult()
+    for i in range(1, 5):
+        naming.steps.append(
+            NamedStep(
+                segment_id=f"seg_{i:03d}",
+                step_id=f"step_{i:03d}",
+                role=SegmentRole.test_step,
+                text=f"step {i}",
+                confidence=Confidence.high,
+                event_ids=[f"evt_{i:03d}"],
+                investigation=StepInvestigation(
+                    id=f"inv_{i}",
+                    stage=PipelineStage.name,
+                    initialUncertainty=[],
+                    toolCallIds=[],
+                    budgetUsed=0,
+                    budgetMax=8,
+                    stopReason="evidence_sufficient",
+                ),
+            )
+        )
+
+    groups = _split_on_declared_breaks(naming, {"step_003"})
+    assert [g.step_ids for g in groups] == [
+        ["step_001", "step_002"],
+        ["step_003", "step_004"],
+    ]
+    # Deterministic, so no model has to agree twice.
+    assert groups == _split_on_declared_breaks(naming, {"step_003"})
+
+
+def test_a_break_at_the_very_start_is_not_a_split():
+    from server.models import Confidence, PipelineStage, SegmentRole, StepInvestigation
+    from server.pipeline.compose import _split_on_declared_breaks
+    from server.pipeline.name import NamedStep, NamingResult
+
+    naming = NamingResult()
+    naming.steps.append(
+        NamedStep(
+            segment_id="seg_001",
+            step_id="step_001",
+            role=SegmentRole.test_step,
+            text="one",
+            confidence=Confidence.high,
+            event_ids=["evt_001"],
+            investigation=StepInvestigation(
+                id="inv_1",
+                stage=PipelineStage.name,
+                initialUncertainty=[],
+                toolCallIds=[],
+                budgetUsed=0,
+                budgetMax=8,
+                stopReason="evidence_sufficient",
+            ),
+        )
+    )
+    assert _split_on_declared_breaks(naming, {"step_001"}) == []
+
+
+def test_a_wrong_turn_is_pruned_and_reported_rather_than_deleted():
+    # SS9.3. A recorded sitting is a person working, and people look for things.
+    # Transcribing a wrong turn into a test case somebody has to execute is how
+    # the artifact becomes unusable -- but deleting it silently is worse, because
+    # a reader would trust the narrative for a session it never covered.
+    from server.models import SegmentRole
+    from server.pipeline.run import _prune
+
+    steps = [
+        f.step("step_001", "the tester signs in", role="setup", assertions=[]),
+        f.step(
+            "step_002",
+            "the tester opens the reports page",
+            role="exploratory",
+            assertions=[],
+            event_ids=["evt_003"],
+        ),
+        f.step("step_003", "the tester places the order", role="test_step", assertions=[]),
+    ]
+    kept, omitted = _prune(steps, {"step_002": "seg_002"})
+
+    assert [s.id for s in kept] == ["step_001", "step_003"]
+    assert len(omitted) == 1
+    assert omitted[0]["reason"] == "exploratory"
+    assert omitted[0]["eventCount"] == 1
+    # Marked where it happened, so the reader sees the gap in place rather than
+    # in a footnote.
+    assert omitted[0]["afterStepId"] == "step_001"
+    # The SEGMENT id: `event_coverage` and `no_pruned_assertion` both resolve an
+    # omission back to its segment, and a step id resolves to nothing -- which
+    # would report every pruned event as unaccounted for.
+    assert omitted[0]["segmentId"] == "seg_002"
+    assert all(s.role != SegmentRole.exploratory for s in kept)
+
+
+def test_nothing_is_pruned_from_an_ordinary_recording():
+    # Pruning is for sessions that genuinely wandered. A step merely being
+    # uninteresting is not a wrong turn, and removing one loses work the tester
+    # actually did.
+    from server.pipeline.run import _prune
+
+    steps = [
+        f.step("step_001", "the tester signs in", role="setup", assertions=[]),
+        f.step("step_002", "the tester places the order", role="test_step", assertions=[]),
+    ]
+    kept, omitted = _prune(steps, {})
+    assert len(kept) == 2
+    assert omitted == []

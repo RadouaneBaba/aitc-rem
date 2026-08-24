@@ -16,6 +16,7 @@ class ReviewEditKind(StrEnum):
     step_moved = "step_moved"
     assertion_accepted = "assertion_accepted"
     assertion_rejected = "assertion_rejected"
+    assertion_text = "assertion_text"
     escalation_answered = "escalation_answered"
     case_renamed = "case_renamed"
     tags_changed = "tags_changed"

@@ -161,3 +161,45 @@ Feature: Order approval
     Then the order confirmation appears
 """
     assert "preconditions belong at the top" in messages(feature)
+
+
+def test_an_expected_result_before_any_when_is_flagged():
+    # A real run rendered `Given the tester signs in ...` immediately followed
+    # by `Then the user is redirected ...`. Both keywords are legal Gherkin and
+    # the sequence still reads wrong: the scenario asserts about its own
+    # preconditions and never says what it did. `narrative._lay_out` prevents
+    # it by promoting an assertion-bearing setup step to `When`; this is the
+    # net for when that regresses.
+    assert "before any When" in messages(
+        "Feature: Sign in\n"
+        "\n"
+        "  Scenario: Signing in\n"
+        '    Given the tester signs in as "someone"\n'
+        "    Then the catalog page is shown\n"
+    )
+
+
+def test_and_continues_the_keyword_before_it_when_checking_order():
+    # `Given / And / Then` has a Given in front of the Then. Reading `And` as a
+    # keyword in its own right would report a Then with nothing before it, which
+    # is the kind of false finding that teaches people to ignore the validator.
+    assert "before any Given or When" not in messages(
+        GOOD.replace(
+            "When the tester submits the order with manager approval\n",
+            "When the tester submits the order with manager approval\n"
+            "    And the tester confirms the total\n",
+        )
+    )
+
+
+def test_one_scenario_refers_to_one_person():
+    # Steps come from the naming stage and expected results from the assertion
+    # stage, so voice drifts between them: a real run said "the tester" in every
+    # step and "the user is redirected" in its expected result.
+    assert "more than one way" in messages(
+        GOOD.replace("Then the order confirmation appears", "Then the user sees the confirmation")
+    )
+
+
+def test_a_consistent_voice_is_not_flagged():
+    assert "more than one way" not in messages(GOOD)

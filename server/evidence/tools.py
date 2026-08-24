@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from server.evidence.store import EvidenceStore
-from server.models import PipelineStage, ToolCall
+from server.models import PipelineStage, TesterAnnotation, ToolCall
 from server.storage.paths import RunPaths, Storage
 from server.util.canonical import response_hash
 
@@ -153,9 +153,41 @@ def get_events(
                     f"{c.method} {c.url} {c.status if c.status is not None else '-'}"
                     for c in e.network
                 ],
+                # The assert prompt tells the model "use get_events for the
+                # annotation" and this response had no annotations in it, so the
+                # instructed retrieval returned nothing and the model had to
+                # fall back to inference. A tester pointing at the thing they
+                # are checking is the strongest signal in the system (SS9.5);
+                # advertising it and then not serving it was the worst of both.
+                **(
+                    {"annotations": [_annotation(a) for a in e.annotations]}
+                    if e.annotations
+                    else {}
+                ),
             }
             for e in events
         ],
+    }
+
+
+def _annotation(annotation: TesterAnnotation) -> dict[str, Any]:
+    """What the tester said or pointed at, flattened for a prompt."""
+    target = annotation.target
+    return {
+        "kind": annotation.kind.value,
+        "timestamp": annotation.timestamp,
+        **({"text": annotation.text} if annotation.text else {}),
+        **(
+            {
+                "target": {
+                    "role": target.role,
+                    "name": target.name,
+                    **({"value": target.value} if target.value else {}),
+                }
+            }
+            if target
+            else {}
+        ),
     }
 
 
@@ -184,14 +216,42 @@ def find_text(
 
 
 def search_step_library(store: EvidenceStore, query: str, limit: int = 5) -> dict[str, Any]:
-    # The library lands in Phase 2 (SS12). The tool exists now so the naming
-    # stage's search-before-invent discipline is in place from the start and
-    # the prompt does not change when the index arrives.
+    """Approved phrasing from earlier recordings (SS12).
+
+    The library is attached to the `ToolRunner`, not to the `EvidenceStore`:
+    what a team has agreed to call something is not evidence about this
+    recording, and putting it on the store would let a library entry ground an
+    assertion. Nothing in the library came out of the session under analysis.
+    """
+    library = getattr(store, "_library", None)
+    if library is None:
+        return {
+            "query": query,
+            "count": 0,
+            "matches": [],
+            "note": "No step library is configured for this run. Invent new wording.",
+        }
+
+    matches = library.search(query, limit=limit)
+    if not matches:
+        return {
+            "query": query,
+            "count": 0,
+            "matches": [],
+            "note": (
+                "Nothing approved resembles this yet. Invent new wording -- it enters the "
+                "library when a human approves it."
+            ),
+        }
     return {
         "query": query,
-        "count": 0,
-        "matches": [],
-        "note": "The step library is empty; no approved phrasing exists yet. Invent new wording.",
+        "count": len(matches),
+        "matches": [m.as_dict() for m in matches],
+        "note": (
+            "`reuse: true` means this wording is safe to copy EXACTLY as given. "
+            "`reuse: false` means it is similar but says something different -- read it, "
+            "then write your own sentence."
+        ),
     }
 
 
@@ -353,8 +413,18 @@ class ToolRunner:
     storage: Storage
     run: RunPaths
     stage: PipelineStage = PipelineStage.name
+    #: SS12's approved phrasing. Optional: a project with no history has none,
+    #: and the pipeline must run identically without it.
+    library: Any = None
     calls: list[ToolCall] = field(default_factory=list)
     _seq: int = field(default=0, init=False)
+
+    def __post_init__(self) -> None:
+        # Handed to the tool through the store because every tool takes the
+        # store as its first argument, and widening that signature for one tool
+        # would touch all twelve. Underscored: it is not evidence, and nothing
+        # else should read it from there.
+        self.store._library = self.library  # type: ignore[attr-defined]
 
     def tool_definitions(self) -> list[dict[str, Any]]:
         """Tool schemas, in the shape a model API expects."""

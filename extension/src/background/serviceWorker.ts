@@ -305,7 +305,17 @@ chrome.runtime.onMessage.addListener((message: WorkerInbound, sender, sendRespon
       }
       case 'annotation':
         await addAnnotation((message as AnnotationAdded).annotation);
+        return sendResponse(await currentState());
+      case 'pick': {
+        // Forwarded rather than handled: the element the tester is about to
+        // point at lives in the page, so only a content script can see it.
+        const session = await getSession();
+        if (!session || session.stopped) {
+          return sendResponse({ type: 'error', message: 'Not recording' });
+        }
+        await broadcast(session.tabId, { type: 'pick' });
         return sendResponse({ type: 'ack' });
+      }
       case 'query-state':
         return sendResponse(await currentState());
       default:

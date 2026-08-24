@@ -14,6 +14,7 @@ from __future__ import annotations
 from server.models import Confidence
 from server.pipeline.narrative import (
     apply_merges,
+    apply_splits,
     build_narrative,
     keyword_for_role,
     merge_repeats,
@@ -334,7 +335,42 @@ def test_an_expected_result_ends_the_preconditions():
             step("s2", "the tester opens the settings page", "setup"),
         ]
     )
-    assert keywords(narrative) == ["Given", "Then", "When"]
+    assert keywords(narrative)[1:] == ["Then", "When"]
+
+
+def test_a_step_worth_asserting_about_is_not_a_precondition():
+    # A real run rendered `Given the tester signs in ...` followed immediately by
+    # `Then the user is redirected ...`, which asserts during the setup and
+    # before the scenario has done anything. Given states the world the test
+    # starts from; if a step produced something worth checking, that is the test.
+    narrative = build_narrative(
+        [step("s1", "the tester signs in", "setup", assertions=[f.assertion()])]
+    )
+    assert keywords(narrative) == ["When", "Then"]
+
+
+def test_setup_with_no_expected_result_still_opens_with_given():
+    # The rule above must not cost every scenario its Given: a precondition that
+    # nobody checks is exactly what Given is for.
+    narrative = build_narrative(
+        [
+            step("s1", "the tester signs in", "setup"),
+            step("s2", "the tester submits the order", "test_step"),
+        ]
+    )
+    assert keywords(narrative) == ["Given", "When"]
+
+
+def test_a_rejected_assertion_does_not_promote_a_precondition():
+    # A candidate the reviewer turned down renders nothing, so it cannot make
+    # the step read as the thing under test.
+    narrative = build_narrative(
+        [
+            step("s1", "the tester signs in", "setup", assertions=[f.assertion(accepted=False)]),
+            step("s2", "the tester submits the order", "test_step"),
+        ]
+    )
+    assert keywords(narrative) == ["Given", "When"]
 
 
 def test_the_ir_keyword_matches_what_the_step_will_render_as():
@@ -349,7 +385,9 @@ def test_the_ir_keyword_matches_what_the_step_will_render_as():
     sync_keywords(steps)
 
     assert [s.keyword.value for s in steps] == ["Given", "And", "When"]
-    assert [s.keyword.value for s in steps] == [line.keyword for line in build_narrative(steps).body]
+    assert [s.keyword.value for s in steps] == [
+        line.keyword for line in build_narrative(steps).body
+    ]
 
 
 def test_removing_a_step_repairs_the_keyword_of_the_one_after_it():
@@ -366,3 +404,92 @@ def test_removing_a_step_repairs_the_keyword_of_the_one_after_it():
     remaining = [steps[0], steps[2]]
     sync_keywords(remaining)
     assert remaining[1].keyword.value == "When"
+
+
+# --------------------------------------------------------------------------
+# splitting one step that holds two attempts
+# --------------------------------------------------------------------------
+
+
+class Split:
+    """Stand-in for compose.SplitGroup, to keep this module model-free."""
+
+    def __init__(self, step_id, after_event_id, texts=("", "")):
+        self.step_id = step_id
+        self.after_event_id = after_event_id
+        self.texts = texts
+
+
+def two_attempts():
+    """The real shape: one step holding a rejected submit and a retry.
+
+    `segment.py` produces this deliberately -- a 4xx does not end a step,
+    because a rejection usually means a typo being fixed. When the rejection is
+    what the test is ABOUT, the result contradicts itself.
+    """
+    rejected = f.assertion("asrt_1", "the order requires manager approval")
+    rejected.evidence.eventId = "evt_008"
+    confirmed = f.assertion("asrt_2", "the order is confirmed")
+    confirmed.evidence.eventId = "evt_010"
+    return f.step(
+        "step_005",
+        'the tester submits an order totalling "615" with manager approval',
+        role="test_step",
+        event_ids=["evt_006", "evt_007", "evt_008", "evt_009", "evt_010"],
+        assertions=[rejected, confirmed],
+    )
+
+
+def test_a_rejected_attempt_and_its_retry_become_two_steps():
+    steps = apply_splits([two_attempts()], [Split("step_005", "evt_008")])
+    assert [s.id for s in steps] == ["step_005", "step_005b"]
+    assert steps[0].eventIds == ["evt_006", "evt_007", "evt_008"]
+    assert steps[1].eventIds == ["evt_009", "evt_010"]
+
+
+def test_each_expected_result_follows_its_own_evidence():
+    # The whole trick, and the reason nothing has to guess: the claim about the
+    # rejection is grounded at evt_008, so it stays with the attempt that WAS
+    # rejected. Before this, one step said "submits with manager approval" and
+    # then "the order requires manager approval" -- true literals, contradictory
+    # test case, and only a replay caught it.
+    steps = apply_splits([two_attempts()], [Split("step_005", "evt_008")])
+    assert [a.id for a in steps[0].assertions] == ["asrt_1"]
+    assert [a.id for a in steps[1].assertions] == ["asrt_2"]
+
+
+def test_each_half_can_be_renamed():
+    steps = apply_splits(
+        [two_attempts()],
+        [Split("step_005", "evt_008", ("the tester submits the order", "the tester retries it"))],
+    )
+    assert steps[0].text == "the tester submits the order"
+    assert steps[1].text == "the tester retries it"
+
+
+def test_every_event_survives_a_split():
+    # `event_coverage` must still account for all of them afterwards.
+    before = two_attempts()
+    steps = apply_splits([before], [Split("step_005", "evt_008")])
+    assert [e for s in steps for e in s.eventIds] == before.eventIds
+
+
+def test_a_cut_that_leaves_a_half_empty_is_refused():
+    # Cutting after the last event is a rename plus an empty step, not a split.
+    steps = apply_splits([two_attempts()], [Split("step_005", "evt_010")])
+    assert len(steps) == 1
+
+
+def test_an_unknown_event_does_not_split_anything():
+    steps = apply_splits([two_attempts()], [Split("step_005", "evt_999")])
+    assert len(steps) == 1
+
+
+def test_an_assertion_with_stray_evidence_stays_with_the_first_half():
+    # A model can write anything. Losing a grounded claim to a bookkeeping edge
+    # case would be the worse error, so it keeps the position it already had.
+    step = two_attempts()
+    step.assertions[1].evidence.eventId = "evt_nowhere"
+    steps = apply_splits([step], [Split("step_005", "evt_008")])
+    assert [a.id for a in steps[0].assertions] == ["asrt_1", "asrt_2"]
+    assert steps[1].assertions == []

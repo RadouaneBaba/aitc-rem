@@ -28,7 +28,8 @@ from pydantic import BaseModel
 from server.api import review as review_ops
 from server.api.jobs import Job, JobRunner
 from server.config import ProjectConfig, load_allowed_origins, load_project_config
-from server.models import IRDocument, Recording, ReviewDocument
+from server.library import StepLibrary, library_path
+from server.models import IRDocument, PipelineStage, Recording, ReviewDocument
 from server.pipeline.run import PipelineOptions, run_pipeline
 from server.renderers import export_all
 from server.renderers.gherkin import feature_filename, render_document, trace_filename
@@ -36,6 +37,20 @@ from server.renderers.trace_md import render_document as render_sidecars
 from server.storage.paths import REPO_ROOT, Storage
 
 UI_DIST = REPO_ROOT / "ui" / "dist"
+
+#: What each pipeline stage is called for someone watching a browser tab. A run
+#: takes minutes on purpose (SS9.11), but "deliberately slow" and "hung" look
+#: identical without this, and the second thing a tester does is press Stop
+#: again. Prose rather than stage names: the reader is a QA tester, not a
+#: developer reading a trace.
+STAGE_DETAIL = {
+    PipelineStage.segment: "splitting the recording into steps",
+    PipelineStage.name: "writing the steps",
+    PipelineStage.assert_: "working out the expected results",
+    PipelineStage.decompose: "composing the test case",
+    PipelineStage.render: "writing the feature file",
+    PipelineStage.validate: "checking every claim against the evidence",
+}
 
 
 class RecordingPayload(BaseModel):
@@ -49,7 +64,14 @@ class TextEdit(BaseModel):
 
 
 class AssertionEdit(BaseModel):
-    accepted: bool
+    """Accept or reject an expected result, or reword one.
+
+    `text` never carries `literal` or `toolCallId`: a reviewer may say the same
+    thing better, and may not make an ungrounded claim grounded (SS3.2).
+    """
+
+    accepted: bool | None = None
+    text: str | None = None
 
 
 class EscalationAnswer(BaseModel):
@@ -85,6 +107,7 @@ def create_app(
     model_factory=None,
     options: PipelineOptions | None = None,
     config: ProjectConfig | None = None,
+    library: StepLibrary | None = None,
 ) -> FastAPI:
     """Build the app.
 
@@ -99,6 +122,9 @@ def create_app(
     app.state.storage = storage
     app.state.config = config
     app.state.jobs = runner
+    # SS12. One library per server, created lazily so a test that never
+    # approves anything never writes a database file.
+    app.state.library = library if library is not None else StepLibrary(library_path())
 
     # The recorder runs inside whatever page the tester is on, so the POST is
     # cross-origin by definition. Local-only server, local-only exposure.
@@ -127,13 +153,13 @@ def create_app(
         except Exception as exc:  # noqa: BLE001 - reported to the recorder
             raise HTTPException(422, f"not a valid recording: {exc}") from exc
 
-        unknown = _unknown_origins(recording)
+        unknown = _unknown_origins(recording, config.origin_policy)
         storage.save_recording_json(recording.id, raw)
 
         run_id = _next_run_id(storage, recording.id)
         job = runner.enqueue(
             recording.id,
-            lambda job: _run(job, recording, storage, _model(), options, config),
+            lambda job: _run(job, recording, storage, _model(), options, config, app.state.library),
             run_id=run_id,
         )
         return {
@@ -225,11 +251,22 @@ def create_app(
     def patch_assertion(
         recording_id: str, run_id: str, step_id: str, assertion_id: str, body: AssertionEdit
     ):
+        # Two edits on one route because they are one thought for the reviewer:
+        # this expected result is right, or it is right once reworded. The
+        # citation is not editable from here at all (SS3.2).
+        if body.text is not None:
+            return _edit(
+                recording_id,
+                run_id,
+                lambda ir, rv: review_ops.edit_assertion_text(
+                    ir, rv, step_id=step_id, assertion_id=assertion_id, text=body.text or ""
+                ),
+            )
         return _edit(
             recording_id,
             run_id,
             lambda ir, rv: review_ops.set_assertion(
-                ir, rv, step_id=step_id, assertion_id=assertion_id, accepted=body.accepted
+                ir, rv, step_id=step_id, assertion_id=assertion_id, accepted=bool(body.accepted)
             ),
         )
 
@@ -276,7 +313,9 @@ def create_app(
         return _edit(
             recording_id,
             run_id,
-            lambda ir, rv: review_ops.approve(ir, rv, reviewer=body.reviewer),
+            lambda ir, rv: review_ops.approve(
+                ir, rv, reviewer=body.reviewer, library=app.state.library
+            ),
         )
 
     @app.post("/api/runs/{recording_id}/{run_id}/export")
@@ -337,11 +376,18 @@ def _run(
     model,
     options: PipelineOptions | None,
     config: ProjectConfig,
+    library: StepLibrary | None = None,
 ) -> dict[str, Any]:
     opts = options or PipelineOptions()
     opts.project = config
+    opts.library = library
 
-    job.detail = "segmenting and naming"
+    def progress(stage: PipelineStage) -> None:
+        job.detail = STAGE_DETAIL.get(stage, stage.value)
+
+    opts.on_stage = progress
+
+    job.detail = STAGE_DETAIL[PipelineStage.segment]
     result = run_pipeline(
         recording, model, storage=storage, run_id=job.run_id or "run_001", options=opts
     )
@@ -359,13 +405,18 @@ def _run(
     }
 
 
-def _unknown_origins(recording: Recording) -> list[str]:
+def _unknown_origins(recording: Recording, policy: str = "warn") -> list[str]:
     """SS7.3 -- what would leave the browser, and whether it is allowed to.
 
-    Reported rather than enforced here: the CLI refuses, but a UI that silently
-    dropped a recording would be worse than one that shows the tester exactly
-    which origin is the problem.
+    Reported rather than enforced: a UI that silently dropped a recording would
+    be worse than one that shows the tester exactly which origin is the problem.
+    The CLI now agrees, rather than refusing where this reports (SS7.3's gate is
+    "one-time per project, not per recording"), and both read `origin_policy`.
+
+    `off` means a paid, no-training endpoint, where there is nothing to report.
     """
+    if policy == "off":
+        return []
     allowed = load_allowed_origins()
     return [o for o in recording.metadata.origins if o not in allowed]
 

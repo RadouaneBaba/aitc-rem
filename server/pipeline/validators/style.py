@@ -48,6 +48,12 @@ QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'|<[a-z0-9_]+>|<<[a-z0-9_]+>>", re.IGNORE
 #: "then" inside "strengthen", and every step with a long word becomes a run-on.
 CONJUNCTION = re.compile(r"\b(?:and|then)\b", re.IGNORECASE)
 
+#: How a file refers to the person executing the test. `ProjectConfig.voice`
+#: sets one and the naming stage honours it, but assertions are written by a
+#: different stage and drift: a real run said "the tester" in every step and
+#: "the user is redirected" in an expected result. One document, two people.
+ACTOR = re.compile(r"\bthe (tester|user|admin|customer|operator)\b", re.IGNORECASE)
+
 
 def gherkin_style(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     """Warn about anything that makes the feature file read like machine output."""
@@ -99,13 +105,33 @@ def _inspect(text: str) -> list[str]:
     if first_keyword in {"And", "But"}:
         problems.append(f"the first step opens with {first_keyword!r}, which continues nothing")
 
-    seen_action = False
+    # `And` continues whatever came before it, so resolve it before reasoning
+    # about order -- otherwise "Given / And / Then" looks like it has no
+    # preceding keyword at all.
+    resolved: list[str] = []
+    concrete: str | None = None
     for keyword, _ in steps:
+        if keyword in {"Given", "When", "Then"}:
+            concrete = keyword
+        resolved.append(concrete or keyword)
+
+    seen_action = False
+    for keyword in resolved:
         if keyword in {"Given", "When"}:
             seen_action = True
         elif keyword == "Then" and not seen_action:
             problems.append("a Then step comes before any Given or When")
             break
+
+    # A `Then` reached without any `When` asserts about the preconditions rather
+    # than about anything the test did. `narrative._lay_out` prevents it by
+    # promoting an assertion-bearing `Given` to `When` -- if it shows up here,
+    # that rule has regressed or someone hand-edited the file.
+    if "Then" in resolved and "When" not in resolved[: resolved.index("Then")]:
+        problems.append(
+            "an expected result is checked before any When step: the scenario asserts "
+            "about its own preconditions rather than about the behaviour under test"
+        )
 
     # 3. `Given` states the world before the test begins, so it belongs to the
     #    opening block. After a `Then` it reads as the scenario restarting.
@@ -155,6 +181,17 @@ def _inspect(text: str) -> list[str]:
                 f"step {index + 1} carries {leak.group(0)!r} in its text, which breaks "
                 f"step-definition matching; traceability belongs in the sidecar"
             )
+
+    # 8. One test case, one person. Checked for self-consistency rather than
+    #    against `ProjectConfig.voice`, because a file that calls the same actor
+    #    two things is wrong whichever of them the project chose.
+    actors = {m.group(1).lower() for m in ACTOR.finditer(" ".join(body for _, body in steps))}
+    if len(actors) > 1:
+        named = ", ".join(f"the {a}" for a in sorted(actors))
+        problems.append(
+            f"the scenario refers to the person executing it in more than one way ({named}); "
+            f"set voice in config/project.yaml and use it throughout"
+        )
 
     return problems
 

@@ -29,6 +29,11 @@ pnpm codegen                   # regenerate from schema/ after editing a .schema
 .venv/Scripts/python -m server.cli run <recording.json> [--config A0|A1|A2] [--offline]
 .venv/Scripts/python -m server.cli ablate tests/fixtures/*.recording.json
 .venv/Scripts/python scripts/prove_grounding.py
+.venv/Scripts/python scripts/effort_difficulty.py        # SS3.4, refuses to overclaim
+.venv/Scripts/python -m server.cli import <recorder.json>  # Chrome DevTools Recorder
+
+# Replay needs the demo app running (`pnpm demo`) and the test's parameters:
+.venv/Scripts/python -m server.cli ablate tests/fixtures/*.recording.json --replay     --replay-param user_email_1=tester@example.com --replay-param password=hunter2
 ```
 
 Windows paths: the venv binary is `.venv/Scripts/python.exe`. Bash and
@@ -93,6 +98,11 @@ server/
                  all behind base.py's Exporter seam
   ablation/      A0/A1/A2 and the metrics table
   llm/           ModelClient seam: gemini, cassette, chain, scripted
+  library/       SS12's approved phrasing, on rapidfuzz + one SQLite file
+  runners/       does the generated test case actually run? base.py + playwright.py
+  importers/     bring a Chrome DevTools Recorder export in
+scripts/         check.sh, prove_grounding.py, effort_difficulty.py, replay.mjs
+docs/            RECORDING.md -- for the tester, no terminal
 tests/           pytest; tests/e2e/ is Playwright
 ```
 
@@ -156,7 +166,79 @@ must show the same steps. `apply_merges` folds the groups composition asked for;
 not drop a redaction placeholder — those are the test's parameters (§7.2), and
 the guard is in `narrative._keeps_parameters`.
 
+**Splitting is composition's too, and evidence places the assertions.**
+`segment.py` deliberately does not end a step on a 4xx -- a rejected submit
+usually means a typo being fixed, still one attempt. When the rejection is what
+the test is ABOUT, that rule puts two attempts in one step and the result
+contradicts itself: *"submits with manager approval / Then the order requires
+manager approval"*, every literal true, the test case wrong. Only replay caught
+it. Do not put a model in the segmenter; composition has the objective and can
+`split`. `apply_splits` sends each assertion to the half its `evidence.eventId`
+came from, so nothing guesses. A split step is re-asserted, because it is not
+the step the assert stage was asked about.
+
+**A scenario break is deterministic, not a suggestion.** SS6.7 says it overrides
+decomposition. Composition answered differently on two consecutive runs of the
+same recording, once putting the tester's own boundary inside a single case.
+Where the tester pressed the button, `_split_on_declared_breaks` cuts and no
+model is consulted.
+
+**`server/runners/` is to correctness what `renderers/` is to readability.** A
+new one is a new file reading a finished `IRDocument`, never a pipeline change.
+It does not execute the `.feature` and cannot: no Gherkin runner in any language
+binds a step to anything but a hand-written step definition. Constraining the
+model to a closed step vocabulary would buy executability by giving up the
+readable prose that is the product, so replay drives the IR and the recording
+directly. The prose is for humans; `eventIds` and `selectorHints` are what runs.
+
+**The step library recommends; it never substitutes.** `Match.reuse` is advice
+to the naming stage. "adds a widget to the cart" scores 95 against the approved
+"adds a Blue Widget to the cart", and the widget may not have been blue -- only
+something reading the evidence can tell. `libraryRef` is set from an EXACT
+match, or `library_verbatim` could not fail. A step enters the library on human
+approval only (SS12.2), which is what makes it a record of accepted work rather
+than an average of generated work.
+
 ## Things that bit us, so you do not repeat them
+
+**Worked examples outweigh rules, and will contradict them silently.** The
+naming prompt said twice to start with the subject, and its examples were
+written without one. The model copied the examples: *"submits an order totalling
+\"615\""*, nobody submitting anything. Examples are rendered in the project's
+voice now, and `with_subject` is the deterministic net.
+
+**A mandatory tool call is not investigation.** Search-before-invent runs on
+every step by construction, so counting it as effort lifted calls/step 1.56 ->
+2.17 and collapsed SS3.3's Spread from 1.08 to 0.16 -- an agent that looked like
+it had stopped adapting when nothing had changed. `ROUTINE_TOOLS` is excluded
+from `_calls_per_step`; `toolCallsTotal` still counts them, because they are
+real calls that cost real quota.
+
+**Grounding is provenance, not correctness, and `Executes` alone is vacuous.**
+A test case that asserts nothing cannot have an assertion fail -- the same trap
+as reading `grounding_rate` without `Yield`, met for a third time. Read
+`Executes` with `Rechecked`. On the first ablation A0 appeared to execute BETTER
+than A1/A2, purely by claiming less.
+
+**`hash()` is salted per process.** An entry id built with it differs between
+runs, so `libraryRef` stops resolving across exactly the session boundary the
+library exists to cross. `hashlib.sha256`.
+
+**The picker's own click was recorded as a step that never happened.** Both it
+and the recorder listen on `document` in the capture phase, and the recorder
+registers at module load, so it sees the click first no matter what the picker
+does with `stopPropagation`. The recorder ignores events while `picker.active`.
+
+**Attribution direction is not the same for every annotation.** An assertion
+annotation comes AFTER what it points at; an intent note comes BEFORE the step
+it names -- the fixture proves it, landing between the sign-in click and the
+add-to-cart click while describing the latter. Both are attributed with the
+whole session in view, like network calls, never in the frame.
+
+**An imported recording is not redacted.** Chrome's DevTools Recorder writes
+what was typed, and the first import put a plaintext password on disk through a
+path SS7.1 exists to make impossible. `server/importers/devtools.py` redacts
+before constructing the `Recording`, and says that it is pattern-based.
 
 **`input[type=password]` has no implicit ARIA role.** Left at `''` it was
 treated as a structural wrapper and dropped from snapshots entirely — a login
@@ -262,40 +344,41 @@ implementation detail does not.
 
 ## Status
 
-Phase 1 (§18 milestones 1–10) is complete and verified against a real model.
-Latest ablation over both fixtures:
+Phase 1 and most of Phase 2 are done and verified against `gemini-3.1-flash-lite`.
+Four fixtures, with replay against the demo app:
 
 ```
-Config   Assert   Grounded    Yield   Fabric.   Valid1st   Calls/step   Spread
-A0            3        0.0      0.0         3     0.7525          0.0      0.0
-A1            4        1.0   0.4444         0        1.0        1.556    1.083
-A2            4        1.0   0.4444         0        1.0        1.556    1.083
+Config   Assert   Grounded    Yield   Fabric.   Valid1st   Spread   Executes   Rechecked    Held
+A0           10        0.0      0.0        10     0.7628      0.0        0.6           3     1.0
+A1           11        1.0   0.6111         0      0.975    0.584        0.6           6     1.0
+A2           11        1.0   0.6111         0      0.975    0.584        0.6           6     1.0
 ```
 
-A0 fabricated both citations; A1/A2 grounded both. A1 and A2 are identical
-because the critic and repair loop are Phase 3 — the harness says so rather than
-implying a difference it did not measure.
+A1 and A2 are still identical because the critic and repair loop are Phase 3.
+`Executes` is flat across all three arms because `hardpaths` defeats the replay
+harness, not the test case -- read `Rechecked` beside it, which is where the
+comparison actually lives.
 
-Phase 2 has started. Composition (`compose.py`) landed first because the
-`.feature` file is what the tool gets judged by and it did not read as a test
-case: the Feature and Scenario were both the objective string, every step was
-`When`, and `!!` was glued to sentences a step definition has to match. That is
-fixed, verified against `gemini-3.1-flash-lite` on both fixtures.
+Fixtures: `checkout`, `hardpaths`, `annotated` (an element the tester marked,
+plus an intent note), `twoflows` (two test cases separated by a scenario break),
+`wander` (a wrong turn, pruned). The last three exist because a fixture that
+does not contain the thing cannot demonstrate it -- SS9.5's upper tiers, SS9.3's
+decomposition and its pruning each needed one built for them.
 
-Still not built: splitting one recording into N test cases, pruning
-exploratory/abandoned segments, step library (Phase 2); critic + repair loop,
-coverage suggestions, bug mode, eval harness (Phase 3). `server/library/` is an
-empty placeholder for the first of those.
+On `wander`, twelve validators pass and none skip.
 
-SS9.5's ranked assertion stage has landed. Both fixtures now carry two grounded
-expected results where they carried one, and the ranking machinery is in place
-for annotations and narration -- but neither fixture contains any, so every
-assertion is still `inferred`. That is the honest limit of the current output:
-with no annotation, no narration and a vague objective, nothing tells the agent
-which of the changes on screen is the one under test, and it sometimes picks a
-true but incidental one. Wiring the recorder's annotation UI and narration
-(milestone 16) is what moves those rows up the ranking.
+Built since the last honest version of this section: the assertion annotation
+and its element picker, verified provenance, the step library, replay,
+decomposition, Qase/Xray/TestRail, the DevTools import, and the effort chart.
+`library_verbatim`, `selector_resolvable`, `provenance_supported` and
+`no_pruned_assertion` all run for the first time.
 
-**Read grounding rate together with yield.** Rate alone is vacuously 100% when a
-configuration abstains, which is exactly what a well-behaved model does with no
-tools — it makes A0 look identical to A2.
+**Still not built:** narration (no audio is captured at all -- not "captured
+but unused"), and all of Phase 3 (critic, repair loop, coverage suggestions, bug
+mode).
+
+**Read grounding rate together with yield**, and `Executes` together with
+`Rechecked`. Rate alone is vacuously 100% when a configuration abstains, which
+is exactly what a well-behaved model does with no tools -- it makes A0 look
+identical to A2. The same trap has now appeared three times in three different
+columns; assume it is in the next one too.

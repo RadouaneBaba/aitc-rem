@@ -57,6 +57,30 @@ def mutation_claimed(ctx: ValidationContext) -> Iterable[ValidatorResult]:
             if successes:
                 continue
 
+            # A step whose POINT is that the change was refused. The tester
+            # submitted an order over the approval threshold, the server said
+            # no, and an accepted expected result cites that very rejection --
+            # so "no successful mutation" is the finding, not a defect.
+            #
+            # Checked against evidence rather than by reading the sentence,
+            # which cannot be done reliably: "tries to place an order" is an
+            # honest description of a refused submit and still contains the word
+            # "place". What is required instead is real: a rejected mutating
+            # request in this step, AND an accepted expected result grounded
+            # somewhere in the same step. Both come from the recording, and a
+            # step that simply failed can produce neither.
+            rejected_events = {
+                e.id
+                for e in events
+                for c in e.network
+                if c.method.upper() in MUTATING_METHODS and c.status is not None and c.status >= 400
+            }
+            step_events = {e.id for e in events}
+            if rejected_events and any(
+                a.accepted and a.evidence.eventId in step_events for a in step.assertions
+            ):
+                continue
+
             incomplete = any(f.value == "network_incomplete" for e in events for f in e.fidelity)
             attempts = [
                 f"{c.method} {c.url} {c.status}"
@@ -245,7 +269,7 @@ def library_verbatim(ctx: ValidationContext) -> Iterable[ValidatorResult]:
                 test_case_id=case.id,
                 step_id=step.id,
             )
-        elif entry != step.text:
+        elif entry.text != step.text:
             offences += 1
             yield result(
                 ValidatorName.library_verbatim,

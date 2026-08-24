@@ -19,6 +19,7 @@ import pytest
 
 from server.config import ProjectConfig
 from server.renderers import EXPORTERS, ExcelExporter, JiraExporter, export_all
+from server.renderers.gherkin import render_test_case
 from server.renderers.jira import build_issue
 from tests import factories as f
 from tests.test_gherkin import build_case
@@ -263,3 +264,97 @@ def test_every_registered_exporter_satisfies_the_interface(tmp_path: Path):
         assert result.exporter == name
         assert result.files, name
         assert all(p.exists() for p in result.files), name
+
+
+# --------------------------------------------------------------------------
+# Qase (SS11)
+# --------------------------------------------------------------------------
+
+
+def test_qase_builds_the_payload_and_does_not_send_it(tmp_path: Path):
+    # Same bargain as Jira, for the same reason: a run that silently required an
+    # API token would be a run most people cannot make. The warning carries the
+    # exact command so nobody has to go and find it.
+    from server.renderers.qase import QaseExporter
+
+    result = QaseExporter().export(f.ir_document(), out_dir=tmp_path, config=ProjectConfig())
+    assert result.files and result.files[0].suffix == ".json"
+    assert any("curl -X POST" in w for w in result.warnings)
+    assert any("not sent" in w for w in result.warnings)
+
+
+def test_qase_sends_one_request_for_the_whole_run(tmp_path: Path):
+    # Qase takes an array. N separate calls would be N chances to half-import a
+    # suite and leave somebody reconciling it by hand.
+    from server.renderers.qase import QaseExporter
+
+    ir = f.ir_document(test_cases=[f.test_case("tc_1"), f.test_case("tc_2")])
+    result = QaseExporter().export(ir, out_dir=tmp_path, config=ProjectConfig())
+    assert len(result.files) == 1
+    assert len(result.payload["cases"]) == 2
+
+
+def test_an_expected_result_lands_on_the_row_that_produced_it(tmp_path: Path):
+    # The classic grid is what a manual tester reads in the Qase UI, and it is
+    # built from the same narrative as the feature file, so the two cannot
+    # drift. An expected result is not an action and does not get its own row.
+    from server.renderers.qase import build_case
+
+    case = f.test_case(
+        steps=[
+            f.step("s1", "the tester signs in", role="setup", assertions=[]),
+            f.step(
+                "s2",
+                "the tester places the order",
+                role="test_step",
+                assertions=[f.assertion("a1", "the confirmation appears")],
+            ),
+        ]
+    )
+    body = build_case(case, ProjectConfig())
+    assert body["steps_type"] == "classic"
+    assert [s["position"] for s in body["steps"]] == [1, 2]
+    assert body["steps"][0]["expected_result"] == ""
+    assert body["steps"][1]["expected_result"] == "the confirmation appears"
+
+
+def test_qase_gherkin_mode_sends_the_scenario_without_our_front_matter(tmp_path: Path):
+    from server.renderers.qase import build_case
+
+    case = f.test_case(steps=[f.step("s1", "the tester signs in", assertions=[])])
+    body = build_case(case, ProjectConfig(qase_steps="gherkin"))
+    assert body["steps_type"] == "gherkin"
+    assert "Scenario:" in body["steps"]
+    # Our header comment and tag line are ours, not Qase's.
+    assert "aitc-rem" not in body["steps"]
+    assert not body["steps"].lstrip().startswith("@")
+
+
+def test_a_generated_case_is_not_reported_as_automated(tmp_path: Path):
+    # It is a manual test case until somebody automates it. Saying otherwise in
+    # the tool of record would misreport the suite's coverage.
+    from server.renderers.qase import build_case
+
+    assert build_case(f.test_case(), ProjectConfig())["automation"] == 0
+
+
+# --------------------------------------------------------------------------
+# Xray (SS11) -- no exporter, because the .feature file is the format
+# --------------------------------------------------------------------------
+
+
+def test_the_xray_test_key_tag_is_off_unless_a_project_asks_for_it():
+    # For everyone not using Xray it is a meaningless tag in a file they read.
+    case = f.test_case(steps=[f.step("s1", "the tester signs in", assertions=[])])
+    rendered = render_test_case(case, config=ProjectConfig())
+    assert "@TEST_" not in rendered
+
+
+def test_the_xray_test_key_tag_makes_a_re_import_update_rather_than_duplicate():
+    case = f.test_case(steps=[f.step("s1", "the tester signs in", assertions=[])])
+    rendered = render_test_case(case, config=ProjectConfig(xray_test_key="TR-142"))
+    assert "@TEST_TR-142" in rendered
+    # Idempotent whichever way the key is written in config.
+    assert "@TEST_TEST_" not in render_test_case(
+        case, config=ProjectConfig(xray_test_key="TEST_TR-142")
+    )

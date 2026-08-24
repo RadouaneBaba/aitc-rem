@@ -12,7 +12,7 @@ export type Confidence = "high" | "medium" | "low";
  * Where an assertion came from, ranked per SS9.5. annotated/narrated/objective are direct statements of intent; inferred is a guess about it.
  */
 export type Provenance = "annotated" | "narrated" | "objective" | "inferred" | "confirmed";
-export type EvidenceKind = "semantic_node" | "url" | "network" | "console" | "narration" | "a11y_node";
+export type EvidenceKind = "semantic_node" | "url" | "network" | "console" | "narration" | "annotation" | "a11y_node";
 /**
  * What the recorder could NOT determine. SS6.8. Propagates from event to step and is rendered prominently in review. Degrading loudly is the point.
  */
@@ -173,7 +173,7 @@ export interface Assertion {
   evidence: Evidence;
   accepted: boolean;
   /**
-   * Candidate ordering within the step. Each step gets 2-3 ranked candidates, never one (SS9.5).
+   * Candidate ordering within the step. Two or three where the step genuinely produced more than one checkable outcome, one where only one thing mattered, none where nothing observable happened (SS9.5). Forcing a second candidate onto a step with one obvious outcome manufactures exactly the weak incidental assertion the ranking exists to demote.
    */
   rank?: number;
 }

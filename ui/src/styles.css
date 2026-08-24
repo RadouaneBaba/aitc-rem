@@ -176,3 +176,29 @@ button.merge { margin-top: 8px; width: 100%; }
 .narrative { border-left: 2px solid var(--line); padding-left: 9px; margin-bottom: 12px; }
 .trail { margin: 4px 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
 .ids { color: var(--muted); font-size: 12.5px; word-break: break-all; }
+
+/* Job progress. Amber rather than red: a run in flight is normal, and the
+ * palette above reserves red for things that went wrong. */
+.jobbanner { display: flex; flex-direction: column; }
+.job {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: var(--attention);
+  border-bottom: 1px solid #f0e0b8;
+}
+.job-failed { background: #fdeceb; border-bottom-color: #f3c9c6; }
+.job-state { font-weight: 600; color: var(--warn); }
+.job-failed .job-state { color: var(--danger); }
+.job-note { font-size: 12.5px; }
+.job-error { color: var(--danger); }
+.empty .jobbanner { margin-bottom: 16px; }
+.text-edit {
+  flex: 1;
+  font: inherit;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}

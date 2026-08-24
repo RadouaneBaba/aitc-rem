@@ -27,6 +27,7 @@ from server.pipeline.validators.grounding import (
     element_exists,
     evidence_retrieved,
     no_pruned_assertion,
+    provenance_supported,
 )
 from server.pipeline.validators.output import gherkin_parses, no_placeholder_leak
 from server.pipeline.validators.style import gherkin_style
@@ -36,6 +37,7 @@ from server.pipeline.validators.style import gherkin_style
 VALIDATORS = [
     evidence_retrieved,
     assertion_grounding,
+    provenance_supported,
     element_exists,
     mutation_claimed,
     event_coverage,

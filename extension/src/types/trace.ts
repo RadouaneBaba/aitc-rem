@@ -26,6 +26,7 @@ export type StageStatus = "ok" | "failed" | "skipped" | "degraded";
 export type ValidatorName =
   | "evidence_retrieved"
   | "assertion_grounding"
+  | "provenance_supported"
   | "element_exists"
   | "mutation_claimed"
   | "event_coverage"

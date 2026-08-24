@@ -18,6 +18,7 @@ import type {
 } from '../types/recording';
 import { isInteractiveElement, nameOf, rawValueOf, roleOf } from './a11y';
 import { diffSnapshots } from './diff';
+import { ElementPicker } from './picker';
 import { selectorsFor } from './selectors';
 import { buildSnapshot } from './snapshot';
 import { waitForSettle } from './settle';
@@ -62,6 +63,11 @@ class Recorder {
   private pointerDownAt: { x: number; y: number } | null = null;
   private wasDrag = false;
 
+  /** SS6.7's assertion annotation. Shares the recorder's `Redactor` so a value
+   *  the tester points at is redacted by the same rules and gets the same
+   *  placeholder as the value they typed into it. */
+  private picker = new ElementPicker(() => this.redactor);
+
   /* -------------------------- lifecycle -------------------------- */
 
   start(startedAt: number): void {
@@ -74,6 +80,38 @@ class Recorder {
   stop(): void {
     this.recording = false;
     this.flushPendingInput();
+    this.picker.cancel();
+  }
+
+  /**
+   * SS6.7 -- "click an element, mark this is what I'm verifying".
+   *
+   * The result outranks anything the assertion stage could infer (SS9.5), which
+   * is the whole point: with nothing but inference the agent has to guess which
+   * of the changes on screen was the one under test, and it sometimes picks a
+   * true but incidental one.
+   *
+   * No `eventId` is attached here. A frame does not know which action this
+   * belongs to -- the same reason network calls are attributed at assembly
+   * rather than in the frame -- so the timestamp is recorded and `export.ts`
+   * decides which action owns it.
+   */
+  async pickAssertion(): Promise<void> {
+    if (!this.recording || this.picker.active) return;
+    const picked = await this.picker.start();
+    if (!picked) return;
+
+    this.report({
+      type: 'annotation',
+      annotation: {
+        // The worker renumbers against the session; this only has to be unique
+        // enough to survive the trip.
+        id: `ann_${Date.now()}`,
+        kind: 'assertion',
+        timestamp: this.clock(),
+        target: picked.target,
+      },
+    });
   }
 
   /**
@@ -191,12 +229,31 @@ class Recorder {
     return elements[0] ?? (ev.target instanceof Element ? ev.target : null);
   }
 
+  /**
+   * True while the tester is choosing an element to mark (SS6.7).
+   *
+   * The picker cannot suppress these on its own. Both it and the recorder
+   * listen on `document` in the capture phase, and listeners on the same
+   * target and phase fire in registration order -- the recorder's are attached
+   * at module load and the picker's only when it starts, so the recorder sees
+   * the click first no matter what the picker does with `stopPropagation`.
+   *
+   * Without this guard, pointing at the confirmation banner is recorded as the
+   * tester having clicked it: a step that never happened, in a test case
+   * somebody has to execute.
+   */
+  private get picking(): boolean {
+    return this.picker.active;
+  }
+
   onPointerDown = (ev: PointerEvent): void => {
+    if (this.picking) return;
     this.pointerDownAt = { x: ev.clientX, y: ev.clientY };
     this.wasDrag = false;
   };
 
   onPointerUp = (ev: PointerEvent): void => {
+    if (this.picking) return;
     if (!this.pointerDownAt) return;
     const dx = ev.clientX - this.pointerDownAt.x;
     const dy = ev.clientY - this.pointerDownAt.y;
@@ -205,7 +262,7 @@ class Recorder {
   };
 
   onClick = (ev: MouseEvent): void => {
-    if (!this.recording || ev.button !== 0) return;
+    if (this.picking || !this.recording || ev.button !== 0) return;
     const el = this.targetOf(ev);
     if (!el) return;
 
@@ -219,6 +276,7 @@ class Recorder {
   };
 
   onFocusIn = (ev: FocusEvent): void => {
+    if (this.picking) return;
     // Moving straight from one field to the next fires no `change` on the
     // first one, so without this flush the earlier edit is simply lost.
     this.flushPendingInput();
@@ -228,7 +286,7 @@ class Recorder {
   };
 
   onChange = (ev: Event): void => {
-    if (!this.recording) return;
+    if (this.picking || !this.recording) return;
     const el = this.targetOf(ev);
     if (!el) return;
 
@@ -253,7 +311,7 @@ class Recorder {
   };
 
   onSubmit = (ev: Event): void => {
-    if (!this.recording) return;
+    if (this.picking || !this.recording) return;
     const el = this.targetOf(ev);
     if (!el) return;
 
@@ -280,7 +338,7 @@ class Recorder {
   }
 
   onKeyDown = (ev: KeyboardEvent): void => {
-    if (!this.recording) return;
+    if (this.picking || !this.recording) return;
     // Only keys that mean something on their own. Ordinary typing is captured
     // once, as a value change, rather than as forty keypress steps.
     const meaningful =
@@ -518,6 +576,7 @@ chrome.runtime.onMessage.addListener((message: WorkerInbound | RecorderState) =>
   if (!message || typeof message !== 'object') return;
   if (message.type === 'start') recorder.start(message.startedAt);
   if (message.type === 'stop') recorder.stop();
+  if (message.type === 'pick') void recorder.pickAssertion();
 });
 
 // A frame that loads mid-session has to find out that recording is already in

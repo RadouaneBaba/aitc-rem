@@ -16,6 +16,7 @@ import { StepList } from './components/StepList';
 import { StepDetail } from './components/StepDetail';
 import { EvidencePanel } from './components/EvidencePanel';
 import { RunPicker } from './components/RunPicker';
+import { JobBanner } from './components/JobBanner';
 
 export function App() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -25,7 +26,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  /** Re-read the run list. Called on mount, and again whenever a job settles:
+   *  a tester who pressed Send should see the draft appear, not have to reload. */
+  const refresh = useCallback(() => {
     api
       .runs()
       .then(({ runs }) => {
@@ -34,6 +37,8 @@ export function App() {
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  useEffect(refresh, [refresh]);
 
   useEffect(() => {
     if (!selected) return;
@@ -72,6 +77,7 @@ export function App() {
   if (!body || !selected) {
     return (
       <div className="empty">
+        <JobBanner onFinished={refresh} />
         {error ? <p className="error">{error}</p> : <p>Looking for a run…</p>}
         {!error && runs.length === 0 && (
           <p className="muted">
@@ -106,6 +112,8 @@ export function App() {
         />
       </header>
 
+      <JobBanner onFinished={refresh} />
+
       {error && (
         <div className="error banner" role="alert">
           {error}
@@ -132,6 +140,9 @@ export function App() {
             onDelete={() => act((rec, run) => api.deleteStep(rec, run, step.id))}
             onAssertion={(id, accepted) =>
               act((rec, run) => api.setAssertion(rec, run, step.id, id, accepted))
+            }
+            onRewordAssertion={(id, text) =>
+              act((rec, run) => api.rewordAssertion(rec, run, step.id, id, text))
             }
             onAnswer={(answer) =>
               act((rec, run) => api.answerEscalation(rec, run, step.id, answer))
