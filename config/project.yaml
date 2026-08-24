@@ -71,6 +71,34 @@ jira:
   issue_type: Test
   project_key: ""
 
+# Narration (SS6.6). The tester talks while they record; the audio is
+# transcribed HERE, on this machine, and never uploaded anywhere.
+#
+# Narration is the only lossy evidence source in this tool. Everything else --
+# node names, URLs, response bodies, console text -- is read exactly. A
+# transcript is a reconstruction, and a mis-heard number becomes a literal that
+# passes every grounding check and is still false. That is what min_confidence
+# is for, and why the model default is not the smallest one.
+narration:
+  # tiny | base | small | medium | large-v3 | large-v3-turbo, or any local
+  # CTranslate2 model. Downloaded on first use. `base` is noticeably worse on
+  # exactly the numbers and proper nouns a test case is made of.
+  model: small
+
+  # `auto` detects it. Pinning it (en, fr, ar) is both faster and more accurate
+  # on a short clip than detection is.
+  language: auto
+
+  # Below this, a segment is still stored, still shown, and still readable in
+  # the review UI -- it just cannot support the `narrated` provenance. A
+  # transcription nobody trusts must not outrank an honest inference.
+  min_confidence: 0.5
+
+  # Keep the audio after transcribing. On by default because it is the only way
+  # a human can check a lossy transcript: the review UI plays the clip beside
+  # the assertion it produced. Set false to delete it once transcribed.
+  keep_audio: true
+
 # What to do when a recording touches an origin that is not in
 # config/allowed_origins.yaml.
 #

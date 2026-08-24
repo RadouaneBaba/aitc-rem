@@ -15,12 +15,17 @@ from pathlib import Path
 
 from server.config import ProjectConfig
 from server.models import IRDocument
-from server.renderers.base import Exporter, ExportResult, case_stem, review_warnings
+from server.renderers.base import Exporter, ExportResult, case_stem, review_warnings, test_cases
 from server.renderers.jira import JiraExporter
 from server.renderers.qase import QaseExporter
 from server.renderers.xlsx import ExcelExporter
 
 #: Formats a project can ask for by name in `config/project.yaml`.
+#:
+#: `bug_md` is deliberately absent, for the same reason `trace_md` is: it is not
+#: a format a project opts into. A bug report has no other renderer -- Gherkin
+#: refuses it (SS14) -- so making it optional would mean a detected failure with
+#: nowhere to go. The pipeline writes it beside the feature file, always.
 EXPORTERS: dict[str, type] = {
     ExcelExporter.name: ExcelExporter,
     JiraExporter.name: JiraExporter,
@@ -69,4 +74,5 @@ __all__ = [
     "case_stem",
     "export_all",
     "review_warnings",
+    "test_cases",
 ]

@@ -24,6 +24,7 @@ import textwrap
 from server.config import ProjectConfig
 from server.models import FidelityFlag, IRDocument, Step, TestCaseIR
 from server.pipeline.narrative import Line, Narrative, build_narrative
+from server.renderers.base import test_cases
 
 INDENT = "  "
 GENERATOR = "aitc-rem"
@@ -54,10 +55,18 @@ def render_document(
     generated_on: str | None = None,
     config: ProjectConfig | None = None,
 ) -> dict[str, str]:
-    """Render every test case. Returns testCaseId -> feature text."""
+    """Render every test case. Returns testCaseId -> feature text.
+
+    A bug report is skipped, and not as a formatting preference. SS14 makes it a
+    different KIND of artifact -- historical and evidentiary, where a test case
+    is future-facing and reusable -- and Gherkin is a language for saying what
+    should happen. A `.feature` whose scenario is a defect would be run by a
+    suite and would fail on purpose. `server/renderers/bug_md.py` writes those.
+    """
     return {
         case.id: render_test_case(case, ir=ir, generated_on=generated_on, config=config)
         for case in ir.testCases
+        if case.kind != "bug_report"
     }
 
 
@@ -75,7 +84,12 @@ def render_test_case(
     # reads better top to bottom and a reader has one place to look. It earns
     # its keep only when a recording produced several cases that share setup,
     # which is exactly when repeating the sign-in three times would be worse.
-    siblings = len(ir.testCases) if ir else 1
+    #
+    # Counted over the cases that are actually RENDERED. A bug report shares the
+    # document and is not a scenario, so counting it here would lift a Background
+    # out of a single-scenario feature -- which is both wrong and, until
+    # `_background` was fixed below, silently lossy.
+    siblings = len(test_cases(ir)) if ir else 1
     narrative = build_narrative(case.steps, lift_background=siblings > 1)
     outline = _outline_names(case, narrative, config)
 
@@ -166,11 +180,25 @@ def _background(case: TestCaseIR, narrative: Narrative, outline: list[str]) -> l
     bottom. Decomposition lifts them once a recording yields several scenarios
     that genuinely share setup (SS9.3).
     """
+    lines = ["", f"{INDENT}Background:"]
+
+    # The lifted steps come first, because `build_narrative` has already decided
+    # which they are and assigned their keywords.
+    #
+    # This branch did not exist, and its absence DELETED them: `lift_background`
+    # moved the leading setup steps into `narrative.background` and nothing
+    # rendered that, so every multi-scenario recording lost its sign-in from the
+    # feature file. Nothing caught it -- `event_coverage` reads the IR rather
+    # than the rendered output, and a file missing a step still parses.
+    if narrative.background:
+        for line in narrative.background:
+            lines.append(f"{INDENT * 2}{line.keyword} {_step_text(line.text, outline)}")
+        return lines
+
     shared = [p for p in case.preconditions if p.shared] or case.preconditions
     if not shared:
         return []
 
-    lines = ["", f"{INDENT}Background:"]
     for index, precondition in enumerate(shared):
         keyword = "Given" if index == 0 else "And"
         text = _step_text(precondition.text, outline)

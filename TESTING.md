@@ -190,17 +190,42 @@ what the agent did, and what the gate thought of it.
 
 So you are not surprised:
 
-- **One test case per recording.** Splitting a long session into several is
-  still open, so a fifteen-minute session becomes one long test case.
-- **No step library.** Phrasing is invented fresh each run, so two recordings of
-  the same login can word it two ways.
-- **No multi-tab capture.** An OAuth popup will not be recorded.
-- **Narration is not wired in.** No audio is captured at all — not "captured but
-  unused". Annotations are the working half of that story.
-- **Nothing executes the generated test case.** It parses and it is grounded;
-  whether it would run is not yet measured.
+- **No multi-tab capture.** An OAuth popup will not be recorded. This is the one
+  gap in this list with no design behind it yet.
+- **No golden set.** The ablation measures whether agency helps; it does not
+  measure whether a given change made the output *better* against hand-written
+  references. Every recording you make is a candidate for that set, so keep
+  them.
 
-Built since this file was last accurate, in case you remember otherwise: the
-review UI (`python -m server.cli serve`), Excel and Jira export, ranked
-assertions with a verified provenance ladder, and the "mark what I'm verifying"
-annotation.
+Everything else in this file's previous version of this list has since shipped,
+in case you remember otherwise: decomposition (one recording, N test cases, with
+wrong turns pruned and reported), the step library, narration through a real
+microphone, replay against the live app, the review UI
+(`python -m server.cli serve`), and Excel/Jira/Qase export.
+
+## What Phase 3 added, and what to look at
+
+Three things, all of which show up in a run without being asked for:
+
+- **A critic and a bounded repair loop.** Only in `--config A2`. When a step
+  name is vague or an expected result is about the wrong thing, the offending
+  stage re-runs with the criticism as input, up to three attempts. What it
+  cannot fix is stated on the step rather than dropped — look for
+  `criticNotes` in `ir.json` and the `Critic:` lines in the sidecar.
+- **Coverage suggestions.** What the recording revealed that nothing exercised.
+  They are quarantined: never in the `.feature`, always under an UNVERIFIED
+  heading, and `suggestions_quarantined` fails the run if one reads back as a
+  step. `coverage.json` has them, with what each rests on.
+- **Bug mode.** If the session actually broke — a 5xx, an uncaught exception, or
+  you pressed **Mark a bug** — you get a `.bug.md` repro report *alongside* the
+  test case, not instead of it. `bug.json` shows the detector's arithmetic,
+  including on runs where it decided this was not a bug.
+
+A 4xx that the test is *about* — "orders over €500 require approval" — is
+deliberately not enough to trigger bug mode. If you think you have found a real
+failure and no report appeared, open `bug.json`: it lists every signal that
+fired and the threshold it did not reach.
+
+The comparison worth reading in the ablation table is `Findings` beside
+`Converged`. A convergence rate on its own is 100% when the critic found
+nothing, in the same way a grounding rate is 100% when the tool claims nothing.

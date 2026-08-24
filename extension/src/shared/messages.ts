@@ -77,6 +77,15 @@ export interface StopRecording {
   type: 'stop';
 }
 
+/**
+ * SS6.6 -- what the microphone is doing, for the popup.
+ *
+ * `unsupported` and `denied` are separate on purpose. One is a browser that
+ * cannot, the other is a person who said no, and telling a tester to "check
+ * their microphone" when they deliberately declined is how a tool loses trust.
+ */
+export type NarrationStatus = 'off' | 'listening' | 'muted' | 'denied' | 'unsupported';
+
 export interface RecorderState {
   type: 'state';
   recording: boolean;
@@ -86,6 +95,13 @@ export interface RecorderState {
   eventCount: number;
   origins: string[];
   annotationCount: number;
+  /** Whether the tester has asked to narrate. Off unless they turned it on. */
+  narrationEnabled: boolean;
+  narrationStatus: NarrationStatus;
+  /** 0-1, for the level meter. The only live feedback there is: transcription
+   *  happens on the server afterwards, so "is it hearing me" has no other
+   *  answer until the run finishes. */
+  narrationLevel?: number;
 }
 
 export interface EventCaptured {
@@ -129,6 +145,54 @@ export interface StartPicking {
   type: 'pick';
 }
 
+/* ------------------------------------------------------------------ */
+/* narration (SS6.6)                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Turn narration on or off. Off by default and persisted per browser: a
+ * recorder that silently opens the microphone is not something to ship, and a
+ * tester who turned it on last week should not have to again.
+ */
+export interface SetNarration {
+  type: 'set-narration';
+  enabled: boolean;
+}
+
+/** Silence the microphone mid-recording, without ending the session. The
+ *  escape hatch for "I am about to say something I would rather not have
+ *  written down" -- and everything said IS written down. */
+export interface ToggleMute {
+  type: 'toggle-mute';
+}
+
+/**
+ * The offscreen document reports that capture actually began.
+ *
+ * `at` is wall-clock, and the delta from the session start becomes
+ * `RecordingMetadata.audioOffsetMs`. The microphone takes a moment to open, so
+ * audio does NOT start when the recording does -- and every transcript
+ * timestamp is relative to the audio. Without this, every spoken sentence is
+ * shifted by however long the mic took and lands on the wrong step.
+ */
+export interface AudioStarted {
+  type: 'audio-started';
+  at: number;
+}
+
+/** Input level, for the popup's meter. Reported, never stored. */
+export interface AudioLevel {
+  type: 'audio-level';
+  level: number;
+}
+
+/** Capture could not start, or stopped on its own. */
+export interface AudioFailed {
+  type: 'audio-failed';
+  reason: 'denied' | 'unsupported' | 'error';
+  message?: string;
+}
+
 export interface QueryState {
   type: 'query-state';
 }
@@ -145,7 +209,20 @@ export type WorkerInbound =
   | ConsoleObserved
   | AnnotationAdded
   | StartPicking
+  | SetNarration
+  | ToggleMute
+  | AudioStarted
+  | AudioLevel
+  | AudioFailed
   | QueryState
   | ExportRecording;
+
+/** Worker -> offscreen document. Audio chunks do NOT travel this way: both
+ *  contexts share the extension's IndexedDB, so the offscreen document writes
+ *  them itself rather than base64-ing megabytes through the message channel. */
+export type OffscreenInbound =
+  | { type: 'audio-start'; recordingId: string; startedAt: number }
+  | { type: 'audio-stop' }
+  | { type: 'audio-mute'; muted: boolean };
 
 export type WorkerOutbound = RecorderState | { type: 'ack' } | { type: 'error'; message: string };

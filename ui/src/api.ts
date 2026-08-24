@@ -38,10 +38,37 @@ export interface Step {
   escalation?: string;
   fidelity: string[];
   selectorHints?: { strategy: string; value: string; stability: string }[];
+  /** SS9.9 -- what the critic said about this step and nothing resolved. Never
+   *  in the feature file (its body is prose and nothing else) and never
+   *  collapsed by default: an unresolved finding that a reviewer has to go
+   *  looking for is one the loop may as well have swallowed. */
+  criticNotes?: string[];
+}
+
+/** SS9.8 -- a prompt for the tester, never an artifact. Rendered apart from the
+ *  steps and labelled unverified, which is the UI half of the quarantine. */
+export interface CoverageSuggestion {
+  id: string;
+  text: string;
+  rationale: string;
+  category: string;
+  basedOn?: string[];
+}
+
+/** SS14.2 -- present only on a bug report. `actual` carries its citation,
+ *  because "the server returned 500" is worth exactly as much as the reader's
+ *  ability to check it. */
+export interface BugDetail {
+  failureStepId: string;
+  expected: string;
+  actual: string;
+  actualEvidence?: Evidence;
+  environment: { browser: string; viewport: string; url: string };
 }
 
 export interface TestCase {
   id: string;
+  kind: 'test_case' | 'bug_report';
   title: string;
   scenarioName?: string;
   description: string;
@@ -50,7 +77,9 @@ export interface TestCase {
   steps: Step[];
   parameters: { name: string; placeholder: string; category: string }[];
   omitted: { segmentId: string; reason: string; eventCount: number; summary: string }[];
-  warnings: { id: string; severity: string; message: string }[];
+  warnings: { id: string; source: string; severity: string; message: string; stepId?: string; code?: string }[];
+  suggestions?: CoverageSuggestion[];
+  bug?: BugDetail;
 }
 
 export interface IRDocument {
@@ -121,6 +150,29 @@ export interface RunBody {
   feature: Record<string, string>;
 }
 
+/**
+ * SS6.6 -- what the tester said during a step.
+ *
+ * `supportsRank` comes from the server rather than being recomputed here: the
+ * validators and this panel disagreeing about which sentence counted would be
+ * worse than not showing it. Narration is the one lossy evidence source in the
+ * tool, and that is exactly why it is shown with its audio.
+ */
+export interface NarrationSegment {
+  id: string;
+  startMs: number;
+  endMs: number;
+  text: string;
+  confidence?: number;
+  supportsRank: boolean;
+}
+
+export interface StepNarration {
+  hasAudio: boolean;
+  minConfidence?: number;
+  segments: NarrationSegment[];
+}
+
 export interface RunSummary {
   recordingId: string;
   runId: string;
@@ -163,6 +215,14 @@ export const api = {
 
   toolResponse: (rec: string, run: string, id: string) =>
     call<unknown>(`/api/runs/${rec}/${run}/tools/${id}`),
+
+  stepNarration: (rec: string, run: string, stepId: string) =>
+    call<StepNarration>(`/api/runs/${rec}/${run}/steps/${stepId}/narration`),
+
+  /** The clip itself. A transcript is a reconstruction, and a mis-heard literal
+   *  passes every automatic check this project makes -- so the only check left
+   *  is a person listening. */
+  audioUrl: (rec: string) => `/api/recordings/${rec}/audio`,
 
   editStep: (rec: string, run: string, stepId: string, text: string) =>
     call<RunBody>(`/api/runs/${rec}/${run}/steps/${stepId}`, patch({ text })),

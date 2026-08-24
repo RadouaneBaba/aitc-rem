@@ -162,7 +162,86 @@ export function App() {
           runId={selected.runId}
         />
       </main>
+
+      {testCase && <CaseNotes testCase={testCase} />}
     </div>
+  );
+}
+
+/**
+ * The three things Phase 3 produces that are not steps.
+ *
+ * All of them exist to be READ rather than run, and each would be worthless if
+ * a reader mistook it for part of the test case -- so they sit below the three
+ * panes rather than inside them, and each says what it is in its own heading.
+ */
+function CaseNotes({ testCase }: { testCase: TestCase }) {
+  const warnings = testCase.warnings ?? [];
+  const suggestions = testCase.suggestions ?? [];
+  const bug = testCase.bug;
+
+  if (!warnings.length && !suggestions.length && !bug) return null;
+
+  return (
+    <section className="casenotes">
+      {bug && (
+        <div className="bugreport">
+          <h3>
+            <span className="badge bug">bug report</span> offered alongside this test case
+          </h3>
+          {/* SS14.1 -- the tester chooses at review time. Both readings of the
+              session are valid, which is why neither replaces the other. */}
+          <p>
+            <strong>Expected:</strong> {bug.expected}
+          </p>
+          <p>
+            <strong>Actual:</strong> {bug.actual}
+          </p>
+          {bug.actualEvidence && (
+            <p className="muted">
+              Grounded in <code>{bug.actualEvidence.literal}</code> — retrieved as{' '}
+              <code>{bug.actualEvidence.toolCallId}</code> at{' '}
+              <code>{bug.actualEvidence.eventId}</code>.
+            </p>
+          )}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="warnings">
+          <h3>Warnings</h3>
+          <ul>
+            {warnings.map((w) => (
+              <li key={w.id}>
+                <span className={`badge ${w.severity}`}>{w.source}</span> {w.message}
+                {w.stepId && <code> {w.stepId}</code>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div className="suggestions">
+          <h3>What this session did not cover — UNVERIFIED</h3>
+          {/* SS9.8 -- "a prompt for the tester, not an artifact." Nothing here
+              has been checked against anything, and saying so once at the top
+              is the difference between a useful prompt and a false claim. */}
+          <p className="muted">
+            Not part of this test case and not verified. These are things the recording
+            revealed about the application that nothing has exercised yet.
+          </p>
+          <ul>
+            {suggestions.map((s) => (
+              <li key={s.id}>
+                <span className="badge">{s.category.replace(/_/g, ' ')}</span> {s.text}
+                <div className="muted">{s.rationale}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   );
 }
 

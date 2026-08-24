@@ -9,11 +9,12 @@ import type { CapturedEvent, RedactionParameter, TesterAnnotation } from '../typ
  */
 
 const DB_NAME = 'aitc-rem';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const EVENTS = 'events';
 const SHOTS = 'screenshots';
 const META = 'meta';
 const OBS = 'observations';
+const AUDIO = 'audio';
 
 export interface SessionMeta {
   recordingId: string;
@@ -27,6 +28,12 @@ export interface SessionMeta {
   parameters: RedactionParameter[];
   annotations: TesterAnnotation[];
   eventCount: number;
+  /** SS6.6 -- ms from `startedAt` to the first audio sample. The microphone
+   *  takes a moment to open, and every transcript timestamp is relative to the
+   *  audio rather than to the session, so without this each spoken sentence is
+   *  shifted by that delay and attributed to the wrong step. Absent when
+   *  narration was off or capture never started. */
+  audioOffsetMs?: number;
   /** Stopped sessions are kept, not deleted: the export page still needs them.
    *  Only `startRecording` clears the store. */
   stopped?: boolean;
@@ -41,6 +48,7 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(SHOTS)) db.createObjectStore(SHOTS, { keyPath: 'key' });
       if (!db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: 'key' });
       if (!db.objectStoreNames.contains(OBS)) db.createObjectStore(OBS, { keyPath: 'key' });
+      if (!db.objectStoreNames.contains(AUDIO)) db.createObjectStore(AUDIO, { keyPath: 'key' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -132,8 +140,38 @@ export async function allObservations(): Promise<Observation[]> {
   return rows.sort((a, b) => a.at - b.at);
 }
 
+/* ------------------------------ audio ------------------------------ */
+
+/**
+ * SS6.6 -- narration audio, in the order MediaRecorder produced it.
+ *
+ * Written here by the offscreen document rather than messaged to the worker:
+ * both share the extension's IndexedDB, and base64-ing megabytes of Opus
+ * through `chrome.runtime.sendMessage` (which serialises to JSON) would be a
+ * third of a megabyte of overhead per megabyte of speech for no gain.
+ *
+ * **Order is load-bearing and the chunks are not independent.** Only the FIRST
+ * chunk of a WebM stream carries the header; the rest are continuation
+ * clusters. Concatenated out of order, or with one missing, the result is not a
+ * file any decoder will open -- so the key is a dense sequence and assembly
+ * sorts on it.
+ */
+export async function putAudioChunk(seq: number, blob: Blob): Promise<void> {
+  await tx(AUDIO, 'readwrite', (s) => s.put({ key: seq, blob }));
+}
+
+export async function allAudioChunks(): Promise<Blob[]> {
+  const rows = await tx<{ key: number; blob: Blob }[]>(AUDIO, 'readonly', (s) => s.getAll());
+  return rows.sort((a, b) => a.key - b.key).map((r) => r.blob);
+}
+
+export async function audioBlob(): Promise<Blob | null> {
+  const chunks = await allAudioChunks();
+  return chunks.length ? new Blob(chunks, { type: chunks[0]!.type || 'audio/webm' }) : null;
+}
+
 export async function clearAll(): Promise<void> {
-  for (const store of [EVENTS, SHOTS, META, OBS]) {
+  for (const store of [EVENTS, SHOTS, META, OBS, AUDIO]) {
     await tx(store, 'readwrite', (s) => s.clear());
   }
 }

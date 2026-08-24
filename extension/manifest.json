@@ -11,7 +11,8 @@
     "downloads",
     "scripting",
     "activeTab",
-    "webNavigation"
+    "webNavigation",
+    "offscreen"
   ],
   "host_permissions": ["<all_urls>"],
 

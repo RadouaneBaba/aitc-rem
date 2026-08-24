@@ -1,5 +1,5 @@
 import { validateRecording } from '../schemas/validators.js';
-import { allEventRows, allObservations, allScreenshots, getSession } from '../background/store';
+import { allEventRows, allObservations, allScreenshots, audioBlob, getSession } from '../background/store';
 import type { ConsoleEntry, NetworkCall, Recording } from '../types/recording';
 
 /**
@@ -18,6 +18,15 @@ function download(filename: string, blob: Blob): Promise<number> {
   return chrome.downloads.download({ url, filename, saveAs: false }).finally(() => {
     // Revoking immediately can cancel an in-flight download.
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  });
+}
+
+function toBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
   });
 }
 
@@ -72,9 +81,17 @@ async function assemble(): Promise<{ recording: Recording; screenshots: { key: s
       startUrl: session.startUrl,
       origins: session.origins,
       recorderVersion: chrome.runtime.getManifest().version,
+      // SS6.6. Only present when audio was actually captured -- the mic takes a
+      // moment to open, and every transcript timestamp is relative to the audio
+      // rather than to the session, so this delta is what puts a spoken
+      // sentence on the step it belongs to.
+      ...(session.audioOffsetMs !== undefined ? { audioOffsetMs: session.audioOffsetMs } : {}),
       ...(Object.keys(fidelitySummary).length ? { fidelitySummary } : {}),
     },
     events,
+    // Narration is transcribed by the local server from the audio posted
+    // alongside this, not here: it needs a real ASR model and it is the one
+    // step in the chain that is a reconstruction rather than a reading.
     narration: [],
     annotations: session.annotations,
     parameters: session.parameters,
@@ -195,6 +212,77 @@ function renderSummary(recording: Recording, shots: number): void {
     : '<p class="muted">No values were redacted in this recording.</p>';
 }
 
+/**
+ * SS7.3 applied to speech: what the tester is about to hand over, before they
+ * hand it over.
+ *
+ * There is no transcript to show yet -- transcription happens on the server,
+ * because it needs a real ASR model. So what this can honestly say is how much
+ * audio there is and that everything on it will be written down. That sentence
+ * is the point: pattern redaction works on typed values because the recorder
+ * knows a field was `type=password`; it cannot know that "my password is
+ * hunter two" was a password, and claiming otherwise would be worse than saying
+ * nothing.
+ */
+function renderNarration(audio: Blob | null, offsetMs: number | undefined): void {
+  if (!audio) {
+    $('narration').innerHTML =
+      '<p class="muted">No audio was recorded. Turn on <em>Talk while I record</em> ' +
+      'in the popup before you start, if you want to narrate.</p>';
+    return;
+  }
+
+  const kb = Math.round(audio.size / 1024);
+  $('narration').innerHTML = `
+    <table>
+      <tr><td>Audio</td><td>${kb} KB, <code>${audio.type || 'audio/webm'}</code></td></tr>
+      <tr><td>Starts at</td><td>${((offsetMs ?? 0) / 1000).toFixed(1)}s into the recording</td></tr>
+    </table>
+    <p class="muted">
+      Transcribed on the machine running aitc-rem and kept beside the recording, so you can
+      play back what you actually said. It is not uploaded anywhere.
+    </p>
+    <div class="note">
+      <strong>Everything you said is written down.</strong> Typed values are redacted because
+      the recorder can see that a field was a password. It cannot hear that a sentence was one.
+      If you said something you would rather not keep, save the file below instead of sending,
+      or record again.
+    </div>
+    <p><audio controls src="${URL.createObjectURL(audio)}"></audio></p>
+  `;
+}
+
+/**
+ * What the server did with the audio, said out loud on the page the tester is
+ * still looking at.
+ *
+ * A run that quietly dropped the narration is indistinguishable from a tester
+ * who did not speak, and the output would simply be worse for a reason nothing
+ * on screen explains. `unsure` is surfaced for the same reason: "the tool
+ * ignored what I said" deserves an answer, and the answer is that a
+ * transcription nobody trusts does not get to outrank an honest inference.
+ */
+function narrationNote(narration: { status?: string; segments?: number; unsure?: number; reason?: string } | undefined): string {
+  if (!narration) return '';
+  switch (narration.status) {
+    case 'transcribed': {
+      const unsure = narration.unsure
+        ? ` ${narration.unsure} of them came through unclearly and will not be used to rank an ` +
+          `expected result, though you can still read them in the review UI.`
+        : '';
+      return `<br />Heard ${narration.segments} thing(s) you said.${unsure}`;
+    }
+    case 'unavailable':
+      return (
+        `<br /><strong>The audio was not transcribed.</strong> It is saved with the recording, ` +
+        `so nothing is lost and it can be transcribed later. ` +
+        `<span class="muted">(${narration.reason ?? ''})</span>`
+      );
+    default:
+      return '';
+  }
+}
+
 async function main(): Promise<void> {
   const assembled = await assemble();
   if (!assembled) {
@@ -204,12 +292,24 @@ async function main(): Promise<void> {
   }
 
   const { recording, screenshots } = assembled;
+  const audio = await audioBlob();
   renderSummary(recording, screenshots.length);
+  renderNarration(audio, recording.metadata.audioOffsetMs);
 
   // A deliberate test seam: the end-to-end suite drives the real extension in a
   // real browser and reads the assembled recording from here, rather than
   // reimplementing assembly or going through the downloads API.
-  (window as unknown as { __aitcRecording?: Recording }).__aitcRecording = recording;
+  const globals = window as unknown as {
+    __aitcRecording?: Recording;
+    __aitcAudio?: { mime: string; base64: string } | null;
+  };
+  globals.__aitcRecording = recording;
+  // Base64 because `page.evaluate` returns JSON: a Blob does not survive the
+  // boundary. Only the suite reads this, and only to write the fixture that
+  // makes narration testable without a microphone.
+  globals.__aitcAudio = audio
+    ? { mime: audio.type || 'audio/webm', base64: await toBase64(audio) }
+    : null;
 
   // The recorder validates what it is about to persist. A malformed recording
   // should fail here, at the recorder, not three pipeline stages downstream.
@@ -234,6 +334,22 @@ async function main(): Promise<void> {
     $('sent').textContent = 'Sending…';
 
     try {
+      // Audio first, and the order is load-bearing: POST /api/recordings
+      // enqueues the pipeline job immediately, so audio arriving afterwards
+      // would be transcribed for a run that had already started without it --
+      // and the recording.json on disk would then disagree with the trace that
+      // cites it.
+      if (audio) {
+        $('sent').textContent = `Sending ${Math.round(audio.size / 1024)} KB of audio…`;
+        const posted = await fetch(`${base}/api/recordings/${recording.id}/audio`, {
+          method: 'POST',
+          headers: { 'content-type': audio.type || 'audio/webm' },
+          body: audio,
+        });
+        if (!posted.ok) throw new Error(`audio: ${posted.status} ${await posted.text()}`);
+      }
+
+      $('sent').textContent = 'Sending…';
       const response = await fetch(`${base}/api/recordings`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -243,11 +359,12 @@ async function main(): Promise<void> {
         throw new Error(`${response.status} ${await response.text()}`);
       }
 
-      const { job, unknownOrigins } = await response.json();
+      const { job, unknownOrigins, narration } = await response.json();
       const review = `${base}/`;
       $('sent').innerHTML =
         `Sent. Job <code>${job.id}</code> is running the pipeline — a draft takes a ` +
         `couple of minutes. <a href="${review}" target="_blank">Open the review UI</a>.` +
+        narrationNote(narration) +
         (unknownOrigins?.length
           ? `<br /><strong>Note:</strong> ${unknownOrigins.join(', ')} ` +
             `${unknownOrigins.length === 1 ? 'is' : 'are'} not on the allowlist, so this ` +
@@ -278,7 +395,16 @@ async function main(): Promise<void> {
     for (const shot of screenshots) {
       await download(`${dir}/screens/${shot.key}.png`, dataUrlToBlob(shot.dataUrl));
     }
-    $('saved').textContent = `Saved to Downloads/${dir}/ (${screenshots.length + 1} files).`;
+    // Named so `server/cli.py` finds it beside the recording without a flag.
+    if (audio) await download(`${dir}/audio.webm`, audio);
+
+    const files = screenshots.length + 1 + (audio ? 1 : 0);
+    $('saved').innerHTML =
+      `Saved to Downloads/${dir}/ (${files} files).` +
+      (audio
+        ? ` Transcribe the audio with <code>python -m server.cli transcribe ` +
+          `recording.json --in-place</code>, or just send it above and the server does it.`
+        : '');
   });
 }
 

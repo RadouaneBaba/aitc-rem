@@ -26,6 +26,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from server.models import AgentTrace, IRDocument  # noqa: E402
 from server.pipeline.validators.base import contains_literal  # noqa: E402
+from server.pipeline.validators.grounding import bug_claim  # noqa: E402
 from server.util.canonical import response_hash  # noqa: E402
 
 
@@ -64,36 +65,45 @@ def prove(run: Path) -> Proof | None:
     proof.ablation = getattr(trace.config.ablation, "value", str(trace.config.ablation or ""))
     proof.tool_calls_per_step = {i.stepId or i.id: len(i.toolCallIds) for i in trace.investigations}
 
-    for case in ir.testCases:
-        for step in case.steps:
-            for assertion in step.assertions:
-                proof.assertions += 1
-                where = f"{case.id}/{step.id}/{assertion.id}"
-                call = calls.get(assertion.evidence.toolCallId)
+    # Every claim the gate checks, which now includes a bug report's `actual`
+    # (SS14.2 binds it exactly as tightly as any expected result). Walked
+    # through the same helper the validators use, so this script and the gate
+    # cannot come to disagree about what counts as a claim.
+    def claims():
+        for case in ir.testCases:
+            for step in case.steps:
+                for assertion in step.assertions:
+                    yield case, step, assertion
+            bug = bug_claim(case)
+            if bug is not None:
+                yield bug
 
-                if call is None:
-                    proof.problems.append(
-                        f"{where}: cites {assertion.evidence.toolCallId}, not in the trace"
-                    )
-                    continue
+    for case, step, assertion in claims():
+        proof.assertions += 1
+        where = f"{case.id}/{step.id}/{assertion.id}"
+        call = calls.get(assertion.evidence.toolCallId)
 
-                stored_path = run / call.responsePath
-                if not stored_path.exists():
-                    proof.problems.append(f"{where}: {call.id} response file is missing")
-                    continue
+        if call is None:
+            proof.problems.append(
+                f"{where}: cites {assertion.evidence.toolCallId}, not in the trace"
+            )
+            continue
 
-                stored = json.loads(stored_path.read_text(encoding="utf-8"))
-                if response_hash(stored) != call.responseHash:
-                    proof.problems.append(f"{where}: {call.id} response hash does not verify")
-                    continue
+        stored_path = run / call.responsePath
+        if not stored_path.exists():
+            proof.problems.append(f"{where}: {call.id} response file is missing")
+            continue
 
-                if not contains_literal(stored, assertion.evidence.literal):
-                    proof.problems.append(
-                        f"{where}: {assertion.evidence.literal!r} is not in {call.id}"
-                    )
-                    continue
+        stored = json.loads(stored_path.read_text(encoding="utf-8"))
+        if response_hash(stored) != call.responseHash:
+            proof.problems.append(f"{where}: {call.id} response hash does not verify")
+            continue
 
-                proof.resolved += 1
+        if not contains_literal(stored, assertion.evidence.literal):
+            proof.problems.append(f"{where}: {assertion.evidence.literal!r} is not in {call.id}")
+            continue
+
+        proof.resolved += 1
 
     return proof
 

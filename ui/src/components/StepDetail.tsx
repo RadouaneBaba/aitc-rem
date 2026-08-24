@@ -96,6 +96,21 @@ export function StepDetail({
           </ul>
         </>
       )}
+
+      {(step.criticNotes ?? []).length > 0 && (
+        <>
+          {/* SS9.9 -- "on exhaustion the step is surfaced to the human with the
+              unresolved finding stated plainly, never silently accepted." This
+              is where that promise is kept, so it is not collapsed and not
+              styled as a footnote. */}
+          <h3>What review flagged and the tool could not fix</h3>
+          <ul className="critic">
+            {(step.criticNotes ?? []).map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

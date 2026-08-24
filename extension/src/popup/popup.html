@@ -22,6 +22,16 @@
       .help { margin: 8px 0 0; font-size: 11px; color: #5b6470; line-height: 1.4; }
       .help dt { font-weight: 600; color: #1c1f23; margin-top: 5px; }
       .help dd { margin: 0; }
+      .toggle { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; }
+      .toggle input { margin: 2px 0 0; flex: none; }
+      .toggle label { margin: 0; font-weight: 600; font-size: 12px; }
+      .mic { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+      .mic .dot { width: 8px; height: 8px; border-radius: 50%; background: #b3261e; flex: none; }
+      .mic .dot.quiet { background: #c8ced6; }
+      .meter { flex: 1; height: 5px; border-radius: 3px; background: #f1f3f5; overflow: hidden; }
+      .meter i { display: block; height: 100%; width: 0; background: #2f6f4f; transition: width 120ms linear; }
+      .mic button { font-size: 11px; padding: 3px 8px; }
+      .warn { font-size: 11px; color: #b3261e; margin: 6px 0 0; line-height: 1.4; }
     </style>
   </head>
   <body>
@@ -31,6 +41,15 @@
       <label for="objective">What are you checking?</label>
       <textarea id="objective" rows="3" placeholder="Check that an order over EUR500 triggers the approval flow."></textarea>
       <p class="hint">Optional, and the strongest single signal there is &mdash; it is the one thing the recorder cannot observe for itself.</p>
+
+      <div class="toggle">
+        <input type="checkbox" id="narrate" />
+        <label for="narrate">Talk while I record</label>
+      </div>
+      <p class="hint">Say what you are checking as you go. Transcribed on your own machine and
+        kept with the recording, so you can play back what you actually said.
+        <strong>Everything you say is written down.</strong></p>
+
       <div class="row"><button class="primary" id="start">Start recording</button></div>
     </div>
 
@@ -38,6 +57,13 @@
       <div class="stat"><span class="muted">Events</span><strong id="count">0</strong></div>
       <div class="stat"><span class="muted">Annotations</span><strong id="annotations">0</strong></div>
       <div class="stat"><span class="muted">Origins</span><strong id="origins">-</strong></div>
+
+      <div class="mic" id="mic" hidden>
+        <span class="dot" id="micdot"></span>
+        <span class="meter"><i id="micmeter"></i></span>
+        <button class="ghost" id="mute">Mute</button>
+      </div>
+      <p class="warn" id="micwarn" hidden></p>
 
       <div class="row">
         <button class="primary wide" id="pick">Mark what I&rsquo;m verifying</button>

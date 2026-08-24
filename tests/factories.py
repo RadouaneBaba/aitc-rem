@@ -40,6 +40,10 @@ from server.models import (
     TestCaseMetadata,
     TesterAnnotation,
     UrlChange,
+    ValidatorAction,
+    ValidatorName,
+    ValidatorResult,
+    ValidatorStatus,
     Viewport,
 )
 
@@ -318,6 +322,39 @@ def annotation(
         **({"eventId": event_id} if event_id else {}),
         **target,
     )
+
+
+def validator_result(
+    name: ValidatorName,
+    status: ValidatorStatus = ValidatorStatus.fail,
+    *,
+    reject: bool = False,
+    step_id: str | None = None,
+    message: str | None = None,
+    attempt: int = 1,
+) -> ValidatorResult:
+    """One row of the gate's verdict, for testing what reads it.
+
+    `reject` rather than an action argument, because the only distinction the
+    repair loop cares about is whether the gate asked for a regeneration.
+    """
+    out = ValidatorResult(
+        validator=name,
+        status=status,
+        action=ValidatorAction.reject if reject else ValidatorAction.none,
+        attempt=attempt,
+    )
+    if step_id:
+        out.stepId = step_id
+    if message:
+        out.message = message
+    return out
+
+
+def validation_report(results: list[ValidatorResult]) -> Any:
+    from server.pipeline.validators import ValidationReport
+
+    return ValidationReport(results=results)
 
 
 def diff_node(ref: str, role: str, name: str) -> DiffNode:

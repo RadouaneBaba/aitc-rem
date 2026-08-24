@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable
 
 from server.models import ValidatorAction, ValidatorName, ValidatorResult, ValidatorStatus
+from server.pipeline.coverage import reads_back_as_step
 from server.pipeline.validators.base import ValidationContext, passed, result, skipped, strings_in
 
 #: Redaction happened in the browser (SS7), so anything matching here got into
@@ -93,6 +94,91 @@ def no_placeholder_leak(ctx: ValidationContext) -> Iterable[ValidatorResult]:
         ctx,
         f"no secret-shaped text in {len(ctx.ir.testCases)} test case(s)",
     )
+
+
+def suggestions_quarantined(ctx: ValidationContext) -> Iterable[ValidatorResult]:
+    """A coverage suggestion never reaches the grounded output (SS9.8).
+
+    SS9.8 and the decision log both say it in the strongest terms available:
+    suggestions "must never contaminate grounded output". Three renderers
+    already keep them out by convention. This makes it a gate, because the
+    difference matters -- a suggestion is a guess about what a tester might
+    check NEXT, and the one thing worse than not offering it is offering it in
+    a form a reader mistakes for a step that was verified.
+
+    Also checks `basedOn`. *Unverified is not the same as ungrounded*: a
+    suggestion is allowed to be about behaviour nobody exercised, and is not
+    allowed to rest on an observation nobody made.
+    """
+    suggestions = [(c, s) for c in ctx.ir.testCases for s in (c.suggestions or [])]
+    if not suggestions:
+        yield skipped(
+            ValidatorName.suggestions_quarantined, ctx, "no coverage suggestions were proposed"
+        )
+        return
+
+    known = {e.id for e in ctx.recording.events} | {c.id for c in ctx.trace.toolCalls}
+    offences = 0
+
+    for case, suggestion in suggestions:
+        if case.kind == "bug_report":
+            offences += 1
+            yield result(
+                ValidatorName.suggestions_quarantined,
+                ValidatorStatus.fail,
+                ValidatorAction.reject,
+                ctx,
+                message=(
+                    f"{case.id} is a bug report and carries a coverage suggestion. A bug "
+                    f"report is a historical record of one failure; proposing further "
+                    f"testing inside it mixes two different kinds of claim (SS14)."
+                ),
+                test_case_id=case.id,
+            )
+            continue
+
+        # The same predicate the coverage stage refuses to emit against. One
+        # function, not two, for the reason `supports_narrated` is one function:
+        # a gate and the stage it guards disagreeing about what counts is worse
+        # than either rule being wrong.
+        if reads_back_as_step(suggestion.text, ctx.rendered.get(case.id, "")):
+            offences += 1
+            yield result(
+                ValidatorName.suggestions_quarantined,
+                ValidatorStatus.fail,
+                ValidatorAction.reject,
+                ctx,
+                message=(
+                    f"suggestion {suggestion.id!r} reads back as text already in the rendered "
+                    f"feature: {suggestion.text!r}. Suggestions are quarantined from the "
+                    f"artifact and must not be renderable as steps (SS9.8)."
+                ),
+                test_case_id=case.id,
+            )
+            continue
+
+        unknown = [ref for ref in (suggestion.basedOn or []) if ref not in known]
+        if unknown:
+            offences += 1
+            yield result(
+                ValidatorName.suggestions_quarantined,
+                ValidatorStatus.fail,
+                ValidatorAction.reject,
+                ctx,
+                message=(
+                    f"suggestion {suggestion.id!r} rests on {', '.join(unknown[:4])}, which is "
+                    f"neither an event in this recording nor a retrieval in this run. "
+                    f"Unverified is not the same as ungrounded."
+                ),
+                test_case_id=case.id,
+            )
+
+    if not offences:
+        yield passed(
+            ValidatorName.suggestions_quarantined,
+            ctx,
+            f"{len(suggestions)} suggestion(s) quarantined, none renderable as a step",
+        )
 
 
 def gherkin_parses(ctx: ValidationContext) -> Iterable[ValidatorResult]:

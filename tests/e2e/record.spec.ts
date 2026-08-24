@@ -30,10 +30,29 @@ test.describe.configure({ mode: 'serial' });
 let context: BrowserContext;
 let extensionId: string;
 
+const NARRATION_WAV = resolve(ROOT, 'tests/fixtures/narration.wav');
+
 test.beforeAll(async () => {
   context = await chromium.launchPersistentContext('', {
     headless: false,
-    args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
+    args: [
+      `--disable-extensions-except=${EXTENSION}`,
+      `--load-extension=${EXTENSION}`,
+      // SS6.6. PLAN.md said narration "cannot be verified the way everything
+      // else here has been -- Playwright needs a fake audio file, not a
+      // microphone." This is the fake audio file: Windows' own synthesiser
+      // wrote it (scripts/make_narration_wav.ps1) and it is committed, so the
+      // spoken half of the pipeline is as reproducible as the clicked half.
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-audio-capture=${NARRATION_WAV}`,
+      // This, and not `context.grantPermissions`, is what answers the prompt.
+      // CDP refuses to grant to `chrome-extension://` -- it treats it as an
+      // opaque origin -- and the microphone deliberately lives at the extension
+      // origin rather than the app's (see `enableNarration`). Without this flag
+      // the prompt is simply never answered, which reads as a broken recorder
+      // rather than as a permission problem.
+      '--use-fake-ui-for-media-stream',
+    ],
   });
 
   // The service worker registers on first load and tells us the extension id.
@@ -46,11 +65,13 @@ test.afterAll(async () => {
   await context?.close();
 });
 
-async function startRecording(objective: string): Promise<Page> {
+async function startRecording(objective: string, narrate = false): Promise<Page> {
   // Open the application first: the popup is a tab in this harness, and the
   // worker deliberately refuses to record its own UI.
   const page = await context.newPage();
   await page.goto(APP);
+
+  if (narrate) await enableNarration();
 
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
@@ -64,6 +85,46 @@ async function startRecording(objective: string): Promise<Page> {
 }
 
 /**
+ * Tick "Talk while I record", the way a tester would.
+ *
+ * The checkbox opens a permission tab, because an offscreen document cannot
+ * show a prompt -- Chrome suppresses it there, which is the entire reason
+ * `mic.html` exists. Driven through the real UI rather than by writing
+ * `chrome.storage` directly: this suite exists to exercise the recorder a
+ * person actually uses.
+ */
+async function enableNarration(): Promise<void> {
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await popup.check('#narrate');
+
+  // The permission page opens in its own tab, asks, and closes itself. With the
+  // permission already granted it never renders the prompt, but it still has to
+  // run -- it is what makes Chrome associate the grant with this profile.
+  const mic = await context.waitForEvent('page', { timeout: 10_000 });
+  await mic.waitForLoadState();
+  await mic.click('#ask').catch(() => undefined);
+  await expect(mic.locator('#granted')).toBeVisible({ timeout: 10_000 });
+  await mic.waitForEvent('close', { timeout: 10_000 }).catch(() => undefined);
+  if (!mic.isClosed()) await mic.close();
+  if (!popup.isClosed()) await popup.close();
+}
+
+/**
+ * Wait until this many milliseconds have elapsed since `since`.
+ *
+ * Narration lands where the clip puts it, and the clip is fixed. Playwright
+ * drives far faster than a person, so without this the whole flow is over
+ * before the sentence is spoken and the fixture contains audio nobody was
+ * talking during. Waiting is what puts the step and the sentence in the same
+ * window.
+ */
+async function waitUntil(page: Page, since: number, elapsedMs: number): Promise<void> {
+  const remaining = elapsedMs - (Date.now() - since);
+  if (remaining > 0) await page.waitForTimeout(remaining);
+}
+
+/**
  * Playwright drives faster than any human, which makes `rapid_sequence` fire on
  * nearly every event and leaves the fixture unrepresentative of what the
  * pipeline will actually see. A short pause between actions is not politeness,
@@ -73,7 +134,13 @@ async function pause(page: Page): Promise<void> {
   await page.waitForTimeout(450);
 }
 
+type Captured = { recording: Recording; audio: { mime: string; base64: string } | null };
+
 async function stopRecording(): Promise<Recording> {
+  return (await stopAndCollect()).recording;
+}
+
+async function stopAndCollect(): Promise<Captured> {
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await popup.click('#stop');
@@ -81,16 +148,17 @@ async function stopRecording(): Promise<Recording> {
 
   const exportPage = await context.newPage();
   await exportPage.goto(`chrome-extension://${extensionId}/export.html`);
-  await exportPage.waitForFunction(() => '__aitcRecording' in window, null, { timeout: 15_000 });
+  await exportPage.waitForFunction(() => '__aitcAudio' in window, null, { timeout: 15_000 });
 
-  const recording = (await exportPage.evaluate(
-    () => (window as unknown as { __aitcRecording: Recording }).__aitcRecording,
-  )) as Recording;
+  const captured = (await exportPage.evaluate(() => {
+    const w = window as unknown as Captured & Record<string, unknown>;
+    return { recording: w.__aitcRecording, audio: w.__aitcAudio };
+  })) as unknown as Captured;
 
   // The export page runs the generated Ajv validator over what it assembled.
   await expect(exportPage.locator('#validity .ok')).toBeVisible();
   await exportPage.close();
-  return recording;
+  return captured;
 }
 
 test('records a checkout flow into a schema-valid recording.json', async () => {
@@ -445,6 +513,91 @@ test('records two flows separated by a scenario break', async () => {
 });
 
 /**
+ * The tester says what they are checking, out loud (SS6.6).
+ *
+ * Narration is the second rung of SS9.5's ladder and, until this fixture, the
+ * only one that had never been reachable: no recording anywhere contained a
+ * spoken word, so `store.narration`, the `get_narration` tool, `find_text`'s
+ * narration index and the `narrated` branch of `provenance_supported` were all
+ * built, all tested, and all dead.
+ *
+ * It is also the only LOSSY evidence source in the tool. Everything else is
+ * read exactly; a transcript is a reconstruction, and a mis-heard number
+ * becomes a literal that passes `evidence_retrieved` and `assertion_grounding`
+ * both and is still false. That is why the audio is kept, and why this test
+ * asserts the audio exists rather than only the words.
+ *
+ * Transcription itself is NOT done here. This writes `narrated.recording.json`
+ * and `narrated.audio.webm`; `python -m server.cli transcribe` fills in the
+ * narration once, and the result is committed. So the ablation and the server
+ * suite need no model download, on the same economics as the cassettes.
+ */
+test('records the tester saying what they are checking', async () => {
+  const page = await startRecording(
+    'Check that an order over EUR500 requires approval',
+    /* narrate */ true,
+  );
+  const began = Date.now();
+
+  await page.fill('#email', 'tester@example.com');
+  await pause(page);
+  await page.fill('#password', 'hunter2');
+  await pause(page);
+  await page.click('button:has-text("Sign in")');
+  await pause(page);
+  await expect(page.locator('nav.appnav')).toBeVisible();
+
+  await page.click('nav.appnav button:has-text("Checkout")');
+  await pause(page);
+  await page.fill('#total', '750');
+
+  // The clip speaks at ~5.7s and stops at ~9.2s. Playwright would otherwise be
+  // finished before the sentence began, and the fixture would contain audio
+  // recorded while nobody was talking about anything.
+  await waitUntil(page, began, 6_200);
+
+  await page.click('button:has-text("Place order")');
+  await pause(page);
+  await expect(page.locator('[role=alert]')).toContainText('approval');
+
+  // Let the sentence finish inside this step's window rather than after the
+  // recording has stopped.
+  await waitUntil(page, began, 10_500);
+  await page.close();
+
+  const { recording, audio } = await stopAndCollect();
+
+  expect(audio, 'the microphone produced nothing; narration is not being captured').toBeTruthy();
+  expect(audio!.base64.length).toBeGreaterThan(1000);
+  expect(audio!.mime).toContain('audio/');
+
+  // The microphone takes a moment to open, so audio does NOT start when the
+  // recording does -- and every transcript timestamp is relative to the audio.
+  // Without this offset each spoken sentence is shifted by that delay and lands
+  // on the wrong step, which does not fail: it produces a plausible, grounded,
+  // wrong expected result.
+  expect(recording.metadata.audioOffsetMs).toBeDefined();
+  expect(recording.metadata.audioOffsetMs!).toBeGreaterThanOrEqual(0);
+  expect(recording.metadata.audioOffsetMs!).toBeLessThan(10_000);
+
+  // The step the sentence is about has to be in here, or there is nothing for
+  // the narration to be attributed to.
+  expect(recording.events.some((e) => e.target.name === 'Place order')).toBe(true);
+  expect(recording.metadata.durationMs).toBeGreaterThan(6_000);
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'narrated.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'narrated.audio.webm'),
+    Buffer.from(audio!.base64, 'base64'),
+  );
+});
+
+/**
  * A tester who wanders (SS9.3).
  *
  * A recorded sitting is a person working, and people look for things. Opening
@@ -456,6 +609,63 @@ test('records two flows separated by a scenario break', async () => {
  * Nothing had ever wandered there: `no_pruned_assertion` has skipped on every
  * run this project has made, for want of a recording with a wrong turn in it.
  */
+/**
+ * SS14. Every other fixture records something working. This one records
+ * something breaking, which bug mode cannot be demonstrated without: the
+ * detector is deterministic and its threshold is deliberately set so that the
+ * 409 in `checkout`, `twoflows`, `wander` and `narrated` -- a rejection each of
+ * those tests is ABOUT -- never reaches it. Only a real failure should.
+ *
+ * Three of SS14.1's signals fire here at once, the way they do in a real
+ * session: an HTTP 5xx, an uncaught exception, and an error in a live region.
+ * The tester also presses the bug-marker hotkey, which is decisive on its own
+ * and is the half of SS6.7 that `docs/RECORDING.md` has been promising works.
+ */
+test('records a session where something actually breaks', async () => {
+  const page = await startRecording('Check that an order can be exported after approval');
+
+  await page.fill('#email', 'tester@example.com');
+  await pause(page);
+  await page.fill('#password', 'hunter2');
+  await pause(page);
+  await page.click('button:has-text("Sign in")');
+  await pause(page);
+  await expect(page.locator('nav.appnav')).toBeVisible();
+
+  await page.click('button:has-text("Add Blue Widget to cart")');
+  await pause(page);
+  await page.click('nav.appnav button:has-text("Checkout")');
+  await pause(page);
+
+  // The thing that breaks.
+  await page.click('button:has-text("Export the order")');
+  await pause(page);
+  await expect(page.locator('[role=alert]')).toContainText('Internal server error');
+
+  // The tester saw it and said so.
+  await annotate('bug_marker');
+  await pause(page);
+
+  await page.close();
+  const recording = await stopRecording();
+
+  const failed = recording.events.filter((e) =>
+    e.network.some((n) => n.url.includes('/api/boom') && (n.status ?? 0) >= 500),
+  );
+  expect(failed.length, 'the 500 must be captured').toBeGreaterThan(0);
+  expect(
+    recording.annotations.some((a) => a.kind === 'bug_marker'),
+    'the bug marker must reach the recording -- docs/RECORDING.md promises it does',
+  ).toBe(true);
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'bugged.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+});
+
 test('records a session with a wrong turn in it', async () => {
   const page = await startRecording('Check that an order over EUR500 requires approval');
 

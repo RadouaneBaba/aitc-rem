@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -50,6 +50,8 @@ STAGE_DETAIL = {
     PipelineStage.decompose: "composing the test case",
     PipelineStage.render: "writing the feature file",
     PipelineStage.validate: "checking every claim against the evidence",
+    PipelineStage.critic: "reading it back the way a reviewer would",
+    PipelineStage.coverage: "looking for what this session did not cover",
 }
 
 
@@ -154,7 +156,17 @@ def create_app(
             raise HTTPException(422, f"not a valid recording: {exc}") from exc
 
         unknown = _unknown_origins(recording, config.origin_policy)
-        storage.save_recording_json(recording.id, raw)
+
+        # SS6.6 -- narration, if the recorder captured any. The audio arrives on
+        # its own endpoint BEFORE this one, because this call enqueues the job
+        # immediately and transcription has to have something to read.
+        #
+        # It happens here rather than inside `_run` so that what is saved to
+        # disk is the recording the pipeline actually saw. A recording.json
+        # whose narration existed only in memory would make every trace
+        # referencing it unreproducible.
+        transcription = _transcribe_if_audio(recording, storage, config)
+        storage.save_recording(recording)
 
         run_id = _next_run_id(storage, recording.id)
         job = runner.enqueue(
@@ -167,7 +179,38 @@ def create_app(
             # SS7.3 -- the pre-send screen, as a fact the UI can show rather
             # than a promise in a document.
             "unknownOrigins": unknown,
+            "narration": transcription,
         }
+
+    @app.post("/api/recordings/{recording_id}/audio", status_code=201)
+    async def post_audio(recording_id: str, request: Request) -> dict[str, Any]:
+        """Narration audio, posted before the recording it belongs to (SS7.5).
+
+        A raw body rather than multipart: there is exactly one file, the
+        recorder already knows its own id, and multipart would buy a parser
+        dependency and a form-field name in exchange for nothing.
+
+        The audio does not leave this machine. This server is `127.0.0.1`, the
+        transcription runs in-process, and the pipeline only ever sees text.
+        """
+        data = await request.body()
+        if not data:
+            raise HTTPException(400, "empty audio body")
+        path = storage.save_audio(recording_id, data)
+        return {"bytes": len(data), "path": str(path)}
+
+    @app.get("/api/recordings/{recording_id}/audio")
+    def get_audio(recording_id: str):
+        """SS13.3 -- so a reviewer can hear what was actually said.
+
+        The only verification a lossy evidence source can have. A mis-heard
+        literal passes every grounding check this project makes, so the check
+        that matters is a person listening.
+        """
+        path = storage.audio_path(recording_id)
+        if not path.is_file():
+            raise HTTPException(404, "this recording has no narration audio")
+        return FileResponse(path, media_type="audio/webm", filename=path.name)
 
     @app.get("/api/recordings")
     def list_recordings() -> dict[str, Any]:
@@ -201,6 +244,50 @@ def create_app(
             "trace": _load_json(run.root / "trace.json"),
             "review": _load_review(run.root, ir).model_dump(mode="json", exclude_none=True),
             "feature": _feature_text(run.root, ir, config),
+        }
+
+    @app.get("/api/runs/{recording_id}/{run_id}/steps/{step_id}/narration")
+    def step_narration(recording_id: str, run_id: str, step_id: str) -> dict[str, Any]:
+        """What the tester said during this step, and whether it counted.
+
+        Computed here rather than matched in the browser because the window is
+        the step's events plus its settle tail, and the UI has neither event
+        timestamps nor the settle rule. Reuses the store the validators read, so
+        a reviewer cannot be shown a different set of segments than the ones the
+        gate considered.
+        """
+        from server.evidence.store import EvidenceStore
+        from server.pipeline.transcribe import supports_narrated
+
+        run = storage.run(recording_id, run_id)
+        ir = _load_ir(run.root)
+        step = next(
+            (s for case in ir.testCases for s in case.steps if s.id == step_id),
+            None,
+        )
+        if step is None:
+            raise HTTPException(404, f"no step {step_id} in this run")
+
+        recording = Recording.model_validate(storage.load_recording_json(recording_id))
+        store = EvidenceStore(recording=recording)
+        times = [store.event(e).timestamp for e in step.eventIds if store.has_event(e)]
+        if not times:
+            return {"segments": [], "hasAudio": storage.audio_path(recording_id).is_file()}
+
+        segments = store.narration(min(times), max(times) + 2000)
+        return {
+            "hasAudio": storage.audio_path(recording_id).is_file(),
+            "minConfidence": config.narration_min_confidence,
+            "segments": [
+                {
+                    **s.model_dump(mode="json", exclude_none=True),
+                    # Stated rather than left for the UI to recompute: the gate
+                    # and the panel disagreeing about which sentence counted
+                    # would be worse than not showing it at all.
+                    "supportsRank": supports_narrated(s, config.narration_min_confidence),
+                }
+                for s in segments
+            ],
         }
 
     @app.get("/api/runs/{recording_id}/{run_id}/tools/{tool_call_id}")
@@ -419,6 +506,64 @@ def _unknown_origins(recording: Recording, policy: str = "warn") -> list[str]:
         return []
     allowed = load_allowed_origins()
     return [o for o in recording.metadata.origins if o not in allowed]
+
+
+def _transcribe_if_audio(
+    recording: Recording, storage: Storage, config: ProjectConfig
+) -> dict[str, Any]:
+    """Narration audio -> `recording.narration`, locally (SS6.6).
+
+    Degrades loudly, and the return value is what makes that possible: a run
+    that silently dropped the narration is indistinguishable from a tester who
+    did not speak, and the output would be quietly worse for a reason nothing on
+    screen explains. So the reason travels back to the export page, which is
+    still open and is the last place the tester is looking.
+
+    Narration already on the recording wins. A tester who corrected a transcript
+    and re-sent it should not have it thrown away and re-guessed.
+    """
+    if recording.narration:
+        return {"status": "supplied", "segments": len(recording.narration)}
+
+    audio = storage.audio_path(recording.id)
+    if not audio.is_file():
+        return {"status": "none"}
+
+    from server.pipeline.transcribe import (
+        TranscriptionSettings,
+        TranscriptionUnavailable,
+        transcribe,
+    )
+
+    try:
+        recording.narration = transcribe(
+            audio,
+            settings=TranscriptionSettings(
+                model=config.narration_model,
+                language=config.narration_language,
+                min_confidence=config.narration_min_confidence,
+            ),
+            offset_ms=recording.metadata.audioOffsetMs or 0.0,
+        )
+    except TranscriptionUnavailable as exc:
+        return {"status": "unavailable", "reason": str(exc)}
+
+    if not config.narration_keep_audio:
+        audio.unlink(missing_ok=True)
+
+    return {
+        "status": "transcribed",
+        "segments": len(recording.narration),
+        "model": config.narration_model,
+        # Below the threshold a segment is kept and readable but cannot support
+        # the `narrated` rank. Surfaced rather than hidden: "the tool ignored
+        # what I said" needs an answer, and this is it.
+        "unsure": sum(
+            1
+            for s in recording.narration
+            if s.confidence is not None and s.confidence < config.narration_min_confidence
+        ),
+    }
 
 
 def _next_run_id(storage: Storage, recording_id: str) -> str:

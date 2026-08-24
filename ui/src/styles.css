@@ -173,6 +173,18 @@ button.merge { margin-top: 8px; width: 100%; }
   white-space: pre;
 }
 .feature { max-height: none; }
+/* SS6.6 -- narration, the one lossy evidence source. Set apart from the
+ * retrievals above it because it is the one a human still has to check: the
+ * clip is the only verification a transcript can have. */
+.spoken { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 7px; }
+.spoken > li { border-left: 2px solid var(--accent); padding-left: 9px; font-size: 13px; }
+.spoken .at { color: var(--muted); font-size: 11.5px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.spoken q { quotes: '\201C' '\201D'; }
+.spoken > li.unsure { border-left-color: var(--line); color: var(--muted); }
+.spoken em { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.evidence audio { width: 100%; margin: 2px 0 4px; }
+.small { font-size: 11.5px; line-height: 1.45; }
+
 .narrative { border-left: 2px solid var(--line); padding-left: 9px; margin-bottom: 12px; }
 .trail { margin: 4px 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
 .ids { color: var(--muted); font-size: 12.5px; word-break: break-all; }
@@ -201,4 +213,58 @@ button.merge { margin-top: 8px; width: 100%; }
   padding: 2px 6px;
   border: 1px solid var(--accent);
   border-radius: 4px;
+}
+
+/* Phase 3. The three outputs that are not steps (SS9.8, SS9.9, SS14).
+   Below the three panes rather than inside them: each would be worthless if a
+   reader mistook it for part of the test case, so none of them shares a
+   container with one. */
+.casenotes {
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: 14px 18px;
+  max-height: 34vh;
+  overflow-y: auto;
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.casenotes > div { flex: 1 1 320px; min-width: 280px; }
+.casenotes h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.casenotes ul { list-style: none; margin: 0; padding: 0; }
+.casenotes li { margin-bottom: 10px; line-height: 1.45; }
+.casenotes p { margin: 4px 0; line-height: 1.45; }
+.casenotes .badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.badge.warn { color: var(--warn); border-color: var(--warn); }
+.badge.error { color: var(--danger); border-color: var(--danger); }
+.badge.bug { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+
+/* Unverified, and it has to look it. SS9.8's quarantine is only real if a
+   reader can tell at a glance which column was checked and which was not. */
+.suggestions { border-left: 3px dashed var(--line); padding-left: 14px; }
+.bugreport { border-left: 3px solid var(--danger); padding-left: 14px; }
+
+/* SS9.9 -- never collapsed by default. A finding a reviewer has to go looking
+   for is one the repair loop may as well have swallowed. */
+.critic { list-style: none; margin: 0; padding: 0; }
+.critic li {
+  border-left: 3px solid var(--warn);
+  padding: 4px 0 4px 10px;
+  margin-bottom: 8px;
+  line-height: 1.45;
 }

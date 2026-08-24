@@ -7,5 +7,6 @@ worth watching happen.
 """
 
 from server.importers.devtools import import_devtools
+from server.importers.transcript import describe, load_transcript
 
-__all__ = ["import_devtools"]
+__all__ = ["describe", "import_devtools", "load_transcript"]

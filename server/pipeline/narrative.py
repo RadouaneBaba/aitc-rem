@@ -406,7 +406,7 @@ def _absorb(keeper: Step, other: Step) -> Step:
 
     merged.eventIds = list(dict.fromkeys([*keeper.eventIds, *other.eventIds]))
     merged.fidelity = list(dict.fromkeys([*keeper.fidelity, *other.fidelity]))
-    merged.assertions = [*keeper.assertions, *other.assertions]
+    merged.assertions = dedupe_assertions([*keeper.assertions, *other.assertions])
     merged.confidence = min(
         keeper.confidence, other.confidence, key=lambda c: _CONFIDENCE_ORDER.get(c, 1)
     )
@@ -419,10 +419,72 @@ def _absorb(keeper: Step, other: Step) -> Step:
     return merged
 
 
+def dedupe_assertions(assertions: list) -> list:
+    """Drop expected results that say the same thing, keeping the first.
+
+    Two steps merging is the common cause, and it produced a visible defect: a
+    scenario ending
+
+        Then the cart badge shows one item
+        And the cart badge shows one item
+
+    Both halves of the merge had independently gone and retrieved the same fact,
+    so there really were two assertions -- same sentence, same literal, same
+    event, two different `toolCallId`s. Unioning `eventIds` and concatenating
+    `assertions` was right for everything except this.
+
+    Deduplicating weakens nothing. Each surviving assertion still points at its
+    own retrieval and still has to satisfy the gate; what is dropped is a second
+    proof of a claim that was already proven. That is the one kind of thing this
+    project is allowed to discard silently, because losing it costs a reader
+    nothing and keeping it costs them a sentence they have to read twice.
+
+    Compared on the SENTENCE, not the evidence. What a reader sees repeated is
+    the prose, and two citations for one claim are still one line in the file.
+    """
+    out: list = []
+    seen: set[str] = set()
+    for assertion in assertions:
+        key = " ".join((assertion.text or "").split()).strip(" .").casefold()
+        if key and key in seen:
+            continue
+        seen.add(key)
+        out.append(assertion)
+    return out
+
+
 def _keeps_parameters(replacement: str, originals: list[str]) -> bool:
     """Does the merged sentence still name every parameter it replaces?"""
     wanted = {name for text in originals for name in PLACEHOLDER.findall(text)}
     return wanted <= set(PLACEHOLDER.findall(replacement))
+
+
+def would_collapse(texts: list[str], index: int, replacement: str) -> bool:
+    """Would rewriting `texts[index]` make `merge_repeats` swallow a step?
+
+    The repair loop (SS9.9) is the only thing that rewrites a step name after
+    the narrative has been built, and `merge_repeats` above folds any two
+    ADJACENT steps whose text matches exactly. So a repair that makes a name
+    more generic -- which is precisely what a repair prompted with "this name is
+    too vague" might do -- can silently delete the step next to it.
+
+    That would change the step COUNT between two attempts of the same run, and
+    SS3.6 promises a recording produces the same count every time. It would also
+    move `Yield`'s denominator mid-run, which is worse: the metric would improve
+    because a step vanished.
+
+    Deterministic and here rather than a line in the repair prompt, for the same
+    reason `with_subject` is deterministic: the prompt already asks, and a
+    prompt that asks is not a guarantee.
+    """
+    candidate = _normalise(replacement)
+    if not candidate:
+        return False
+    return any(
+        _normalise(texts[i]) == candidate
+        for i in (index - 1, index + 1)
+        if 0 <= i < len(texts)
+    )
 
 
 def _normalise(text: str) -> str:
@@ -443,5 +505,7 @@ __all__ = [
     "build_narrative",
     "keyword_for_role",
     "sync_keywords",
+    "dedupe_assertions",
     "merge_repeats",
+    "would_collapse",
 ]

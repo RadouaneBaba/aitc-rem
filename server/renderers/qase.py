@@ -33,7 +33,7 @@ from typing import Any
 from server.config import ProjectConfig
 from server.models import IRDocument, TestCaseIR
 from server.pipeline.narrative import build_narrative
-from server.renderers.base import ExportResult, review_warnings
+from server.renderers.base import ExportResult, review_warnings, test_cases
 from server.renderers.gherkin import render_test_case
 
 #: Qase's own vocabulary. `severity` and `priority` are deliberately left at
@@ -52,7 +52,7 @@ class QaseExporter:
     def export(self, ir: IRDocument, *, out_dir: Path, config: ProjectConfig) -> ExportResult:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        cases = [build_case(case, config) for case in ir.testCases]
+        cases = [build_case(case, config) for case in test_cases(ir)]
         # One request for the whole run: Qase takes an array, and N separate
         # calls would be N chances to half-import a suite.
         body = {"cases": cases}

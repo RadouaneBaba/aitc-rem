@@ -35,7 +35,8 @@ export type ValidatorName =
   | "library_verbatim"
   | "no_placeholder_leak"
   | "selector_resolvable"
-  | "no_pruned_assertion";
+  | "no_pruned_assertion"
+  | "suggestions_quarantined";
 export type ValidatorStatus = "pass" | "fail" | "warn" | "skip";
 /**
  * reject -> regenerate. hard_fail -> do not render at all (no_placeholder_leak only).
@@ -287,7 +288,18 @@ export interface RunMetrics {
    */
   groundingRate?: number;
   assertionsUngrounded?: number;
+  /**
+   * SS3.5 -- 'validator pass rate (FIRST attempt)'. Frozen at attempt 1 and never overwritten by the repair loop: a repair that lifted this number would be reporting itself working by hiding that it had to.
+   */
   validatorFirstPassRate?: number;
+  /**
+   * The same gate after the repair loop has finished. Read as a pair with validatorFirstPassRate -- the distance between them is what repair bought.
+   */
+  validatorFinalPassRate?: number;
+  /**
+   * The denominator of repairConvergenceRate, and it never ships without it. A convergence rate over zero findings is vacuously 1.0, exactly the way groundingRate is vacuously 1.0 for a configuration that abstains.
+   */
+  criticFindingsRaised?: number;
   toolCallsTotal?: number;
   /**
    * Keyed by stepId. The x-axis of the effort/difficulty correlation (SS3.4), and the column that separates an agent from a chain -- a chain is flat by construction.
@@ -295,6 +307,9 @@ export interface RunMetrics {
   toolCallsPerStep?: {
     [k: string]: number;
   };
+  /**
+   * SS9.9 -- how often repair fixed the finding within budget. Meaningless without criticFindingsRaised beside it.
+   */
   repairConvergenceRate?: number;
   /**
    * Collected passively from the review UI (SS13.5).

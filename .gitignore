@@ -1,4 +1,9 @@
 # Local data stores — never committed (§15.3)
+#
+# `recordings/` now holds narration audio (recordings/<id>/audio.webm) as well
+# as snapshots, so this covers a tester's actual voice. Do not narrow it to
+# un-ignore "just the json": the audio sits in the same directory and is the
+# one artifact here that is a person rather than a page.
 recordings/
 runs/
 

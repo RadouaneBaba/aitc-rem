@@ -23,7 +23,14 @@ import pytest
 from server.evidence.store import EvidenceStore
 from server.evidence.tools import ToolRunner
 from server.llm import ScriptedModelClient, answer
-from server.models import Confidence, PipelineStage, Provenance, SegmentRole, StepInvestigation
+from server.models import (
+    Confidence,
+    NarrationSegment,
+    PipelineStage,
+    Provenance,
+    SegmentRole,
+    StepInvestigation,
+)
 from server.pipeline.assertions import MAX_CANDIDATES, _baseline, propose_assertions
 from server.pipeline.name import NamedStep, NamingResult
 from server.pipeline.segment import segment_recording
@@ -422,6 +429,64 @@ def test_a_claim_of_narrated_with_no_narration_is_demoted(tmp_path: Path):
         {"candidates": [candidate(text="the banner appears", provenance="narrated")]},
     )
     assert first(result).candidates[0].provenance == Provenance.inferred
+
+
+def spoken(confidence: float | None = 0.9):
+    """The tester says the expected result out loud, over the whole step."""
+    rec = unannotated()
+    rec.narration = [
+        NarrationSegment(
+            id="nar_001",
+            startMs=2500.0,
+            endMs=4000.0,
+            text="now I'm checking that the order confirmation appears",
+            **({"confidence": confidence} if confidence is not None else {}),
+        )
+    ]
+    return rec
+
+
+def test_narration_the_tester_really_spoke_supports_the_rank(tmp_path: Path):
+    """The other half of the demotion test.
+
+    Verification must not flatten the ladder into "everything is inferred", or
+    SS9.5 stops doing anything -- and until this milestone no recording anywhere
+    had a spoken word in it, so this branch had never once run.
+    """
+    result = propose(
+        _harness(tmp_path, spoken()),
+        {"candidates": [candidate(text="the banner appears", provenance="narrated")]},
+    )
+    assert first(result).candidates[0].provenance == Provenance.narrated
+
+
+def test_narration_the_transcriber_was_unsure_of_does_not_outrank_inference(tmp_path: Path):
+    """Narration is the only LOSSY evidence source here, and this is the guard.
+
+    Whisper hears "six fifty" for "six fifteen". The literal is genuinely in the
+    stored tool response, so `evidence_retrieved` passes; it is genuinely in the
+    index, so `assertion_grounding` passes. Both validators are right and the
+    claim is false. What must not additionally happen is that claim outranking
+    an honest inference on the strength of a transcription nobody trusts.
+    """
+    result = propose(
+        _harness(tmp_path, spoken(confidence=0.12)),
+        {"candidates": [candidate(text="the banner appears", provenance="narrated")]},
+    )
+    assert first(result).candidates[0].provenance == Provenance.inferred
+
+
+def test_narration_with_no_confidence_at_all_is_trusted(tmp_path: Path):
+    """It came through `--narration`: a human wrote or corrected it.
+
+    The gate is aimed at a transcriber that was guessing, not at a person who
+    typed out what they said.
+    """
+    result = propose(
+        _harness(tmp_path, spoken(confidence=None)),
+        {"candidates": [candidate(text="the banner appears", provenance="narrated")]},
+    )
+    assert first(result).candidates[0].provenance == Provenance.narrated
 
 
 def test_objective_survives_because_this_recording_has_one(tmp_path: Path):

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from server.ablation import run_ablation, write_report
 from server.api.review import new_review
-from server.config import load_allowed_origins, load_project_config
+from server.config import KNOWN_WHISPER_MODELS, load_allowed_origins, load_project_config
 from server.library import StepLibrary, library_path
 from server.llm.cassette import CassetteClient
 from server.llm.chain import BudgetGuard, FallbackChain, RateLimiter, RetryingClient
@@ -69,6 +69,81 @@ def load_recording(path: Path) -> Recording:
     return Recording.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
 
+#: What the recorder names the audio it captured, and what the export page
+#: downloads beside `recording.json`.
+AUDIO_NAMES = ("audio.webm", "audio.ogg", "audio.wav", "audio.m4a")
+
+
+def find_audio(recording_path: Path, recording_id: str) -> Path | None:
+    """Narration audio for this recording, if any was captured (SS6.6).
+
+    Two layouts, because there are two ways a recording arrives. The extension
+    posts to the server and the audio lands at `recordings/<id>/audio.webm`; a
+    fixture or a hand-placed file sits beside its own json, named for it. Both
+    are checked so neither needs a flag.
+    """
+    stem = recording_path.name.removesuffix(".json").removesuffix(".recording")
+    candidates = [recording_path.parent / f"{stem}.audio{ext}" for ext in (".webm", ".ogg", ".wav")]
+    candidates += [recording_path.parent / name for name in AUDIO_NAMES]
+    candidates += [Storage().recordings_dir / recording_id / name for name in AUDIO_NAMES]
+    return next((path for path in candidates if path.exists()), None)
+
+
+def attach_narration(
+    recording: Recording,
+    recording_path: Path,
+    *,
+    transcript: str | None,
+    offset_ms: float,
+    project,
+    quiet: bool = False,
+) -> None:
+    """Put narration on the recording, from a transcript or from audio.
+
+    Order is deliberate. An explicit `--narration` wins over audio, because the
+    reason to pass one is usually that the transcription got something wrong and
+    correcting the file is the honest fix. Narration already on the recording is
+    left alone: a fixture ships pre-transcribed so the suite never needs a model
+    download, and re-transcribing it on every run would be both slow and a way
+    for the committed fixture to quietly stop matching itself.
+    """
+    from server.importers import describe, load_transcript
+
+    if transcript:
+        recording.narration = load_transcript(Path(transcript), offset_ms)
+    elif not recording.narration:
+        audio = find_audio(recording_path, recording.id)
+        if audio is None:
+            return
+        from server.pipeline.transcribe import (
+            TranscriptionSettings,
+            TranscriptionUnavailable,
+            transcribe,
+        )
+
+        settings = TranscriptionSettings(
+            model=project.narration_model,
+            language=project.narration_language,
+            min_confidence=project.narration_min_confidence,
+        )
+        # Degrade loudly. A run that silently dropped the narration would look
+        # like a tester who did not speak, and the output would be quietly worse
+        # for a reason nothing on screen explains.
+        try:
+            print(f"Transcribing {audio.name} with {settings.model} (local, no upload)...")
+            recording.narration = transcribe(
+                audio,
+                settings=settings,
+                offset_ms=recording.metadata.audioOffsetMs or 0.0,
+            )
+        except TranscriptionUnavailable as exc:
+            print(f"WARNING: {audio.name} was not transcribed.\n{exc}\n", file=sys.stderr)
+            return
+
+    if recording.narration and not quiet:
+        print(describe(recording.narration, recording.metadata.durationMs))
+
+
 def check_origins(recording: Recording, *, allow: bool, policy: str = "warn") -> None:
     """The pre-send gate (SS7.3, SS9.12).
 
@@ -106,12 +181,20 @@ def check_origins(recording: Recording, *, allow: bool, policy: str = "warn") ->
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    recording = load_recording(Path(args.recording))
+    path = Path(args.recording)
+    recording = load_recording(path)
     # House style is project configuration, not a pipeline argument (SS9.12's
     # posture applied to output): it changes how the artifact reads and never
     # what it claims. Loaded before the gate because the gate's strength is one
     # of its settings.
     project = load_project_config()
+    attach_narration(
+        recording,
+        path,
+        transcript=args.narration,
+        offset_ms=args.narration_offset,
+        project=project,
+    )
     check_origins(recording, allow=args.allow_any_origin, policy=project.origin_policy)
 
     storage = Storage()
@@ -164,10 +247,19 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_ablate(args: argparse.Namespace) -> int:
-    recordings = [load_recording(Path(p)) for p in args.recordings]
-    policy = load_project_config().origin_policy
-    for recording in recordings:
-        check_origins(recording, allow=args.allow_any_origin, policy=policy)
+    project = load_project_config()
+    recordings = []
+    for raw in args.recordings:
+        path = Path(raw)
+        recording = load_recording(path)
+        # No --narration here on purpose: one transcript cannot belong to
+        # several recordings, and the ablation compares configurations over a
+        # fixed corpus. A fixture carries its own narration.
+        attach_narration(
+            recording, path, transcript=None, offset_ms=0.0, project=project, quiet=True
+        )
+        check_origins(recording, allow=args.allow_any_origin, policy=project.origin_policy)
+        recordings.append(recording)
 
     storage = Storage()
     # SS9.12 -- the ablation pins one provider and one model and disables
@@ -220,10 +312,16 @@ def cmd_import(args: argparse.Namespace) -> int:
     document = json.loads(Path(args.file).read_text(encoding="utf-8"))
     recording = import_devtools(document, recording_id=args.recording_id)
 
+    # A DevTools export has no audio and never will, so `--narration` is the
+    # only way an imported session can reach the `narrated` rank at all.
+    if args.narration:
+        from server.importers import describe, load_transcript
+
+        recording.narration = load_transcript(Path(args.narration), args.narration_offset)
+        print(describe(recording.narration, recording.metadata.durationMs))
+
     storage = Storage()
-    path = storage.save_recording_json(
-        recording.id, json.loads(recording.model_dump_json(exclude_none=True))
-    )
+    path = storage.save_recording(recording)
     print(f"Imported:  {recording.id}  ({len(recording.events)} events)")
     print(f"Written:   {path}")
     if recording.parameters:
@@ -241,6 +339,94 @@ def cmd_import(args: argparse.Namespace) -> int:
         "Run it with:\n"
         f"    python -m server.cli run {path}"
     )
+    return 0
+
+
+def cmd_transcribe(args: argparse.Namespace) -> int:
+    """Turn narration audio into `narration` on a recording (SS6.6).
+
+    Separate from `run` because transcription is the one lossy step in this
+    pipeline and deserves to be inspectable on its own. A mis-heard number
+    becomes a literal that passes `evidence_retrieved` AND `assertion_grounding`
+    and is still false, so reading the transcript before it is used is a real
+    thing to want to do -- which is why neither `--in-place` nor `--out` is
+    assumed. Without one, this prints and writes nothing.
+
+    It is also the re-transcribe path: a second pass with a bigger model, or
+    with the language pinned, costs one command and no re-recording.
+    """
+    from server.importers import describe
+    from server.pipeline.transcribe import (
+        TranscriptionSettings,
+        TranscriptionUnavailable,
+        transcribe,
+    )
+
+    path = Path(args.recording)
+    recording = load_recording(path)
+    project = load_project_config()
+
+    audio = Path(args.audio) if args.audio else find_audio(path, recording.id)
+    if audio is None or not audio.exists():
+        print(
+            f"No audio found for {recording.id}. Looked beside {path.name} and in "
+            f"recordings/{recording.id}/. Pass one with --audio.",
+            file=sys.stderr,
+        )
+        return 1
+
+    settings = TranscriptionSettings(
+        model=args.narration_model or project.narration_model,
+        language=args.language or project.narration_language,
+        min_confidence=project.narration_min_confidence,
+    )
+    offset = recording.metadata.audioOffsetMs or 0.0
+
+    print(f"Audio:      {audio}")
+    print(f"Model:      {settings.model}  (local, nothing is uploaded)")
+    print(f"Offset:     {offset:.0f}ms from the recording's zero")
+    try:
+        recording.narration = transcribe(audio, settings=settings, offset_ms=offset)
+    except TranscriptionUnavailable as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 1
+
+    print()
+    print(describe(recording.narration, recording.metadata.durationMs))
+    print()
+    for segment in recording.narration:
+        confidence = "" if segment.confidence is None else f"  [{segment.confidence:.2f}]"
+        # Marked here as well as in the review UI: below the threshold it is
+        # kept and readable but cannot support the `narrated` rank, and that is
+        # a fact about the output rather than an internal detail.
+        weak = (
+            "  (too unsure to rank)"
+            if segment.confidence is not None
+            and segment.confidence < settings.min_confidence
+            else ""
+        )
+        print(f"  {segment.startMs / 1000:7.1f}s  {segment.text}{confidence}{weak}")
+
+    out = path if args.in_place else (Path(args.out) if args.out else None)
+    if out is None:
+        print(
+            "\nNothing written. Re-run with --in-place to write it back, or "
+            "--out <file> to write a copy."
+        )
+        return 0
+
+    # by_alias, or `UrlChange.from_` is written where the schema says `from` and
+    # the file stops validating on the next read. See `Storage.save_recording`.
+    out.write_text(
+        json.dumps(
+            json.loads(recording.model_dump_json(by_alias=True, exclude_none=True)),
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"\nWritten:    {out}")
     return 0
 
 
@@ -306,7 +492,31 @@ def main(argv: list[str] | None = None) -> int:
         help="send even when an origin is not on the allowlist; overrides origin_policy",
     )
 
-    run = sub.add_parser("run", parents=[common], help="run the pipeline over one recording")
+    # SS6.6. A transcript from anywhere -- OS dictation, a voice memo, or typed
+    # notes with timestamps -- makes `narrated` reachable without a microphone,
+    # and is how a bad transcription gets corrected.
+    narration = argparse.ArgumentParser(add_help=False)
+    narration.add_argument(
+        "--narration",
+        default=None,
+        metavar="FILE",
+        help="a transcript to use as narration: WebVTT, SRT, or a JSON array of segments",
+    )
+    narration.add_argument(
+        "--narration-offset",
+        type=float,
+        default=0.0,
+        metavar="MS",
+        help=(
+            "shift the transcript by this many ms. A recording made on a separate device "
+            "starts at its own zero; a wrong offset does not fail, it attributes every "
+            "sentence to the wrong step"
+        ),
+    )
+
+    run = sub.add_parser(
+        "run", parents=[common, narration], help="run the pipeline over one recording"
+    )
     run.add_argument("recording")
     run.add_argument("--config", default="A2", choices=[c.value for c in AblationConfig])
     run.add_argument("--run-id", default="run_001")
@@ -334,10 +544,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     ablate.set_defaults(func=cmd_ablate)
 
-    imp = sub.add_parser("import", help="bring in a Chrome DevTools Recorder JSON as a recording")
+    imp = sub.add_parser(
+        "import",
+        parents=[narration],
+        help="bring in a Chrome DevTools Recorder JSON as a recording",
+    )
     imp.add_argument("file")
     imp.add_argument("--recording-id", default=None)
     imp.set_defaults(func=cmd_import)
+
+    tr = sub.add_parser("transcribe", help="turn narration audio into narration on a recording")
+    tr.add_argument("recording")
+    tr.add_argument("--audio", default=None, help="defaults to the audio found beside the recording")
+    tr.add_argument("--in-place", action="store_true", help="write the narration back into it")
+    tr.add_argument("--out", default=None, metavar="FILE", help="write a copy here instead")
+    tr.add_argument(
+        "--narration-model",
+        default=None,
+        metavar="SIZE",
+        help=f"overrides config/project.yaml. One of {', '.join(KNOWN_WHISPER_MODELS)}",
+    )
+    tr.add_argument("--language", default=None, help="e.g. en, fr. Overrides project.yaml")
+    tr.set_defaults(func=cmd_transcribe)
 
     serve = sub.add_parser("serve", parents=[common], help="run the local server and the review UI")
     serve.add_argument("--host", default="127.0.0.1")

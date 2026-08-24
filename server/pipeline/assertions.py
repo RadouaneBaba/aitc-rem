@@ -51,6 +51,8 @@ from server.models import (
 )
 from server.pipeline.investigate import investigate
 from server.pipeline.name import NamedStep
+from server.pipeline.narrative import dedupe_assertions
+from server.pipeline.transcribe import supports_narrated
 
 #: Smaller than naming's. Naming has already investigated this step once, and
 #: the question here is narrower: what should a tester check, and where did the
@@ -217,10 +219,16 @@ class StepAssertions:
 class AssertionResult:
     steps: list[StepAssertions] = field(default_factory=list)
     model_calls: list[ModelCall] = field(default_factory=list)
+    #: Investigations replaced by a repair or a split-driven re-ask. SS9.10
+    #: wants every one of them in the trace, and SS3.4's effort column has to
+    #: count what the run actually spent on the step -- including the attempt
+    #: that was rejected, which is precisely the effort a hard step provoked.
+    superseded: list[StepInvestigation] = field(default_factory=list)
 
     @property
     def investigations(self) -> list[StepInvestigation]:
-        return [s.investigation for s in self.steps if s.investigation is not None]
+        live = [s.investigation for s in self.steps if s.investigation is not None]
+        return live + list(self.superseded)
 
     def by_step(self) -> dict[str, list[Assertion]]:
         return {s.step_id: s.candidates for s in self.steps}
@@ -264,6 +272,9 @@ def propose_assertions(
     temperature: float = 0.0,
     config: ProjectConfig | None = None,
     only: set[str] | None = None,
+    findings: dict[str, str] | None = None,
+    previous: dict[str, list[Assertion]] | None = None,
+    attempt: int = 1,
 ) -> AssertionResult:
     """Propose ranked expected results for every named step.
 
@@ -271,6 +282,11 @@ def propose_assertions(
     a step: the two halves are different steps from the ones this stage was
     asked about, so their expected results have to be reconsidered rather than
     inherited. Two extra calls, and only when a split actually happened.
+
+    `findings` and `previous` are the repair path (SS9.9): the step is asked
+    again, shown what it proposed last time and why that was rejected. A step in
+    `only` with no finding is a fresh proposal, not a repair -- which is what a
+    split produces, and why the two are separate arguments rather than one.
     """
     # House style reaches the SENTENCE and nothing else. What is true is not a
     # preference -- the literal, the citation and the ranking are untouched by
@@ -278,6 +294,8 @@ def propose_assertions(
     # same person "the tester" in its steps and "the user" in its expected
     # results reads as two documents spliced together. That really happened.
     config = config or ProjectConfig()
+    findings = findings or {}
+    previous = previous or {}
     result = AssertionResult()
 
     for named in naming.steps:
@@ -307,6 +325,9 @@ def propose_assertions(
             temperature=temperature,
             config=config,
             sink=result.model_calls,
+            finding=findings.get(named.step_id),
+            previous=previous.get(named.step_id),
+            attempt=attempt,
         )
         result.steps.append(proposed)
 
@@ -376,15 +397,20 @@ def _propose_one(
     temperature: float,
     config: ProjectConfig,
     sink: list[ModelCall],
+    finding: str | None = None,
+    previous: list[Assertion] | None = None,
+    attempt: int = 1,
 ) -> StepAssertions:
+    suffix = "" if attempt == 1 else f"_r{attempt}"
     enquiry = investigate(
         runner,
         model,
         system_prompt=system_prompt(config),
-        user_prompt=_baseline(store, named, segment),
+        user_prompt=_baseline(store, named, segment)
+        + (_repair_addendum(previous or [], finding, attempt) if finding else ""),
         model_name=model_name,
         stage=PipelineStage.assert_,
-        label=f"assert_{named.step_id}",
+        label=f"assert_{named.step_id}{suffix}",
         budget=budget,
         tools_enabled=tools_enabled,
         temperature=temperature,
@@ -394,7 +420,9 @@ def _propose_one(
     sink.extend(enquiry.model_calls)
     enquiry.finish()
 
-    candidates, suppressed = _candidates(enquiry.answer.get("candidates"), store, named, segment)
+    candidates, suppressed = _candidates(
+        enquiry.answer.get("candidates"), store, named, segment, config
+    )
     for reason in suppressed:
         enquiry.narrative.append(f"suppressed as noise: {reason}")
 
@@ -403,7 +431,7 @@ def _propose_one(
         candidates=candidates,
         suppressed=suppressed,
         investigation=enquiry.record(
-            investigation_id=f"inv_assert_{named.step_id.split('_')[-1]}",
+            investigation_id=f"inv_assert_{named.step_id.split('_')[-1]}{suffix}",
             stage=PipelineStage.assert_,
             budget=budget,
             step_id=named.step_id,
@@ -412,13 +440,61 @@ def _propose_one(
     )
 
 
+REPAIR_ADDENDUM = """\
+
+---
+
+You have already answered for this step once and it was sent back. You are
+answering again.
+
+What you proposed (attempt {attempt}):
+{proposed}
+
+Why it was sent back:
+    {finding}
+
+Propose the expected results again. Every rule above still applies, and the
+first one applies hardest: a candidate is admissible only if `literal` appears
+VERBATIM in a tool response you retrieved IN THIS conversation, and `toolCallId`
+is the id that response arrived with. If the problem was a citation that did not
+resolve, retrieve the evidence again now and cite what comes back -- do not
+adjust the id you used last time until you have seen it.
+
+Proposing NOTHING is a valid answer and is better than a claim you cannot cite.
+An empty candidate list is a complete response."""
+
+
+def _repair_addendum(previous: list[Assertion], finding: str, attempt: int) -> str:
+    """Show the model its own rejected answer, not just the complaint.
+
+    Two reasons, and the second is mechanical. Showing a model what it wrote is
+    the thing most likely to change what it writes next. And cassette keys are a
+    hash of the request (`server/llm/cassette.py`), so a repair prompt built
+    from the finding alone would be byte-identical on attempt 3 to attempt 2 --
+    a cache hit replaying the same rejected answer, burning the budget having
+    changed nothing.
+    """
+    proposed = (
+        "\n".join(
+            f'    "{a.text}"  (quoting {a.evidence.literal!r} from {a.evidence.toolCallId})'
+            for a in previous
+        )
+        or "    (nothing)"
+    )
+    return REPAIR_ADDENDUM.format(attempt=attempt - 1, proposed=proposed, finding=finding)
+
+
 # --------------------------------------------------------------------------
 # answer handling
 # --------------------------------------------------------------------------
 
 
 def _candidates(
-    value, store: EvidenceStore, named: NamedStep, segment: Segment
+    value,
+    store: EvidenceStore,
+    named: NamedStep,
+    segment: Segment,
+    config: ProjectConfig,
 ) -> tuple[list[Assertion], list[str]]:
     """Rank, filter and number the proposals.
 
@@ -449,7 +525,7 @@ def _candidates(
 
         kept.append((order, raw))
 
-    supported = _supported_provenance(store, named, segment)
+    supported = _supported_provenance(store, named, segment, config.narration_min_confidence)
     provenance_of = [
         (_provenance(raw.get("provenance"), supported), order, raw) for order, raw in kept
     ]
@@ -486,7 +562,11 @@ def _candidates(
         )
         out.append(assertion)
 
-    return out, suppressed
+    # Also at the source: a model asked for up to three candidates can propose
+    # the same sentence twice, and two identical `Then` lines are a defect
+    # wherever they came from. `_absorb` catches the merge case; this catches
+    # this one.
+    return dedupe_assertions(out), suppressed
 
 
 def _incidental(named: NamedStep, provenance: Provenance) -> bool:
@@ -508,7 +588,10 @@ def _noise_in(literal: str) -> str:
 
 
 def _supported_provenance(
-    store: EvidenceStore, named: NamedStep, segment: Segment
+    store: EvidenceStore,
+    named: NamedStep,
+    segment: Segment,
+    min_confidence: float = 0.5,
 ) -> set[Provenance]:
     """Which provenance claims this step could honestly make.
 
@@ -529,7 +612,14 @@ def _supported_provenance(
     ) or store.annotations(events[0].timestamp, events[-1].timestamp + 2000, kind="assertion"):
         ok.add(Provenance.annotated)
 
-    if store.narration(events[0].timestamp, events[-1].timestamp + 2000):
+    # Narration is the only LOSSY evidence source here: everything else is read
+    # exactly, and a transcript is a reconstruction. A sentence the transcriber
+    # was unsure of would otherwise outrank an honest inference, and the result
+    # -- a mis-heard number that passes both grounding validators and is still
+    # false -- is the one failure this ladder exists to prevent. Segments with
+    # no confidence at all came from a human and are trusted.
+    spoken = store.narration(events[0].timestamp, events[-1].timestamp + 2000)
+    if any(supports_narrated(s, min_confidence) for s in spoken):
         ok.add(Provenance.narrated)
 
     if store.objective:

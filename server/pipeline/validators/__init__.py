@@ -24,12 +24,17 @@ from server.pipeline.validators.consistency import (
 )
 from server.pipeline.validators.grounding import (
     assertion_grounding,
+    claim_total,
     element_exists,
     evidence_retrieved,
     no_pruned_assertion,
     provenance_supported,
 )
-from server.pipeline.validators.output import gherkin_parses, no_placeholder_leak
+from server.pipeline.validators.output import (
+    gherkin_parses,
+    no_placeholder_leak,
+    suggestions_quarantined,
+)
 from server.pipeline.validators.style import gherkin_style
 
 #: Order is presentation only -- every validator always runs. Grounding first
@@ -47,6 +52,7 @@ VALIDATORS = [
     no_placeholder_leak,
     selector_resolvable,
     no_pruned_assertion,
+    suggestions_quarantined,
 ]
 
 
@@ -126,7 +132,7 @@ def grounding_rate(ctx: ValidationContext, report: ValidationReport) -> float:
     metric of the ablation (SS3.5). Reported as 1.0 when there are no
     assertions, since a run that claims nothing has fabricated nothing.
     """
-    total = sum(len(s.assertions) for c in ctx.ir.testCases for s in c.steps)
+    total = claim_total(ctx.ir)
     if total == 0:
         return 1.0
     ungrounded = len(
@@ -143,6 +149,7 @@ __all__ = [
     "VALIDATORS",
     "ValidationContext",
     "ValidationReport",
+    "claim_total",
     "grounding_rate",
     "validate",
 ]

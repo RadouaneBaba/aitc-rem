@@ -193,26 +193,47 @@ provider and one model pinned, and prints the §3.5 table. Fallback routing is
 disabled here on purpose: it is fine in daily use and fatal to a comparison,
 which would otherwise measure provider variance instead of architecture.
 
-Latest result over both fixture recordings, on `gemini-3.1-flash-lite`:
+Latest result over all seven fixture recordings, on `gemini-3.1-flash-lite`:
 
 ```
-Config   Assert   Grounded    Yield   Fabric.   Valid1st   Calls/step   Spread
-A0            3        0.0      0.0         3     0.7525          0.0      0.0
-A1            4        1.0   0.4444         0        1.0        1.556    1.083
-A2            4        1.0   0.4444         0        1.0        1.556    1.083
+What it claimed
+Config   Assert   Grounded    Yield   Fabric.   Valid1st   ValidFin
+-------------------------------------------------------------------
+    A0       13        0.0      0.0        13     0.8253     0.8253
+    A1       21        1.0   0.6176         0     0.9857     0.9857
+    A2       21        1.0   0.6176         0     0.9857     0.9857
+
+What it did to get there
+Config   Calls/step   Spread   Findings   Converged   Executes   Rechecked    Held
+-----------------------------------------------------------------------------------
+    A0          0.0      0.0          0         0.0      0.625           6  0.8333
+    A1        2.441    0.601          0         0.0     0.7778          13     1.0
+    A2        2.559    0.787          3      0.6667     0.7778          13     1.0
 ```
 
 With no tools the model invented every citation, and the gate caught every one.
-With tools it grounded every one. Yield -- grounded assertions per step -- is
-what doubled when the ranked assertion stage (SS9.5) replaced naming's single
-expected result, and the effort spread widened with it: the agent now spends
-retrievals where a step actually has an outcome to establish. A1 and A2 are identical because the critic and repair
-loop are Phase 3 — the harness reports that rather than implying a difference it
-did not measure.
+With tools it grounded every one. Yield — grounded assertions per step — is what
+doubled when the ranked assertion stage (§9.5) replaced naming's single expected
+result, and the effort spread widened with it: the agent spends retrievals where
+a step actually has an outcome to establish.
 
-Read grounding **rate** together with **yield**. Rate alone is vacuously 100%
+A1 and A2 differ from Phase 3 onward, and the columns that separate them are
+`Findings` and `Converged` — how much the critic had to say, and how much of it
+the bounded repair loop resolved. They are deliberately not expected to differ
+much on grounding: both arms propose assertions with the same stage and the same
+tools, so the critic was never going to move that number. §3.5 pre-authorises
+the null result, and the harness states it whichever way it comes out.
+
+**Read every rate together with its denominator.** Rate alone is vacuously 100%
 when a configuration abstains, which is what a well-behaved model does with no
-tools — it would make A0 look equivalent to A2.
+tools — it would make A0 look equivalent to A2. The same trap sits under
+`Converged`, which is 100% when the critic found nothing at all. Grounded with
+Yield, Executes with Rechecked, Converged with Findings.
+
+The A0 row is the clearest illustration this project has: on `Executes` alone it
+is 0.625 against 0.778, which reads as a modest gap. It re-checked **six**
+assertions against thirteen, and one in six of those failed where none of the
+others did. A configuration that claims less has less to get wrong.
 
 ## Checks
 

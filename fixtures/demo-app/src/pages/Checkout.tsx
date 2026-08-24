@@ -118,6 +118,34 @@ export function Checkout({ cartTotal, onConfirmed }: Props) {
               Submit for slow validation
             </button>
 
+            {/*
+              SS14. The one control here that is meant to be BROKEN.
+
+              `/boom` has returned 500 in the mock API since Phase 1 and nothing
+              ever called it, so bug mode had no recording to be demonstrated
+              on -- and a fixture that does not contain the thing cannot
+              demonstrate it. It fails the way a real one does: a 5xx, a message
+              in the live region the tester actually reads, and an uncaught
+              exception in the console, which are three of SS14.1's signals
+              arriving together the way they do in the wild.
+            */}
+            <button
+              className="secondary"
+              type="button"
+              onClick={async () => {
+                const res = await post<{ error?: string }>('/boom', { total });
+                setError(res.data?.error ?? 'Internal server error');
+                // Deliberately not awaited or caught: SS14.1 weights an
+                // UNCAUGHT exception separately from a console.error, and the
+                // recorder records the difference.
+                setTimeout(() => {
+                  throw new Error('Export failed: order state is inconsistent');
+                }, 0);
+              }}
+            >
+              Export the order
+            </button>
+
             {/* Deliberately unlabelled: no text, no aria-label, no title.
                 Must raise `no_accessible_name` rather than be described. */}
             <button className="secondary" type="button" onClick={() => setPoNumber('')}>

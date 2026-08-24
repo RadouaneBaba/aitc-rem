@@ -32,6 +32,13 @@ pnpm codegen                   # regenerate from schema/ after editing a .schema
 .venv/Scripts/python scripts/effort_difficulty.py        # SS3.4, refuses to overclaim
 .venv/Scripts/python -m server.cli import <recorder.json>  # Chrome DevTools Recorder
 
+# Narration (SS6.6). Audio is transcribed locally; a transcript can also be
+# supplied from anywhere, which is how an imported recording reaches `narrated`.
+.venv/Scripts/python -m server.cli transcribe <recording.json> --in-place
+.venv/Scripts/python -m server.cli run <recording.json> --narration notes.vtt --narration-offset 0
+pip install -e ".[transcription]"          # faster-whisper; the run says so if it is absent
+powershell -File scripts/make_narration_wav.ps1   # the committed fixture audio, once
+
 # Replay needs the demo app running (`pnpm demo`) and the test's parameters:
 .venv/Scripts/python -m server.cli ablate tests/fixtures/*.recording.json --replay     --replay-param user_email_1=tester@example.com --replay-param password=hunter2
 ```
@@ -39,6 +46,11 @@ pnpm codegen                   # regenerate from schema/ after editing a .schema
 Windows paths: the venv binary is `.venv/Scripts/python.exe`. Bash and
 PowerShell are both available; Bash heredocs mangle backslash escapes in this
 environment, so use the Write/Edit tools for files containing regexes.
+
+**Never `git checkout -- <path>` in this repo without checking `git status`
+first.** Large parts of a milestone can sit uncommitted for a long time here,
+and that command destroys them with no reflog entry and no recovery. It cost a
+rebuild of `run.py` once. Commit before experimenting on a file instead.
 
 ## Non-negotiables
 
@@ -55,6 +67,30 @@ key order or whitespace between write and re-read breaks the hash and rejects a
 path that writes a raw value to disk and redacts later. `no_placeholder_leak` is
 the only validator whose action is `hard_fail`: the feature file is not written
 at all.
+
+*One exception, and only one: narration audio.* Speech cannot be redacted before
+it is understood, and understanding it is what transcription **is**. So the
+audio reaches disk raw. What makes that acceptable is narrow and worth stating:
+it never leaves the machine (the server is `127.0.0.1`, `faster-whisper` runs
+in-process), the transcript then gets the same best-effort pattern pass
+`server/importers/devtools.py` applies, and `docs/RECORDING.md` tells the tester
+outright that anything said out loud is written down. Everything **typed** still
+obeys the original rule without exception. Do not widen this to a second case.
+
+**Narration is the only lossy evidence source, and the ladder is what holds.**
+Node names, URLs, response bodies and console text are read exactly. A
+transcript is a reconstruction, so a mis-heard number becomes a literal that
+passes `evidence_retrieved` (the string really is in the stored response) *and*
+`assertion_grounding` (it really is in the index) and is still false. Both
+validators are right; this is provenance meeting its first input where
+provenance and correctness come apart by construction. Two guards, both
+deterministic and both outside the model's reach: `transcribe._confidence` folds
+Whisper's `avg_logprob` and `no_speech_prob` into `NarrationSegment.confidence`,
+and `supports_narrated` stops a segment below `narration.min_confidence` from
+supporting the `narrated` rank — applied in `assertions._supported_provenance`
+**and** in `provenance_supported`, which must not diverge. The second guard is
+that the audio is kept so a human can listen; that is why
+`runners/playwright.py` marks narration `not_checkable` rather than pretending.
 
 **The schema is the single source of truth.** Edit `schema/*.schema.json`, then
 `pnpm codegen`. Never hand-edit `server/models/generated/` or
@@ -83,7 +119,8 @@ cooperation from the app under test.
 
 ```
 schema/          JSON Schema -> Pydantic (server) + TS types + Ajv validators (extension)
-extension/       Chrome MV3 recorder. content script + MAIN-world patch + worker + export page
+extension/       Chrome MV3 recorder. content script + MAIN-world patch + worker
+                 + export page + offscreen mic (offscreen/)
 fixtures/        demo app, built to trigger every hard capture path on demand
 config/          allowed_origins.yaml (the pre-send gate) + project.yaml (house style)
 server/
@@ -92,15 +129,19 @@ server/
   config/        ProjectConfig: voice, tags, sidecar, parameter rendering
   evidence/      store.py = the recording, indexed. tools.py = the 12 tools + ToolRunner
   pipeline/      segment.py (code) -> name.py -> assertions.py -> compose.py
-                 (agentic) -> narrative.py (code) -> validators/ (code) -> run.py
+                 (agentic) -> narrative.py (code) -> validators/ (code)
+                 -> critic.py + repair.py (agentic, bounded) -> bugmode.py
+                 -> coverage.py -> run.py
                  investigate.py = the shared decide-retrieve-observe loop
-  renderers/     gherkin.py + trace_md.py (sidecar) + xlsx.py + jira.py,
-                 all behind base.py's Exporter seam
+                 transcribe.py = narration audio -> text, before any of it
+  renderers/     gherkin.py + trace_md.py (sidecar) + bug_md.py are always
+                 written; xlsx/jira/qase opt in behind base.py's Exporter seam
   ablation/      A0/A1/A2 and the metrics table
   llm/           ModelClient seam: gemini, cassette, chain, scripted
   library/       SS12's approved phrasing, on rapidfuzz + one SQLite file
   runners/       does the generated test case actually run? base.py + playwright.py
-  importers/     bring a Chrome DevTools Recorder export in
+  importers/     devtools.py = a Chrome Recorder export; transcript.py = a
+                 WebVTT/SRT/JSON transcript as narration
 scripts/         check.sh, prove_grounding.py, effort_difficulty.py, replay.mjs
 docs/            RECORDING.md -- for the tester, no terminal
 tests/           pytest; tests/e2e/ is Playwright
@@ -199,7 +240,85 @@ match, or `library_verbatim` could not fail. A step enters the library on human
 approval only (SS12.2), which is what makes it a record of accepted work rather
 than an average of generated work.
 
+**The critic reports; it never edits.** A finding is a sentence about what is
+wrong. `repair.py` decides which stage re-runs, and that stage retrieves its own
+evidence. Letting the critic supply a `literal` or a `toolCallId` would be a
+path to a grounded-*looking* fabrication, which is the one thing SS3.2 exists to
+make impossible. It also may not touch a step named from a tester's intent note
+(SS6.7) or one carrying `libraryRef` (SS12.2) -- both are enforced twice, in
+`critic._collect` and again in `repair.targets`, because a prompt that asks is
+not a guarantee.
+
+**Which stage repairs a finding is a table, not a judgement.** `VALIDATOR_REPAIR`
+and `CRITIC_REPAIR` in `repair.py`, and two rows are deliberately empty.
+`event_coverage` rejects when `_assemble` dropped an event -- a model cannot fix
+that and a re-run might produce different text and make the failure *look*
+different, which turns a structural bug into a haunting. `no_placeholder_leak`
+is a redaction hole, and a repair that happened to produce a clean sentence
+would hide it rather than close it. Nothing that reaches the "nothing" rows is
+silently dropped: it becomes `criticNotes` and a `Warning`.
+
+**Repair may change a step's text and its assertions. Never its `eventIds` or
+its `step_id`.** That one constraint is what keeps `event_coverage`,
+`apply_splits` and `_case_groups` stable across attempts, and it is why
+`rename_steps` walks the named steps rather than re-running `name_segments`
+with a filter -- the latter takes each step's events from the SEGMENT, which
+would quietly undo a split.
+
+**Coverage suggestions are quarantined three times over.** Their own IR block,
+an UNVERIFIED heading in every renderer, and `suggestions_quarantined` at the
+gate. They are also gated on `suggestions_enabled` rather than on
+`critic_enabled`: SS3.5 defines A1 vs A2 as differing by "critic, repair loop"
+and nothing else, so attaching coverage to the A2 flag would make the thesis
+comparison measure two changes at once.
+
+**Bug detection is code, and its threshold is load-bearing.** Medium signals
+never reach it at any quantity. Four fixtures contain a 4xx on a state-mutating
+POST and in every one of them that 4xx *is* the thing the test is about --
+"orders over EUR500 require approval" is the objective, not a defect. Turning
+those four into bug reports would be a louder failure than detecting nothing. It
+takes the tester's marker, a 5xx, or an uncaught exception. Every signal that
+fired is still recorded, so "why is this not a bug" has an answer.
+
+**A bug report's `actual` is bound exactly as tightly as any assertion**
+(SS14.2). It is yielded into `_assertions` in `grounding.py` rather than checked
+by a branch of its own, because a second implementation of evidence binding is a
+second thing that can be wrong -- and it is the one sentence a developer reads
+before deciding whether to go and reproduce something. When the model cannot
+cite what it claims, no report is written. That is the correct outcome.
+
 ## Things that bit us, so you do not repeat them
+
+**Pydantic copies the list you hand it, so `trace.toolCalls` is not
+`runner.calls`.** `AgentTrace(toolCalls=runner.calls)` reads like an alias and
+is a snapshot. Every stage that retrieves *after* the trace was built is
+therefore invisible to `evidence_retrieved`, which then rejects a citation that
+is true, resolvable and correct -- the most confusing failure this codebase can
+produce, and it took a real run to find. `_sync_calls` exists for that, and any
+new stage placed after the last `_draft` has to call it before the gate reads
+the trace.
+
+**`merge_repeats` makes a step rewrite dangerous.** It folds adjacent steps
+whose normalised text matches exactly, so a repair prompted with "this name is
+too vague" can produce a name identical to its neighbour and *delete a step* --
+changing the step count mid-run, which SS3.6 promises does not happen, and
+moving `Yield`'s denominator, which is worse because the metric then improves.
+`narrative.would_collapse` refuses the rewrite; the repair is marked unresolved
+rather than silently accepted.
+
+**`lift_background` lifted steps into a list nothing rendered.** The leading
+setup steps went to `narrative.background` and `_background` rendered
+`case.preconditions` instead, so every multi-scenario recording lost its sign-in
+from the *feature file* while `ir.json` still had it. Nothing caught it:
+`event_coverage` reads the IR, not the rendered output, and a file missing a
+step still parses. If you add anything to `Narrative`, check that a renderer
+reads it.
+
+**A sibling test case is not necessarily a sibling scenario.** Adding a bug
+report made `len(ir.testCases) > 1` true and lifted a `Background` out of a
+feature with one scenario -- straight into the bug above. Anything reasoning
+about "how many scenarios are in this file" must count `test_cases(ir)`, not
+`ir.testCases`.
 
 **Worked examples outweigh rules, and will contradict them silently.** The
 naming prompt said twice to start with the subject, and its examples were
@@ -252,6 +371,32 @@ that is the span, so the step describes an icon rather than a control.
 **`performance.now()` is per-document.** Mixing it with the worker's wall-clock
 start silently flattens every timestamp to zero, which kills the idle-gap
 boundary rule. Convert with `performance.timeOrigin`.
+
+**The offscreen document is a third clock, and the microphone starts late.**
+Same trap, third time. `offscreen.ts` reports `Date.now()` at
+`MediaRecorder.start()`, the worker stores the delta from the session start as
+`audioOffsetMs`, and `transcribe()` adds it to every segment — because Whisper's
+timestamps are relative to the *audio*, not the session, and the mic takes a
+moment to open. Drop the offset and nothing fails: every spoken sentence shifts
+by that delay onto the neighbouring step, and you get a plausible, grounded,
+wrong expected result. The same hazard is why `--narration-offset` prints the
+window it mapped onto instead of applying it silently.
+
+**Audio does not travel through `chrome.runtime.sendMessage`.** Extension
+messages serialise as JSON, so a Blob does not survive and base64 would add a
+third of a megabyte per megabyte of speech. The offscreen document and the
+worker share the extension's IndexedDB, so `offscreen.ts` writes chunks itself
+with `putAudioChunk`. Order is load-bearing and the chunks are not independent:
+only the first carries the WebM header, so a gap or a reorder produces a file no
+decoder opens.
+
+**An offscreen document cannot show a permission prompt.** Chrome suppresses it
+there, so `getUserMedia` succeeds only if permission already exists and fails
+with `NotAllowedError` if not — silently, from the tester's point of view.
+`mic.html` exists solely to ask, once, from a real tab on a real user gesture.
+The grant is against `chrome-extension://<id>`, which is also why the mic lives
+in an offscreen document at all: a content script would need the permission from
+the application under test, and the recorder is black-box.
 
 **Network attribution belongs at assembly, not in the frame.** A frame does not
 know when the next action starts, so a request landed on every event still
@@ -344,41 +489,105 @@ implementation detail does not.
 
 ## Status
 
-Phase 1 and most of Phase 2 are done and verified against `gemini-3.1-flash-lite`.
-Four fixtures, with replay against the demo app:
+Phases 1 and 2 are closed. Phase 3's three "Smart" milestones -- the critic and
+its bounded repair loop, coverage suggestions, and bug mode -- are built and
+verified against `gemini-3.1-flash-lite`.
+
+Seven fixtures, with replay against the demo app:
 
 ```
-Config   Assert   Grounded    Yield   Fabric.   Valid1st   Spread   Executes   Rechecked    Held
-A0           10        0.0      0.0        10     0.7628      0.0        0.6           3     1.0
-A1           11        1.0   0.6111         0      0.975    0.584        0.6           6     1.0
-A2           11        1.0   0.6111         0      0.975    0.584        0.6           6     1.0
+What it claimed
+Config   Assert   Grounded    Yield   Fabric.   Valid1st   ValidFin
+-------------------------------------------------------------------
+    A0       13        0.0      0.0        13     0.8253     0.8253
+    A1       21        1.0   0.6176         0     0.9857     0.9857
+    A2       21        1.0   0.6176         0     0.9857     0.9857
+
+What it did to get there
+Config   Calls/step   Spread   Findings   Converged   Executes   Rechecked    Held
+-----------------------------------------------------------------------------------
+    A0          0.0      0.0          0         0.0      0.625           6  0.8333
+    A1        2.441    0.601          0         0.0     0.7778          13     1.0
+    A2        2.559    0.787          3      0.6667     0.7778          13     1.0
 ```
 
-A1 and A2 are still identical because the critic and repair loop are Phase 3.
-`Executes` is flat across all three arms because `hardpaths` defeats the replay
-harness, not the test case -- read `Rechecked` beside it, which is where the
-comparison actually lives.
+**Read the A0 row across, not down.** It looks only a little worse on
+`Executes` -- 0.625 against 0.778 -- and that is the vacuous reading. It
+re-checked *six* assertions against thirteen, and one in six of those failed
+where none of A1's and A2's did. A configuration that claims less has less to
+get wrong.
 
-Fixtures: `checkout`, `hardpaths`, `annotated` (an element the tester marked,
-plus an intent note), `twoflows` (two test cases separated by a scenario break),
-`wander` (a wrong turn, pruned). The last three exist because a fixture that
-does not contain the thing cannot demonstrate it -- SS9.5's upper tiers, SS9.3's
-decomposition and its pruning each needed one built for them.
+**A1 and A2 differ, finally, and not where you might expect.** Their claims are
+identical: same assertions, same grounding, same pass rate first and last. What
+separates them is `Findings` (0 against 3) and `Converged` (2 of 3 resolved
+within budget; the third went to the human with the finding stated, which is
+SS9.9's designed outcome on exhaustion, not a failure). `Spread` moves with it,
+0.601 to 0.787, because repair spends its retrievals on the steps that provoked
+a finding -- which is SS3.4's claim about adaptive effort, showing up in a
+column built for something else.
 
-On `wander`, twelve validators pass and none skip.
+**That the pass rate did not move is the honest result, not a disappointment.**
+The three findings were about meaning -- a vague step name, an expected result
+about the wrong thing -- and no deterministic validator has an opinion on
+either. If repair had moved `Grounded`, that would be the thing to investigate:
+a repair loop that lifts the grounding rate by teaching a model to cite better
+is a finding, and one that lifts it by weakening what counts as grounded is the
+bug this whole architecture exists to prevent.
 
-Built since the last honest version of this section: the assertion annotation
-and its element picker, verified provenance, the step library, replay,
-decomposition, Qase/Xray/TestRail, the DevTools import, and the effort chart.
-`library_verbatim`, `selector_resolvable`, `provenance_supported` and
-`no_pruned_assertion` all run for the first time.
+Seven fixtures, each built because a fixture that does not contain the thing
+cannot demonstrate it: `checkout`, `hardpaths`, `annotated` (an element the
+tester marked, plus an intent note), `twoflows` (two test cases separated by a
+scenario break), `wander` (a wrong turn, pruned), `narrated` (the tester says
+what they are checking, out loud), and `bugged` (a 500, an uncaught exception,
+and the bug-marker hotkey).
 
-**Still not built:** narration (no audio is captured at all -- not "captured
-but unused"), and all of Phase 3 (critic, repair loop, coverage suggestions, bug
-mode).
+On `wander`, thirteen validators pass and none skip.
 
-**Read grounding rate together with yield**, and `Executes` together with
-`Rechecked`. Rate alone is vacuously 100% when a configuration abstains, which
-is exactly what a well-behaved model does with no tools -- it makes A0 look
-identical to A2. The same trap has now appeared three times in three different
-columns; assume it is in the next one too.
+`prove_grounding.py` over every run in `runs/`: 148 of 148 assertions resolve
+across 59 runs with tools, 13 of 13 are ungrounded across the 7 without --
+SS3.2, measured rather than asserted -- and calls per step varies rather than
+being flat, which is SS3.3's signature of an agent instead of a chain.
+
+**Narration was Phase 2's last piece**, and its result is worth keeping in view
+because it is the clearest thing this project has demonstrated:
+
+```
+Then the order is held for manager approval
+  provenance: narrated
+  evidence:   "Orders over EUR500 require approval" (semantic_node, tc_0009)
+```
+
+The claim is grounded in a *snapshot literal*, not in the transcript. Narration
+decided WHICH of the outcomes mattered; the evidence stayed exact. That is the
+whole intent of SS9.5's ladder, and the reason narration can raise `Yield`
+without ever touching `grounding_rate`.
+
+**Phase 3, and what it changed.** A1 and A2 had been the same pipeline since the
+ablation was written -- SS3.5 defines them as differing by "critic, repair loop"
+and nothing read either flag. They differ now, and two columns say how:
+`Findings` (how much the critic had to say) beside `Converged` (how much of it
+the repair loop resolved within budget). Bug mode produces a `.bug.md` repro
+report alongside the test case, its `actual` bound to a retrieval like any
+assertion. Coverage suggestions are quarantined from the artifact and checked by
+a thirteenth validator, `suggestions_quarantined`.
+
+Two real bugs surfaced while building it, both now pinned: a trace that
+snapshotted its own retrieval log (so the gate rejected a true citation), and a
+`Background` block that silently deleted the steps it lifted. The second had
+been shipping since decomposition landed.
+
+**Still not built:** SS18's last two milestones. **21, multi-tab / popup
+capture** -- deferred because SS4's own table puts cross-tab stitching *beyond*
+Phase 3 and the SS4 row points at SS6.6, which is about narration; there is no
+spec section behind it to build against. **22, the eval harness and golden set**
+-- deferred on SS17.1's own argument, that "evals written against imagined
+failure modes measure the wrong things, and a golden set built after watching
+the pipeline fail on real recordings is far better". Keep every recording; they
+are that set.
+
+**Read grounding rate together with yield**, `Executes` together with
+`Rechecked`, and `Converged` together with `Findings`. A rate alone is vacuously
+100% when a configuration abstains -- which is exactly what a well-behaved model
+does with no tools, and what a critic does when it finds nothing. The trap has
+now appeared four times in four different columns; assume it is in the next one
+too.

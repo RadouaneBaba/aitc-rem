@@ -42,6 +42,11 @@ QASE_STEP_MODES = ("classic", "gherkin")
 #: why this is a setting a project states once rather than a flag on every run.
 ORIGIN_POLICIES = ("allowlist", "warn", "off")
 
+#: Whisper sizes, smallest first. Anything CTranslate2 can load is accepted --
+#: this list is what the file documents, not what it enforces, because a local
+#: converted model is a legitimate thing to point at.
+KNOWN_WHISPER_MODELS = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo")
+
 
 @dataclass(frozen=True)
 class ProjectConfig:
@@ -86,6 +91,10 @@ class ProjectConfig:
     #: configurable because teams model tests as Test, Task or Story and none
     #: of them is wrong.
     jira_issue_type: str = "Test"
+    #: SS14 -- a bug report is a different artifact and gets a different type.
+    #: Filing a defect as a Test is how it reaches the person who maintains the
+    #: suite rather than the person who can fix it.
+    jira_bug_issue_type: str = "Bug"
     jira_project_key: str = ""
 
     #: SS11 -- Qase. `classic` is the action/expected grid the Qase UI shows a
@@ -109,6 +118,29 @@ class ProjectConfig:
     #: disagreed, and a tester who wants to record a real site is not doing
     #: anything wrong -- they need to know what it costs, not to be stopped.
     origin_policy: str = "warn"
+
+    #: SS6.6 -- local transcription. `small` is the default because narration is
+    #: the only LOSSY evidence source in this project: every other one is read
+    #: exactly, and a transcript is a reconstruction. A mis-heard number becomes
+    #: a literal that passes `evidence_retrieved` AND `assertion_grounding` and
+    #: is still false, so accuracy here is not a comfort setting. `base` is
+    #: noticeably worse on exactly the numbers and proper nouns a test case is
+    #: made of; `large-v3-turbo` is better and one line away.
+    narration_model: str = "small"
+
+    #: `auto` lets Whisper detect it. Pin it (`en`, `fr`) when you know, which
+    #: is both faster and more accurate than detection on a short clip.
+    narration_language: str = "auto"
+
+    #: Below this, a segment is stored and shown but does not support the
+    #: `narrated` rank. See `min_confidence` in `server/pipeline/transcribe.py`
+    #: for why the gate is here rather than in a prompt.
+    narration_min_confidence: float = 0.5
+
+    #: Keep the audio after transcription. On by default: it is the only way a
+    #: human can check a lossy transcript, and `playwright.py` already says
+    #: narration is `not_checkable` by machine for exactly that reason.
+    narration_keep_audio: bool = True
 
     @property
     def first_person(self) -> bool:
@@ -165,10 +197,25 @@ def load_project_config(path: Path | None = None) -> ProjectConfig:
     if isinstance(xray, dict) and isinstance(xray.get("test_key"), str):
         fields["xray_test_key"] = xray["test_key"].strip()
 
+    narration = data.get("narration")
+    if isinstance(narration, dict):
+        if isinstance(narration.get("model"), str) and narration["model"].strip():
+            fields["narration_model"] = narration["model"].strip()
+        if isinstance(narration.get("language"), str) and narration["language"].strip():
+            fields["narration_language"] = narration["language"].strip()
+        if isinstance(narration.get("min_confidence"), int | float):
+            # Clamped rather than rejected: 0 means "trust everything", which is
+            # a coherent position, and a typo of 50 should not silently mean it.
+            fields["narration_min_confidence"] = min(1.0, max(0.0, float(narration["min_confidence"])))
+        if isinstance(narration.get("keep_audio"), bool):
+            fields["narration_keep_audio"] = narration["keep_audio"]
+
     jira = data.get("jira")
     if isinstance(jira, dict):
         if isinstance(jira.get("issue_type"), str) and jira["issue_type"].strip():
             fields["jira_issue_type"] = jira["issue_type"].strip()
+        if isinstance(jira.get("bug_issue_type"), str) and jira["bug_issue_type"].strip():
+            fields["jira_bug_issue_type"] = jira["bug_issue_type"].strip()
         if isinstance(jira.get("project_key"), str):
             fields["jira_project_key"] = jira["project_key"].strip()
 
@@ -217,6 +264,7 @@ def _slug(text: str) -> str:
 
 __all__ = [
     "KNOWN_VOICES",
+    "KNOWN_WHISPER_MODELS",
     "ProjectConfig",
     "load_allowed_origins",
     "load_project_config",

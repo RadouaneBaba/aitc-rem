@@ -55,6 +55,12 @@ def stage_of(request: CompletionRequest) -> str:
         return "assert"
     if system.startswith("You are turning a recorded browser session"):
         return "compose"
+    if system.startswith("You are reviewing a finished QA test case"):
+        return "critic"
+    if system.startswith("You are reading a finished QA test case"):
+        return "coverage"
+    if system.startswith("You are writing the two sentences"):
+        return "bug"
     return "name"
 
 
@@ -81,6 +87,13 @@ def grounded_model() -> ScriptedModelClient:
         stage = stage_of(request)
         if stage == "compose":
             return answer(composed())
+        if stage == "critic":
+            # Finding nothing is the expected answer for output that reads
+            # well, and a critic that always finds something is the failure
+            # mode SS9.9 is most exposed to.
+            return answer(json.dumps({"findings": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
 
         tool_results = [m for m in request.messages if m.role == "tool"]
         baseline = request.messages[1].content or ""
@@ -141,6 +154,10 @@ def fabricating_model() -> ScriptedModelClient:
         stage = stage_of(request)
         if stage == "compose":
             return answer(composed())
+        if stage == "critic":
+            return answer(json.dumps({"findings": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
         if stage == "name":
             return answer(
                 json.dumps(
@@ -187,7 +204,9 @@ def test_a_run_produces_every_artifact(storage: Storage):
     for name in ("segments", "naming", "assertions", "ir", "trace"):
         assert result.artifacts[name].exists(), f"{name}.json was not written"
     # Each stage reads a file and writes a file, so a wrong output can be
-    # traced to the stage that produced it (SS9.1).
+    # traced to the stage that produced it (SS9.1). This is the default
+    # configuration -- tools on, critic off -- so there is exactly one pass of
+    # render and validate and no repair.
     assert [s.stage.value for s in result.trace.stages] == [
         "segment",
         "name",
@@ -195,7 +214,9 @@ def test_a_run_produces_every_artifact(storage: Storage):
         "decompose",
         "render",
         "validate",
+        "coverage",
     ]
+    assert result.artifacts["coverage"].exists()
     assert result.rendered
     assert list(result.run.root.glob("*.feature"))
     # The evidence the feature body no longer carries is written beside it.
@@ -321,10 +342,36 @@ def test_the_ablation_separates_the_architectures(storage: Storage):
 def test_the_ablation_finding_is_stated_either_way(storage: Storage):
     # SS3.5 -- "if A1 is roughly A2, that is a genuine finding worth knowing in
     # month two rather than month five." The harness must say so, not bury it.
+    #
+    # `grounded_model` produces output the critic has nothing to say about, so
+    # this is the null case: A1 and A2 really did run the same pipeline, and the
+    # sentence has to say that rather than imply a difference it cannot see.
     report = run_ablation([recording()], grounded_model(), storage=storage, model_name="scripted-1")
     finding = report.finding()
-    assert "A1 and A2 are within 5 points" in finding
     assert "must not be read alone" in finding
+    assert "raised no findings" in finding
+    assert report.rows["A2"].critic_findings == 0
+    # And the vacuous reading is refused: no findings is not perfect
+    # convergence, for the same reason abstaining is not perfect grounding.
+    assert report.rows["A2"].repair_convergence_rate == 0.0
+
+
+def test_the_finding_reports_a_critic_that_did_have_something_to_say(storage: Storage):
+    # The other branch. A2's row is only worth printing if the sentence beside
+    # it can distinguish "the critic found nothing" from "the critic found
+    # things and fixed them".
+    from tests.test_critic import scripted
+
+    model = scripted(
+        names=["the tester clicks the button", "the tester places the order"],
+        findings=[{"step": "step_001", "kind": "step_name", "finding": "describes a mouse"}],
+        later_findings=[],
+    )
+    report = run_ablation([recording()], model, storage=storage, model_name="scripted-1")
+
+    assert report.rows["A2"].critic_findings >= 1
+    assert report.rows["A1"].critic_findings == 0, "A1 has no critic, by definition (SS3.5)"
+    assert "resolved" in report.finding()
 
 
 def test_the_report_is_written_as_a_reusable_artifact(storage: Storage, tmp_path: Path):
@@ -354,11 +401,18 @@ def test_the_spine_runs_over_a_real_recorded_session(storage: Storage):
 
     assert result.report.ok, result.report.summary()
     assert result.grounding_rate == 1.0
-    # Naming and assertion each investigate every step, and composition
-    # investigates the flow. All three record the same way, so SS3.4 can read
-    # effort per step without knowing which stage spent it.
+    # Naming and assertion each investigate every step; composition and
+    # coverage each investigate the flow once. Every one of them records the
+    # same way, so SS3.4 can read effort per step without knowing which stage
+    # spent it -- which is the property being pinned here, not the arithmetic.
+    from collections import Counter
+
     steps = len(result.naming.steps)
-    assert len(result.trace.investigations) == steps * 2 + 1
+    per_stage = Counter(i.stage.value for i in result.trace.investigations)
+    assert per_stage["name"] == steps
+    assert per_stage["assert"] == steps
+    assert per_stage["decompose"] == 1
+    assert per_stage["coverage"] == 1
 
     feature = next(iter(result.rendered.values()))
     assert "Feature:" in feature
@@ -495,7 +549,6 @@ def test_a_mandatory_search_is_not_evidence_of_investigation():
     # They still count as tool calls -- they are real, and they cost quota. They
     # are just not evidence that this step was hard.
     from server.models import Confidence, PipelineStage, SegmentRole, StepInvestigation, ToolCall
-    from server.pipeline.assertions import AssertionResult
     from server.pipeline.name import NamedStep, NamingResult
     from server.pipeline.run import _calls_per_step
 
@@ -522,6 +575,7 @@ def test_a_mandatory_search_is_not_evidence_of_investigation():
             event_ids=["evt_001"],
             investigation=StepInvestigation(
                 id="inv_001",
+                stepId="step_001",
                 stage=PipelineStage.name,
                 initialUncertainty=[],
                 toolCallIds=["tc_0001", "tc_0002"],
@@ -533,10 +587,27 @@ def test_a_mandatory_search_is_not_evidence_of_investigation():
     )
 
     calls = [call("tc_0001", "search_step_library"), call("tc_0002", "find_text")]
-    assert _calls_per_step(naming, AssertionResult(), calls) == {"step_001": 1}
+    assert _calls_per_step(naming.investigations, calls) == {"step_001": 1}
     # With no trace supplied, nothing is excluded -- the metric degrades to the
     # old behaviour rather than silently reporting zero effort everywhere.
-    assert _calls_per_step(naming, AssertionResult(), None) == {"step_001": 2}
+    assert _calls_per_step(naming.investigations, None) == {"step_001": 2}
+
+    # A repair supersedes a step's investigation but does not undo its cost.
+    # Under-reporting the step that took two passes would hide exactly the step
+    # SS3.4's correlation exists to find -- the hard one.
+    naming.superseded.append(
+        StepInvestigation(
+            id="inv_001_r2",
+            stepId="step_001",
+            stage=PipelineStage.name,
+            initialUncertainty=[],
+            toolCallIds=["tc_0003"],
+            budgetUsed=1,
+            budgetMax=8,
+            stopReason="evidence_sufficient",
+        )
+    )
+    assert _calls_per_step(naming.investigations, calls) == {"step_001": 2}
 
 
 def test_a_step_about_a_refused_change_satisfies_mutation_claimed():

@@ -1,13 +1,114 @@
-# Phase 2b — close the honesty gaps, then prove the artifact runs
+# Phase 3 — Smart
 
 Working plan, kept in the repo so it travels with the code. [SPEC.md](SPEC.md)
 is the design and does not change; this is where the build order lives.
 [CLAUDE.md](CLAUDE.md) carries the rules you need in order to change things
 safely.
 
-Last updated 2026-08-21. Milestones 1-7 are done, pruning included.
-Milestone 8 (narration) is all that remains of Phase 2. The `Landed` sections are the record of what changed
-and why.
+Last updated 2026-08-24. Phases 1 and 2 are closed; SS18's milestones 18-20 are
+done. The `Landed` sections are the record of what changed and why, and the
+Phase 2 half of this file is kept below rather than deleted -- most of what it
+records is why something is shaped the way it is.
+
+---
+
+## Milestone 18-20 · the critic, the repair loop, coverage, bug mode — DONE
+
+**The one thing this phase was for.** SS3.5 defines `A1` as "tools available, no
+critic, no repair loop" and `A2` as the full pipeline. `PipelineOptions.
+for_config` had been setting `critic_enabled=True, repair_enabled=True` for A2
+since Phase 1 and nothing read either flag, so the thesis table had two
+identical rows and the ablation's own `finding()` said so in prose. That was the
+hole; it is closed, and the two arms now differ in `Findings` and `Converged`.
+
+**Almost all of the scaffolding already existed**, which is worth saying because
+the phase looked larger than it was. `PipelineStage.critic` and `.coverage` were
+in the enum. `RepairAttempt`, `RunConfig.criticEnabled/repairEnabled/
+maxRepairAttempts`, `RunMetrics.repairConvergenceRate`, `Step.criticNotes`,
+`Warning{source:"critic"}`, `CoverageSuggestion`, `TestCaseKind.bug_report` and
+`BugDetail` were all in `schema/` and generated into both languages. Three
+renderers already printed coverage suggestions and critic notes;
+`narrative._absorb` already merged `criticNotes` across a merge. The extension
+already emitted the bug-marker annotation and `docs/RECORDING.md:119` already
+promised the tester it "flags the session and the step" -- a promise nothing
+server-side kept, the same class of bug as the intent note that went unread
+until Milestone 8. Phase 3 was mostly filling declared holes.
+
+**What the plan got right.** The trigger-to-stage mapping being a table rather
+than a model decision; the two deliberately empty rows (`event_coverage` is an
+assembly bug a model cannot fix and could disguise, `no_placeholder_leak` is a
+redaction hole a clean re-roll would hide); coverage gated on its own flag so
+the A1/A2 comparison keeps measuring one thing; and the bug threshold set so
+that medium signals never reach it, because four fixtures contain a 4xx that is
+the thing the test is ABOUT.
+
+**What the plan missed, and it is the interesting part.** Two bugs that only a
+real run could surface, both of which had been sitting in the tree:
+
+*`AgentTrace(toolCalls=runner.calls)` does not alias the runner's list.*
+Pydantic validates the field and copies it. Every stage that retrieves after the
+trace is built is therefore invisible to `evidence_retrieved`, which rejects a
+citation that is true, resolvable and correct -- the most confusing failure this
+codebase can produce. It surfaced as the bug describer citing `tc_0013` against
+a trace holding twelve calls. `_sync_calls` is the fix and the docstring says
+why it exists.
+
+*`lift_background` lifted steps into a list nothing rendered.* `_background`
+rendered `case.preconditions`; `build_narrative` put the lifted steps in
+`narrative.background`. So every recording that produced more than one test case
+silently lost its sign-in **from the feature file** while `ir.json` still had
+it. Nothing caught it: `event_coverage` reads the IR rather than the rendered
+output, and a file missing a step still parses. `twoflows` had been shipping
+that way since decomposition landed. Phase 3 only *found* it, by making
+`len(ir.testCases) > 1` true for a single-scenario feature when a bug report was
+added beside it.
+
+**A third guard the plan did not anticipate.** `merge_repeats` folds adjacent
+steps whose text matches exactly, so a repair prompted with "this name is too
+vague" can produce a name identical to its neighbour and delete a step --
+changing the step count mid-run against SS3.6, and moving `Yield`'s denominator,
+which is worse because the metric then *improves*. `narrative.would_collapse`
+refuses the rewrite and the finding stays unresolved.
+
+**The metric trap, for the fourth time.** `repairConvergenceRate` is vacuously
+1.0 when the critic found nothing, exactly as `groundingRate` is vacuously 1.0
+for a configuration that abstains. It ships with `criticFindingsRaised` as its
+denominator and both are columns. Separately, `validatorFirstPassRate` is frozen
+at attempt 1 and `validatorFinalPassRate` added beside it: letting the first
+number absorb the repair loop's improvement would have the loop report itself
+working by hiding that it had to work.
+
+**Demonstrated** on `bugged.recording.json`, a real capture through the real
+extension, with a real model:
+
+```
+## Actual
+
+the export fails with an error indicating an inconsistent order state
+
+> Grounded in `Uncaught Error: Export failed: order state is inconsistent`
+> (console, evt_006, retrieved as `tc_0013`).
+```
+
+That is the citation that was failing before `_sync_calls`, which is a neat
+demonstration of why the gate is worth having.
+
+**And one more metric bug, found only because the table looked wrong.** A1
+scored *higher* than A2 on first-attempt pass rate over identical attempt-1
+output, which is impossible. Two causes stacked: `first_report` was the same
+object as the live report when nothing repaired, so the coverage stage's
+in-place edit backdated a later result into the first-attempt number; and
+`suggestions_quarantined` skips on attempt 1 (coverage has not run) and passes
+at the end, which shifts the denominator between the two measurements and
+manufactures a delta the repair loop did not earn. `first_report` is a snapshot
+now, and the final rate is measured over the validators that judged the first
+draft -- so only a repair can move it.
+
+That is the fourth time a rate has been read without its denominator in this
+project, and the second time in this phase.
+
+**Deliberately not built:** SS18's milestones 21 and 22. See the Status section
+of [CLAUDE.md](CLAUDE.md) for the reasoning, which is the spec's own.
 
 ---
 
@@ -690,35 +791,85 @@ segment and `no_pruned_assertion` currently skips.
 The cost is a new multi-flow recording, not the code — both fixtures are
 single-scenario, so the split cannot be demonstrated on them.
 
-## Milestone 8 · Narration — not started, and worth splitting
+## Milestone 8 · Narration — built
 
-**The whole downstream half already exists.** Twenty-two places in `server/`
-consume narration: `store.narration()`, the `get_narration` tool, `find_text`
-indexing, the `narrated` rank, and milestone 2's provenance verification. All
-built, all tested, all dead for want of data. `NarrationSegment` is
-`{id, startMs, endMs, text}` and nothing more.
+Both halves landed together. What the plan above got wrong, and what changed:
 
-So roughly 90% of the value is behind 10% of the work, and the expensive part
-buys only the microphone. Split it:
+**The transport was over-built.** This said multipart, touching extension,
+server and schema at once. It is one endpoint taking a raw body —
+`POST /api/recordings/{id}/audio`, ~15 lines each side. There is exactly one
+file and the recorder already knows its own id, so multipart bought a parser and
+a form-field name in exchange for nothing. Audio is posted **before** the
+recording, because `post_recording` enqueues the job immediately and
+transcription has to have something to read.
 
-**8a — accept a transcript (hours, no dependency).** `--narration <file>` on
-`run` and `import`. A transcript from anywhere — OS dictation, a voice memo run
-through anything, or typed notes with timestamps — makes `narrated` reachable
-end to end and proves the twenty-two consumers work. Do this first; it de-risks
-8b entirely.
+**Chrome's on-device Web Speech API was considered and rejected**, having first
+looked like the obvious simplification: no audio stored, no dependency, no
+transport. It loses on the thing that turned out to matter. A transcript is a
+*reconstruction*, and keeping the audio is the only way a human can ever check
+one — with Web Speech, whatever the browser heard is all anyone would ever have.
+SS7.5 had already designed for this ("audio files are stored alongside the
+recording and are never uploaded"), and with a `127.0.0.1` server the upload
+question never arose.
 
-**8b — capture audio (about a day).** The manifest has no `offscreen`
-permission and MV3 cannot call `getUserMedia` from a service worker, so: an
-offscreen document, a mic prompt, `MediaRecorder`, chunks into IndexedDB, and a
-transport change from JSON to multipart that touches extension, server and
-schema together. `faster-whisper` is ~300 MB installed with a model. It cannot
-be verified the way everything else here has been — Playwright needs
-`--use-fake-device-for-media-stream` and a fake audio file, not a microphone.
+**`faster-whisper` stands, now for reasons rather than inertia.** Parakeet TDT
+v3 is faster and marginally better on WER, but covers 25 European languages (no
+Arabic) and needs NeMo's PyTorch stack; faster-whisper is one pip dependency on
+CTranslate2 with 99+ languages. Our audio is ~60s of clean close-mic speech
+after VAD, so Parakeet's speed edge buys nothing and its language gap costs
+something. Default `small`, and the choice is visible: on the fixture clip
+`tiny` hears *"that **in** order this size"* where `small` gets *"that **an**
+order this size"*. That one word is the whole argument for the default.
 
-**Know before spending the day:** narration evidence is `not_checkable` on
+**"Cannot be verified the way everything else here has been" was wrong.**
+`scripts/make_narration_wav.ps1` writes the spoken fixture with Windows' own
+speech synthesiser — no network, no model download, nobody's voice — and
+Playwright feeds it through `--use-file-for-fake-audio-capture`. The WAV is
+committed, so CI never depends on which voices a machine has. `narrated.recording.json`
+ships with its narration already transcribed, so the ablation and the server
+suite need no Whisper install at all: the same economics as the cassettes.
+
+**What the plan missed entirely, and is the most interesting part.** Narration
+is the only **lossy** evidence source in this project. Every other one is read
+exactly; a transcript is a reconstruction. So a mis-heard number becomes a
+literal that passes `evidence_retrieved` *and* `assertion_grounding` and is
+still false — both validators right, the claim admissible and wrong. That is
+provenance meeting the first input where provenance and correctness come apart
+by construction. Two deterministic guards: Whisper's `avg_logprob` and
+`no_speech_prob` fold into `NarrationSegment.confidence` (a field the schema had
+all along), and `supports_narrated` stops a low-confidence segment supporting
+the `narrated` rank — in `_supported_provenance` **and** in
+`provenance_supported`, which must not diverge. The audio is kept so the review
+UI can play the clip beside the claim.
+
+**Still true from the original plan:** narration evidence is `not_checkable` on
 replay. A browser cannot confirm something a tester said out loud, so narration
 improves *which* assertion is chosen and can never move `Executes` or `Held`.
-The payoff is output quality, not the correctness metric.
+Read `Yield`, not the correctness column.
+
+**Demonstrated**, on `narrated.recording.json`, twelve validators with one skip:
+
+```
+Then the order is held for manager approval
+  provenance: narrated
+  evidence:   "Orders over EUR500 require approval" (semantic_node, tc_0009)
+```
+
+Grounded in a snapshot literal rather than in the transcript, which is the
+point: narration chose which outcome mattered, the evidence stayed exact.
+
+**One real bug this shook out, worth keeping in mind.** `from` is a Python
+keyword, so codegen emits `from_ = Field(..., alias="from")` on `UrlChange`.
+Writing a `Recording` back with `model_dump_json()` and no `by_alias=True`
+produces a file that saves fine and then fails to validate on every later read
+-- silently poisoned, with the error surfacing somewhere unrelated. It was
+already latent in `cmd_import` and would have hit every recording with a
+navigation in it. The correct dump now lives in `Storage.save_recording`, which
+takes a model rather than a dict so a call site cannot get it wrong, and
+`test_a_recording_written_back_out_still_validates` pins it.
+
+~~**Deferred on purpose:** re-running `ablate` over all five fixtures.~~ Done in
+Phase 3, over seven, which is what the deferral was waiting for.
 
 ## ~~Milestone 7's last piece · pruning~~ — DONE
 
@@ -834,6 +985,12 @@ Two things must not move: `prove_grounding.py` stays green, and the ablation kee
 showing A0 fabricating where A1/A2 ground. A third now joins them — **the grounding
 rate must not fall when provenance verification lands.** If it does, the cause is
 a model that was inflating provenance, which is the finding, not a regression.
+
+A fourth, from Phase 3: **the grounding rate must not RISE because of the repair
+loop either.** A repair that lifts it by teaching a model to cite better is the
+finding; one that lifts it by weakening what counts as grounded is the bug the
+whole architecture exists to prevent. `Valid1st` is frozen at attempt 1 for the
+same reason — read it beside `ValidFin`, and read `Converged` beside `Findings`.
 
 Milestone 2 needs a judgement call no script makes: read the two rendered
 `.feature` files and confirm the expected results are about the thing under test

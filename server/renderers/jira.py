@@ -39,6 +39,9 @@ class JiraExporter:
         files: list[Path] = []
         issues: list[dict[str, Any]] = []
 
+        # Bug reports go too, as a different issue type -- a Jira project is
+        # exactly where both belong, and filing a defect as a Test is how it
+        # gets closed as "working as designed".
         for case in ir.testCases:
             issue = build_issue(case, config)
             issues.append(issue)
@@ -56,10 +59,21 @@ class JiraExporter:
 
 
 def build_issue(case: TestCaseIR, config: ProjectConfig) -> dict[str, Any]:
-    """The `POST /rest/api/3/issue` body for one test case."""
+    """The `POST /rest/api/3/issue` body for one test case, or one bug report.
+
+    The issue TYPE is the whole difference, and it is not cosmetic. A defect
+    filed as a Test gets triaged by whoever owns the test suite and closed as
+    "working as designed"; the same text filed as a Bug reaches the person who
+    can fix it. Jira is the one destination where both artifacts belong, which
+    is why this exporter takes both while the spreadsheet takes only one.
+    """
     fields: dict[str, Any] = {
         "summary": case.scenarioName or case.title,
-        "issuetype": {"name": config.jira_issue_type},
+        "issuetype": {
+            "name": config.jira_bug_issue_type
+            if case.kind == "bug_report"
+            else config.jira_issue_type
+        },
         "description": _description(case),
         "labels": _labels(case, config),
     }

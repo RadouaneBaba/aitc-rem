@@ -36,6 +36,7 @@ from server.models import (
     StopReason,
 )
 from server.pipeline.investigate import DEFAULT_BUDGET, investigate
+from server.pipeline.narrative import would_collapse
 
 #: An outcome lands after the action that caused it, so a window that stops at
 #: the last event misses the annotation describing what the tester saw.
@@ -166,7 +167,11 @@ def split_named(naming: NamingResult, splits: list) -> tuple[NamingResult, set[s
         return naming, set()
 
     by_step = {getattr(sp, "step_id", ""): sp for sp in splits}
-    out = NamingResult(model_calls=naming.model_calls)
+    out = NamingResult(
+        model_calls=naming.model_calls,
+        superseded=list(naming.superseded),
+        discarded_rewrites=list(naming.discarded_rewrites),
+    )
     touched: set[str] = set()
 
     for named in naming.steps:
@@ -195,6 +200,166 @@ def split_named(naming: NamingResult, splits: list) -> tuple[NamingResult, set[s
         touched.update({head.step_id, tail.step_id})
 
     return out, touched
+
+
+REPAIR_ADDENDUM = """\
+
+---
+
+This step has already been written once and sent back. You are writing it again.
+
+What you wrote (attempt {attempt}):
+    "{rejected}"
+
+Why it was sent back:
+    {finding}
+
+Write the sentence again, fixing that specific problem. Every rule above still
+applies -- the same voice, the same subject, one intent, the same quoting of
+values that matter. Do not simply reword: if the finding says the step does not
+say WHAT was submitted, the new sentence has to say it, which may mean looking
+at the evidence again.
+
+Do not make the sentence more generic to satisfy the finding. A step that reads
+identically to the one before or after it is worse than the one you are
+replacing, and it will be rejected."""
+
+
+def rename_steps(
+    store: EvidenceStore,
+    runner: ToolRunner,
+    model: ModelClient,
+    naming: NamingResult,
+    *,
+    findings: dict[str, str],
+    model_name: str,
+    budget: int = DEFAULT_BUDGET,
+    tools_enabled: bool = True,
+    temperature: float = 0.0,
+    config: ProjectConfig | None = None,
+    attempt: int = 2,
+) -> tuple[NamingResult, set[str]]:
+    """Write particular steps again, with the finding that rejected them (SS9.9).
+
+    Not `name_segments` with a filter, for a reason that would be a silent bug:
+    `name_segments` walks `store.segments` and takes each step's events from the
+    SEGMENT. A step created by a split (SS9.3) holds only half of one, so
+    re-naming it that way would quietly restore the other half's events and
+    contradict the split that composition asked for. This walks the named steps
+    instead and preserves `step_id`, `segment_id` and `event_ids` exactly.
+
+    Returns the new result and the ids that actually changed -- which is not the
+    same as the ids that were asked about. A repair whose replacement collides
+    with a neighbouring step is refused, and the caller needs to know it got
+    nothing so the finding can be marked unresolved rather than silently
+    dropped.
+    """
+    config = config or ProjectConfig()
+    out = NamingResult(
+        model_calls=list(naming.model_calls),
+        superseded=list(naming.superseded),
+        discarded_rewrites=list(naming.discarded_rewrites),
+    )
+    texts = [s.text for s in naming.steps]
+    changed: set[str] = set()
+
+    for index, named in enumerate(naming.steps):
+        finding = findings.get(named.step_id)
+        # A dictated step and a library-verbatim step are not the tool's to
+        # reword (SS6.7, SS12.2). The critic is told so and its findings are
+        # filtered, so reaching here means something upstream is wrong -- refuse
+        # rather than trust the filter.
+        if finding is None or named.library_ref:
+            out.steps.append(named)
+            continue
+
+        enquiry = investigate(
+            runner,
+            model,
+            system_prompt=system_prompt(config),
+            user_prompt=_baseline(
+                store, store.segment(named.segment_id), previous=texts[index - 1] if index else None
+            )
+            + REPAIR_ADDENDUM.format(
+                attempt=attempt - 1, rejected=named.text, finding=finding
+            ),
+            model_name=model_name,
+            stage=PipelineStage.name,
+            label=f"{named.step_id}_r{attempt}",
+            budget=budget if tools_enabled else 0,
+            tools_enabled=tools_enabled,
+            temperature=temperature,
+            step_id=named.step_id,
+            segment_id=named.segment_id,
+        )
+        out.model_calls.extend(enquiry.model_calls)
+        answer = enquiry.answer
+        escalation = (answer.get("escalation") or "").strip() or None
+        enquiry.finish(escalation)
+
+        text = with_subject((answer.get("text") or "").strip(), config)
+        if not text or text.strip().casefold() == named.text.strip().casefold():
+            # No usable answer, or the same sentence again. Keep what we had:
+            # the finding stays unresolved and is surfaced to the human, which
+            # is what SS9.9 asks for on exhaustion.
+            out.superseded.append(
+                enquiry.record(
+                    investigation_id=f"inv_{named.step_id}_r{attempt}",
+                    stage=PipelineStage.name,
+                    budget=budget,
+                    step_id=named.step_id,
+                    segment_id=named.segment_id,
+                )
+            )
+            out.steps.append(named)
+            continue
+
+        if would_collapse(texts, index, text):
+            # SS3.6 -- two attempts of the same run must produce the same step
+            # count, and `merge_repeats` folds adjacent steps whose text matches.
+            out.discarded_rewrites.append(
+                f"{named.step_id}: refused {text!r} -- it repeats the step beside it, "
+                f"which `merge_repeats` would fold, changing the step count mid-run."
+            )
+            out.superseded.append(
+                enquiry.record(
+                    investigation_id=f"inv_{named.step_id}_r{attempt}",
+                    stage=PipelineStage.name,
+                    budget=budget,
+                    step_id=named.step_id,
+                    segment_id=named.segment_id,
+                )
+            )
+            out.steps.append(named)
+            continue
+
+        investigation = enquiry.record(
+            investigation_id=f"inv_{named.step_id}_r{attempt}",
+            stage=PipelineStage.name,
+            budget=budget,
+            step_id=named.step_id,
+            segment_id=named.segment_id,
+        )
+        if escalation:
+            investigation.escalationQuestion = escalation
+        investigation.narrative.append(f"rewritten after: {finding}")
+
+        out.superseded.append(named.investigation)
+        out.steps.append(
+            replace(
+                named,
+                text=text,
+                confidence=_confidence(answer.get("confidence")),
+                investigation=investigation,
+                escalation=escalation,
+                reason=str(answer["reason"]) if answer.get("reason") else None,
+                library_ref=_library_ref(runner, answer.get("libraryRef"), text),
+            )
+        )
+        texts[index] = text
+        changed.add(named.step_id)
+
+    return out, changed
 
 
 def with_subject(text: str, config: ProjectConfig) -> str:
@@ -243,10 +408,20 @@ class NamedStep:
 class NamingResult:
     steps: list[NamedStep] = field(default_factory=list)
     model_calls: list[ModelCall] = field(default_factory=list)
+    #: Investigations a repair replaced (SS9.9). Kept rather than dropped for
+    #: two reasons: SS9.10 wants every `StepInvestigation` in the trace, and
+    #: SS3.4's effort column has to count what the run actually spent on a step
+    #: -- including the attempt that was rejected, which is exactly the effort
+    #: a hard step provoked.
+    superseded: list[StepInvestigation] = field(default_factory=list)
+    #: Rewrites a repair produced and this stage refused, with the reason.
+    #: Recorded rather than dropped: "repair changed nothing" and "repair
+    #: proposed something inadmissible" are different facts about a run.
+    discarded_rewrites: list[str] = field(default_factory=list)
 
     @property
     def investigations(self) -> list[StepInvestigation]:
-        return [s.investigation for s in self.steps]
+        return [s.investigation for s in self.steps] + list(self.superseded)
 
     def tool_calls_per_step(self) -> dict[str, int]:
         """The x-axis of the effort/difficulty correlation (SS3.4)."""

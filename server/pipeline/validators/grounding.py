@@ -10,7 +10,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from server.models import ValidatorAction, ValidatorName, ValidatorResult, ValidatorStatus
+from server.models import (
+    Assertion,
+    Provenance,
+    ValidatorAction,
+    ValidatorName,
+    ValidatorResult,
+    ValidatorStatus,
+)
+from server.pipeline.transcribe import supports_narrated
 from server.pipeline.validators.base import (
     ValidationContext,
     contains_literal,
@@ -26,6 +34,47 @@ def _assertions(ctx: ValidationContext):
         for step in case.steps:
             for assertion in step.assertions:
                 yield case, step, assertion
+        claim = bug_claim(case)
+        if claim is not None:
+            yield claim
+
+
+def bug_claim(case) -> tuple | None:
+    """A bug report's `actual`, as a claim the gate can check (SS14.2).
+
+    "`expected` and `actual` are subject to the same evidence binding (SS3.2) --
+    `actual` must quote something the agent retrieved."
+
+    Yielded into the same loop as every other assertion rather than checked by a
+    branch of its own, because a second implementation of evidence binding is a
+    second thing that can be wrong -- and this is the one sentence a developer
+    reads before deciding whether to go and reproduce something.
+    """
+    bug = getattr(case, "bug", None)
+    if bug is None or bug.actualEvidence is None:
+        return None
+    step = next((s for s in case.steps if s.id == bug.failureStepId), None)
+    if step is None:
+        return None
+    return case, step, Assertion(
+        id=f"{case.id}_actual",
+        text=bug.actual,
+        provenance=Provenance.inferred,
+        evidence=bug.actualEvidence,
+        accepted=True,
+    )
+
+
+def claim_total(ir) -> int:
+    """Every claim the gate checks, which is the denominator of the grounding rate.
+
+    Kept in step with `_assertions` above: a bug report's `actual` is checked by
+    `evidence_retrieved`, so counting only step assertions here would let one
+    rejected bug claim push the rate below what the run actually produced.
+    """
+    return sum(len(s.assertions) for c in ir.testCases for s in c.steps) + sum(
+        1 for c in ir.testCases if bug_claim(c) is not None
+    )
 
 
 def evidence_retrieved(ctx: ValidationContext) -> Iterable[ValidatorResult]:
@@ -308,7 +357,16 @@ def provenance_supported(ctx: ValidationContext) -> Iterable[ValidatorResult]:
         if provenance == "annotated":
             supported = bool(store.annotations(start, end, kind="assertion"))
         elif provenance == "narrated":
-            supported = bool(store.narration(start, end))
+            # The same gate `_supported_provenance` applies, and it has to be
+            # the same one: narration is a reconstruction, so a segment the
+            # transcriber was unsure of does not support the rank. If these two
+            # ever disagree, a step is demoted by the stage and then reported
+            # as fine by the gate, or the reverse -- and the reverse is a
+            # mis-heard literal wearing a provenance nothing objects to.
+            supported = any(
+                supports_narrated(s, ctx.narration_min_confidence)
+                for s in store.narration(start, end)
+            )
         elif provenance == "objective":
             supported = bool(store.objective)
         else:

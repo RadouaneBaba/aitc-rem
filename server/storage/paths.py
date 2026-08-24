@@ -84,6 +84,43 @@ class Storage:
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         return path
 
+    def save_recording(self, recording: Any) -> Path:
+        """Write a `Recording` model back out, in the schema's own vocabulary.
+
+        **`by_alias=True` is the entire reason this exists.** `from` is a Python
+        keyword, so codegen emits `from_ = Field(..., alias="from")` on
+        `UrlChange`. Dumping without the alias writes `from_`, which the schema
+        forbids -- so the file is written successfully and then fails to
+        validate on every subsequent read. Nothing complains at write time; the
+        recording is simply poisoned, and the error surfaces later somewhere
+        unrelated.
+
+        Call sites kept getting this wrong because the wrong version looks
+        right, so the correct dump lives here and takes a model rather than a
+        dict. If you find yourself writing `model_dump_json` against a
+        Recording, use this instead.
+        """
+        return self.save_recording_json(
+            recording.id,
+            json.loads(recording.model_dump_json(by_alias=True, exclude_none=True)),
+        )
+
+    def audio_path(self, recording_id: str) -> Path:
+        """Narration audio, beside its recording (SS7.5).
+
+        Kept rather than discarded after transcription, and that is the whole
+        design: narration is the only lossy evidence source here, a browser
+        cannot re-check something a person said out loud, and a human listening
+        to the clip is the only verification such a claim can have.
+        """
+        return self.recordings_dir / recording_id / "audio.webm"
+
+    def save_audio(self, recording_id: str, data: bytes) -> Path:
+        path = self.audio_path(recording_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
     def list_recordings(self) -> list[str]:
         if not self.recordings_dir.exists():
             return []

@@ -431,3 +431,149 @@ def test_approving_is_what_teaches_the_tool_its_own_vocabulary(client):
     assert remembered == set(texts)
     # And it is findable next time by the sentence a model would have drafted.
     assert library.exact(texts[0]) is not None
+
+
+# --------------------------------------------------------------------------
+# narration (SS6.6, SS7.5)
+# --------------------------------------------------------------------------
+
+
+def test_audio_is_posted_before_the_recording_and_kept_beside_it(client, storage):
+    """The order is the design, not a convenience.
+
+    `POST /api/recordings` enqueues the pipeline job immediately, so audio that
+    arrived afterwards would be transcribed for a run that had already started
+    without it -- and the recording.json on disk would then disagree with the
+    trace that cites it.
+    """
+    payload = json.loads(recording().model_dump_json(exclude_none=True))
+
+    audio = client.post(
+        f"/api/recordings/{payload['id']}/audio",
+        content=b"\x1a\x45\xdf\xa3 not really webm, but bytes on the wire",
+        headers={"Content-Type": "audio/webm"},
+    )
+    assert audio.status_code == 201, audio.text
+    assert storage.audio_path(payload["id"]).is_file()
+
+    response = client.post("/api/recordings", json=payload)
+    assert response.status_code == 202, response.text
+    client.app.state.jobs.wait(30)
+
+    # faster-whisper is an optional extra and these bytes are not real audio, so
+    # what is asserted is that the failure is REPORTED. A run that silently
+    # dropped narration looks exactly like a tester who did not speak.
+    narration = response.json()["narration"]
+    assert narration["status"] in {"transcribed", "unavailable"}
+    if narration["status"] == "unavailable":
+        assert narration["reason"]
+
+
+def test_a_recording_with_no_audio_says_so_rather_than_failing(client):
+    assert post_recording(client)["narration"] == {"status": "none"}
+
+
+def test_narration_the_tester_supplied_is_not_thrown_away_and_re_guessed(client, storage):
+    rec = recording()
+    rec.narration = [
+        {"id": "nar_001", "startMs": 0, "endMs": 900, "text": "checking the confirmation"}
+    ]
+    payload = json.loads(rec.model_dump_json(exclude_none=True))
+    client.post(
+        f"/api/recordings/{payload['id']}/audio",
+        content=b"bytes",
+        headers={"Content-Type": "audio/webm"},
+    )
+
+    body = client.post("/api/recordings", json=payload).json()
+    client.app.state.jobs.wait(30)
+
+    assert body["narration"] == {"status": "supplied", "segments": 1}
+    # And it survives to disk, so the trace that cites it is reproducible.
+    saved = storage.load_recording_json(payload["id"])
+    assert saved["narration"][0]["text"] == "checking the confirmation"
+
+
+def test_the_clip_can_be_played_back_so_a_human_can_check_a_lossy_transcript(client):
+    """SS13.3, and the only verification narration can actually have.
+
+    A mis-heard literal passes `evidence_retrieved` and `assertion_grounding`
+    both -- the string really is in the response and really is in the index. No
+    machine check catches it. A person listening does.
+    """
+    payload = json.loads(recording().model_dump_json(exclude_none=True))
+    client.post(
+        f"/api/recordings/{payload['id']}/audio",
+        content=b"opus-ish bytes",
+        headers={"Content-Type": "audio/webm"},
+    )
+
+    played = client.get(f"/api/recordings/{payload['id']}/audio")
+    assert played.status_code == 200
+    assert played.headers["content-type"] == "audio/webm"
+    assert played.content == b"opus-ish bytes"
+
+
+def test_asking_for_audio_that_was_never_recorded_is_a_404_not_a_crash(client):
+    assert client.get("/api/recordings/rec_nothing/audio").status_code == 404
+
+
+def test_empty_audio_is_refused_rather_than_written_as_a_zero_byte_file(client, storage):
+    response = client.post("/api/recordings/rec_x/audio", content=b"")
+    assert response.status_code == 400
+    assert not storage.audio_path("rec_x").exists()
+
+
+def test_a_reviewer_can_see_and_hear_what_was_said_during_a_step(client, storage):
+    """SS13.3, for the one evidence source a machine cannot re-check.
+
+    The window is the step's events plus the settle tail, and the browser has
+    neither event timestamps nor the settle rule -- so it is computed here,
+    against the same store the validators read. A reviewer shown a different set
+    of segments than the gate considered would be worse than showing none.
+    """
+    rec = recording()
+    rec.narration = [
+        {
+            "id": "nar_001",
+            "startMs": 0,
+            "endMs": 500,
+            "text": "checking the confirmation appears",
+            "confidence": 0.91,
+        },
+        {
+            "id": "nar_002",
+            "startMs": 0,
+            "endMs": 500,
+            "text": "mumbled and half heard",
+            "confidence": 0.05,
+        },
+    ]
+    payload = json.loads(rec.model_dump_json(exclude_none=True))
+    client.post(
+        f"/api/recordings/{payload['id']}/audio",
+        content=b"clip",
+        headers={"Content-Type": "audio/webm"},
+    )
+    client.post("/api/recordings", json=payload)
+    client.app.state.jobs.wait(30)
+
+    recording_id, run_id = payload["id"], client.get("/api/runs").json()["runs"][0]["runId"]
+    body = get_run(client, recording_id, run_id)
+    step = body["ir"]["testCases"][0]["steps"][0]
+
+    spoken = client.get(f"/api/runs/{recording_id}/{run_id}/steps/{step['id']}/narration").json()
+    assert spoken["hasAudio"] is True
+    by_id = {s["id"]: s for s in spoken["segments"]}
+
+    # Both are shown. Only one may rank an expected result: a transcription
+    # nobody trusts must not outrank an honest inference, and hiding it would
+    # leave "the tool ignored what I said" without an answer.
+    assert by_id["nar_001"]["supportsRank"] is True
+    assert by_id["nar_002"]["supportsRank"] is False
+
+
+def test_asking_for_narration_on_a_step_that_does_not_exist_is_a_404(client):
+    recording_id, run_id = a_run(client)
+    response = client.get(f"/api/runs/{recording_id}/{run_id}/steps/step_999/narration")
+    assert response.status_code == 404

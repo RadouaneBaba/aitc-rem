@@ -27,7 +27,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from server.config import ProjectConfig
 from server.models import IRDocument, TestCaseIR
 from server.pipeline.narrative import build_narrative
-from server.renderers.base import ExportResult, review_warnings
+from server.renderers.base import ExportResult, review_warnings, test_cases
 
 #: Excel rejects these in a sheet name, and silently truncates past 31 chars.
 FORBIDDEN = re.compile(r"[\[\]:*?/\\]")
@@ -58,7 +58,7 @@ class ExcelExporter:
         workbook.remove(workbook.active)
 
         used: set[str] = set()
-        for case in ir.testCases:
+        for case in test_cases(ir):
             sheet = workbook.create_sheet(_sheet_name(case, used))
             _write_case(sheet, case)
 
@@ -138,7 +138,7 @@ def _write_case(sheet: Worksheet, case: TestCaseIR) -> None:
 def _write_preconditions(sheet: Worksheet, ir: IRDocument) -> None:
     _header(sheet, row=1, columns=[("Test case", 24), ("Precondition", 70), ("Shared", 10)])
     row = 2
-    for case in ir.testCases:
+    for case in test_cases(ir):
         for precondition in case.preconditions:
             sheet.cell(row=row, column=1, value=case.scenarioName or case.title)
             sheet.cell(row=row, column=2, value=precondition.text)
@@ -159,7 +159,7 @@ def _write_parameters(sheet: Worksheet, ir: IRDocument) -> None:
 
     row = 4
     seen: set[str] = set()
-    for case in ir.testCases:
+    for case in test_cases(ir):
         for parameter in case.parameters:
             if parameter.placeholder in seen:
                 continue
@@ -178,7 +178,7 @@ def _write_warnings(sheet: Worksheet, ir: IRDocument) -> None:
     # spreadsheet that means a sheet, not a colour.
     _header(sheet, row=1, columns=[("Severity", 12), ("Test case", 22), ("What", 84)])
     row = 2
-    for case in ir.testCases:
+    for case in test_cases(ir):
         for warning in case.warnings:
             sheet.cell(row=row, column=1, value=warning.severity.value)
             sheet.cell(row=row, column=2, value=case.scenarioName or case.title)

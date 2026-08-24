@@ -47,6 +47,12 @@ class ValidationContext:
     #: when a step claims reuse and this is absent: a claim that cannot be
     #: checked is not admissible.
     library: Any = None
+    #: SS6.6 -- below this, a narration segment is kept and shown but cannot
+    #: support the `narrated` rank. A number rather than the ProjectConfig,
+    #: because the gate has no business knowing the project's voice: narration
+    #: is the one LOSSY evidence source here, and how much of it to trust is the
+    #: only setting that bears on admissibility.
+    narration_min_confidence: float = 0.5
 
     _store: EvidenceStore | None = field(default=None, init=False, repr=False)
 

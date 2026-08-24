@@ -53,10 +53,45 @@ missed.
 That is three things and it reads as three things. Rattling through six fields
 and a submit in four seconds gets grouped into one step called something vague.
 
-**Do not narrate out loud.** Not yet — the recorder does not capture audio.
-See [Not built yet](#not-built-yet).
+### Talk while you record ← turn this on
 
-### Mark what you're verifying ← the important one
+Tick **Talk while I record** in the popup before you press Start. Chrome asks
+for the microphone once, ever.
+
+Then just say what you are checking, as you do it:
+
+> *"Now I'm checking that an order this size needs manager approval."*
+
+That sentence becomes the expected result. Without it the tool has to work out
+which of the changes on screen was the point, and when a page updates a badge, a
+total, a timestamp and a status all at once it sometimes picks a true but
+irrelevant one. Saying it out loud costs you nothing and settles it.
+
+You do not have to narrate everything. Say something when the step matters and
+stay quiet the rest of the time.
+
+**Two things to know, and they are the same thing twice.**
+
+**It is written down.** Everything you say is transcribed and kept. Typed values
+are redacted because the recorder can see that a field was a password; it cannot
+hear that a sentence was one. Treat talking like typing into the page. The
+**Mute** button in the popup silences the microphone mid-recording without
+ending the session — use it before you read a password aloud, not after.
+
+**It can mishear you.** Speech is transcribed, not read. "Six fifteen" comes
+back as "six fifty" often enough to matter, and a wrong number in an expected
+result is worse than no expected result. So:
+
+- The recording is kept, and the review screen **plays back what you actually
+  said** next to the sentence it produced. If something looks off, listen.
+- Anything the transcriber was unsure of is shown greyed out and is not used to
+  decide what the step is checking. You will see it; it just does not get a
+  vote.
+
+Nothing leaves your machine. The audio is saved next to the recording and
+transcribed there.
+
+### Mark what you're verifying ← the other important one
 
 The green button in the popup. Press it, then click the thing on the page you
 are actually checking: the confirmation banner, the total, the cart badge, the
@@ -64,11 +99,10 @@ error message.
 
 Do it **after** the thing appears.
 
-This is worth more than everything else on this page combined. Without it the
-tool has to guess which of the changes on screen was the point, and when a page
-updates a badge, a total, a timestamp and a status all at once, it sometimes
-picks a true but irrelevant one. You know which one mattered. This is how you
-say so.
+This is still the strongest single thing you can do, and it beats narrating:
+pointing at an element is exact, where a spoken sentence has to be transcribed
+first. Use both — say what you are checking, then point at it. They agree with
+each other and the tool takes the pointed-at one.
 
 You can mark several things in one recording. Marking nothing is fine; you will
 just get the tool's best guess instead.
@@ -115,6 +149,12 @@ their own.
 hostname, an order reference, a comment you typed into a free-text field. It
 matches patterns, and prose is not a pattern.
 
+**And it barely applies to anything you say.** Redaction works on typed values
+because the recorder can see that a field was `type=password`. It cannot hear
+that a sentence was one. A spoken email address or card number read straight off
+the screen is caught; *"I'm signing in as john at example dot com"* is not.
+Anything you narrate should be treated as written down, because it is.
+
 Before anything is sent, you get a screen listing exactly what will leave the
 browser, with the replacements shown. Read it the first time. If something is
 on it that should not be, stop and say so.
@@ -153,7 +193,7 @@ part worth understanding, because it tells you how much to trust the line:
 | Badge | Meaning | How much to check it |
 |---|---|---|
 | `annotated` | You pointed at this element while recording | Barely. It is what you said. |
-| `narrated` | You said it out loud | Barely. |
+| `narrated` | You said it out loud | **Check the number.** It is what you said, as far as the transcriber could tell. Play the clip if it looks odd. |
 | `objective` | It comes from your stated objective | Skim it. |
 | `inferred` | The tool worked it out from what changed | **Read it properly.** It is true, but it may be about the wrong thing. |
 | `confirmed` | You answered a question the tool asked | It is yours. |
@@ -182,6 +222,35 @@ it. That is deliberate — the sentence is yours, the evidence is not.
 Approving matters beyond this one test: approved steps are what the tool reuses
 next time, so a suite ends up phrased consistently instead of ten ways.
 
+### Three things under the test case
+
+They appear when there is something to say, and none of them is part of the test
+case itself.
+
+**Warnings.** Things the tool could not resolve, stated rather than hidden. Some
+come from the recorder ("this control had no label"); some come from the tool
+reviewing its own draft and failing to fix what it found. Either way it is
+telling you where not to trust it.
+
+**What this session did not cover — UNVERIFIED.** Things the recording revealed
+about the application that nothing exercised: a field with a rule you only
+satisfied, an error the server clearly knows how to produce, a threshold you
+went over but never landed on. **Nothing here has been checked.** It is a prompt
+for your next recording, not a claim, and it is never part of the file you hand
+over. Ignore any of it freely.
+
+**A bug report**, if something actually broke — a server error, a crash, or you
+pressed **Mark a bug**. You get it *alongside* the test case, not instead of it,
+and you choose which to keep: the steps that reached the failure are a usable
+test either way. It states what should have happened and what did, and the
+second one quotes the application's own words back, with a link to where they
+were found. If the tool could not find anything that said what went wrong, it
+writes no report rather than guessing.
+
+A rejection your test is *about* — "orders over €500 need approval" — is not
+treated as a bug. That is the tool knowing the difference between a refusal you
+were checking for and one you were not.
+
 ---
 
 ## Getting a better result
@@ -190,11 +259,11 @@ In rough order of payoff:
 
 1. **Write a sharp objective.** A check, not an area.
 2. **Mark what you're verifying**, at least once per test case.
-3. **Slow down slightly**, and let each page settle.
-4. **Use a Note** for any step the tool keeps getting wrong.
-5. **Record one flow per session.** Splitting a session into several test cases
-   is not built yet, so a recording covering three unrelated things comes out as
-   one confused test case.
+3. **Talk while you record.** Say what each check is for as you do it.
+4. **Slow down slightly**, and let each page settle.
+5. **Use a Note** for any step the tool keeps getting wrong.
+6. **Press New scenario** when you move on to checking something else. One
+   recording becomes several test cases, and that is where it splits them.
 
 ## When something goes wrong
 
@@ -213,11 +282,21 @@ confidence. It does not hide these.
 **"Could not reach the server."** The review server is not running. Somebody has
 to start it — it is a local program, it is not something you have done wrong.
 
+**Nothing you said was picked up.** The popup shows a level meter while you
+record; if it never moves, the microphone is not being heard. Check that **Talk
+while I record** is ticked, that you are not muted, and that Chrome has the
+microphone — the padlock in the address bar of the permission tab resets it.
+
+**The tool misheard a number.** Play the clip in the review screen to confirm,
+then reword the expected result. If it happens often, a bigger transcription
+model is one line in `config/project.yaml` — ask whoever set this up.
+
 ## Not built yet
 
 Said plainly, so you do not go looking:
 
-- **Narration.** Speaking while you record does nothing; no audio is captured.
-- **Several test cases from one recording.** One recording, one test case.
 - **Filing the Jira ticket for you.** The ticket is built and written to disk,
   ready to paste. It is not posted.
+- **Recording a second tab.** If the flow opens a popup — an OAuth sign-in, a
+  payment window — what happens in it is not captured. Everything in the tab you
+  started in still is.

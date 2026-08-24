@@ -43,6 +43,18 @@ class ConfigMetrics:
     grounded: int = 0
     ungrounded: int = 0
     validator_first_pass: float = 0.0
+    #: The same gate after the repair loop finished. Read as a pair with the
+    #: first-attempt rate: the distance between them is what repair bought, and
+    #: a single number reporting only the second would be the repair loop
+    #: marking its own homework.
+    validator_final_pass: float = 0.0
+    #: SS9.9's convergence rate, as its two counts rather than as a ratio.
+    #: `repairConvergenceRate` alone is vacuously 1.0 when the critic found
+    #: nothing -- the same trap as `groundingRate` for a configuration that
+    #: abstains, met here for the fourth time. A rate is only readable beside
+    #: its denominator, so both are columns.
+    critic_findings: int = 0
+    repairs_resolved: int = 0
     tool_calls: int = 0
     tool_calls_per_step: float = 0.0
     #: Steps whose tool-call count differs from the run's mean. A chain is flat
@@ -111,6 +123,17 @@ class ConfigMetrics:
         return self.selector_rank_total / self.replayed if self.replayed else 0.0
 
     @property
+    def repair_convergence_rate(self) -> float:
+        """How often repair fixed the finding within budget (SS9.9).
+
+        Zero, not one, when nothing was found. A configuration with no critic
+        did not converge perfectly -- it never diverged, and scoring those the
+        same is exactly how `A0` came to look identical to `A2` on grounding
+        rate. Read `Converged` with `Findings` beside it or do not read it.
+        """
+        return self.repairs_resolved / self.critic_findings if self.critic_findings else 0.0
+
+    @property
     def grounded_yield(self) -> float:
         """Grounded assertions per step -- how much usable output was produced.
 
@@ -132,6 +155,10 @@ class ConfigMetrics:
             "groundingRate": round(self.grounding_rate, 4),
             "groundedYield": round(self.grounded_yield, 4),
             "validatorFirstPassRate": round(self.validator_first_pass, 4),
+            "validatorFinalPassRate": round(self.validator_final_pass, 4),
+            "criticFindings": self.critic_findings,
+            "repairsResolved": self.repairs_resolved,
+            "repairConvergenceRate": round(self.repair_convergence_rate, 4),
             "toolCalls": self.tool_calls,
             "toolCallsPerStep": round(self.tool_calls_per_step, 3),
             "effortSpread": round(self.effort_spread, 3),
@@ -155,28 +182,53 @@ class AblationReport:
     def as_dict(self) -> dict[str, object]:
         return {"table": [m.as_dict() for m in self.rows.values()], "runs": self.runs}
 
+    #: Two blocks rather than one row, because the row is 15 columns wide and it
+    #: goes on a page. They are grouped by the question they answer: what the
+    #: run CLAIMED, and what it DID to get there. `as_dict` and the JSON report
+    #: are unaffected -- this is presentation only.
+    BLOCKS = (
+        (
+            "What it claimed",
+            [
+                ("config", "Config", 6),
+                ("assertions", "Assert", 7),
+                ("groundingRate", "Grounded", 9),
+                ("groundedYield", "Yield", 7),
+                ("ungrounded", "Fabric.", 8),
+                ("validatorFirstPassRate", "Valid1st", 9),
+                ("validatorFinalPassRate", "ValidFin", 9),
+            ],
+        ),
+        (
+            "What it did to get there",
+            [
+                ("config", "Config", 6),
+                ("toolCallsPerStep", "Calls/step", 11),
+                ("effortSpread", "Spread", 7),
+                ("criticFindings", "Findings", 9),
+                ("repairConvergenceRate", "Converged", 10),
+                ("executionRate", "Executes", 9),
+                ("replayAssertions", "Rechecked", 10),
+                ("assertionsHeldRate", "Held", 6),
+                ("promptTokens", "PromptTok", 10),
+            ],
+        ),
+    )
+
     def table(self) -> str:
         """The SS3.5 table, as text. Deliberately plain: it goes in a thesis."""
-        columns = [
-            ("config", "Config", 6),
-            ("assertions", "Assert", 7),
-            ("groundingRate", "Grounded", 9),
-            ("groundedYield", "Yield", 7),
-            ("ungrounded", "Fabric.", 8),
-            ("validatorFirstPassRate", "Valid1st", 9),
-            ("toolCallsPerStep", "Calls/step", 11),
-            ("effortSpread", "Spread", 7),
-            ("executionRate", "Executes", 9),
-            ("replayAssertions", "Rechecked", 10),
-            ("assertionsHeldRate", "Held", 6),
-            ("promptTokens", "PromptTok", 10),
-        ]
-        header = "  ".join(title.rjust(width) for _, title, width in columns)
-        lines = [header, "-" * len(header)]
-        for metrics in self.rows.values():
-            data = metrics.as_dict()
-            lines.append("  ".join(str(data[key]).rjust(width) for key, _, width in columns))
-        return "\n".join(lines)
+        rows = [m.as_dict() for m in self.rows.values()]
+        out: list[str] = []
+        for title, columns in self.BLOCKS:
+            header = "  ".join(name.rjust(width) for _, name, width in columns)
+            if out:
+                out.append("")
+            out.append(title)
+            out.append(header)
+            out.append("-" * len(header))
+            for data in rows:
+                out.append("  ".join(str(data[key]).rjust(width) for key, _, width in columns))
+        return "\n".join(out)
 
     def finding(self) -> str:
         """A0 vs A2 in one sentence, stated whichever way it comes out.
@@ -206,13 +258,56 @@ class AblationReport:
                 "fabricating, which is the honest failure mode and the reason grounding RATE "
                 "must not be read alone: abstaining scores 100% on rate and zero on yield."
             )
-        if a1 and a2 and abs(a1.grounding_rate - a2.grounding_rate) < 0.05:
-            parts.append(
-                f"A1 and A2 are within 5 points ({a1.grounding_rate:.0%} vs "
-                f"{a2.grounding_rate:.0%}): on this evidence the critic and repair loop "
-                f"are not what makes the difference. Worth knowing early."
-            )
+        if a1 and a2:
+            parts.append(_a1_vs_a2(a1, a2))
         return " ".join(parts)
+
+
+def _a1_vs_a2(a1: ConfigMetrics, a2: ConfigMetrics) -> str:
+    """The critic-and-repair comparison, stated whichever way it comes out.
+
+    SS3.5 pre-authorises the null result -- "if A1 is roughly A2, that is a
+    genuine finding worth knowing in month two rather than month five" -- so
+    this must not be written to make the feature look good. It must also not be
+    read on grounding rate alone: A1 and A2 propose assertions with the same
+    stage and the same tools, so the rate was never where the difference was
+    going to show. What A2 adds is a second opinion on whether the output is any
+    good, and the honest columns for that are how many findings it raised and
+    how many of them it managed to resolve.
+    """
+    if not a2.critic_findings:
+        return (
+            "A2's critic raised no findings at all on this set, so A1 and A2 ran the same "
+            "pipeline and their rows should be read as one. That is a result about these "
+            "recordings, not about the critic: output the critic has nothing to say about "
+            "is output that was already good enough."
+        )
+
+    resolved = f"{a2.repairs_resolved} of {a2.critic_findings}"
+    unresolved = a2.critic_findings - a2.repairs_resolved
+    parts = [
+        f"A2's critic raised {a2.critic_findings} finding(s) and the repair loop resolved "
+        f"{resolved} within budget ({a2.repair_convergence_rate:.0%})."
+    ]
+    if unresolved:
+        parts.append(
+            f"{unresolved} went to the human with the finding stated, which is the designed "
+            f"outcome on exhaustion rather than a failure of the loop."
+        )
+    gap = a2.validator_final_pass - a2.validator_first_pass
+    parts.append(
+        f"A2's gate went from {a2.validator_first_pass:.0%} on the first attempt to "
+        f"{a2.validator_final_pass:.0%} after repair ({gap:+.0%}); A1 has no second "
+        f"attempt and sits at {a1.validator_first_pass:.0%}."
+    )
+    if abs(a1.grounded_yield - a2.grounded_yield) < 0.05:
+        parts.append(
+            "Yield is within 5 points across the two, which is expected rather than "
+            "disappointing: both arms propose assertions with the same stage and the same "
+            "tools, so the critic was never going to move it. The columns that separate "
+            "them are Findings and Converged."
+        )
+    return " ".join(parts)
 
 
 def run_ablation(
@@ -285,10 +380,25 @@ def _accumulate(metrics: ConfigMetrics, result: PipelineResult) -> None:
     if result.report.hard_failed:
         metrics.hard_failures += 1
 
+    metrics.critic_findings += run_metrics.criticFindingsRaised or 0
+    # Counted from the trace rather than derived from the rate, so the row is an
+    # aggregate over every finding rather than a mean of per-run ratios -- a run
+    # with one finding would otherwise weigh as much as a run with ten.
+    metrics.repairs_resolved += len(
+        {
+            (a.stage, a.targetStepId, a.finding)
+            for a in result.trace.repairAttempts
+            if a.resolved
+        }
+    )
+
     # Running means, so the row stays correct across a growing recording set.
     n = metrics.recordings
     metrics.validator_first_pass += (
         (run_metrics.validatorFirstPassRate or 0.0) - metrics.validator_first_pass
+    ) / n
+    metrics.validator_final_pass += (
+        (run_metrics.validatorFinalPassRate or 0.0) - metrics.validator_final_pass
     ) / n
 
     per_step = list((run_metrics.toolCallsPerStep or {}).values())

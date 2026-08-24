@@ -31,6 +31,11 @@ const bundles = [
   { entryPoints: [resolve(HERE, 'src/background/serviceWorker.ts')], outfile: `${OUT}/background.js`, format: 'esm' },
   { entryPoints: [resolve(HERE, 'src/popup/popup.ts')], outfile: `${OUT}/popup.js`, format: 'iife' },
   { entryPoints: [resolve(HERE, 'src/export/export.ts')], outfile: `${OUT}/export.js`, format: 'esm' },
+  // Narration (SS6.6). Two pages, because an offscreen document can hold the
+  // microphone but cannot ask for it -- Chrome suppresses the permission prompt
+  // there, so mic.html asks once from a real tab.
+  { entryPoints: [resolve(HERE, 'src/offscreen/offscreen.ts')], outfile: `${OUT}/offscreen.js`, format: 'esm' },
+  { entryPoints: [resolve(HERE, 'src/offscreen/mic.ts')], outfile: `${OUT}/mic.js`, format: 'esm' },
 ];
 
 await rm(OUT, { recursive: true, force: true });
@@ -49,4 +54,6 @@ if (watch) {
 await cp(resolve(HERE, 'manifest.json'), `${OUT}/manifest.json`);
 await cp(resolve(HERE, 'src/popup/popup.html'), `${OUT}/popup.html`);
 await cp(resolve(HERE, 'src/export/export.html'), `${OUT}/export.html`);
+await cp(resolve(HERE, 'src/offscreen/offscreen.html'), `${OUT}/offscreen.html`);
+await cp(resolve(HERE, 'src/offscreen/mic.html'), `${OUT}/mic.html`);
 console.log(`built -> ${OUT}`);

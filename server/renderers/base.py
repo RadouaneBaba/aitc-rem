@@ -63,6 +63,18 @@ def case_stem(case: TestCaseIR, config: ProjectConfig) -> str:
     return config.feature_stem(case_id=case.id, title=case.title, recording_id=case.recordingId)
 
 
+def test_cases(ir: IRDocument) -> list[TestCaseIR]:
+    """The reusable test cases, without the bug reports (SS14).
+
+    A bug report shares the IR and almost nothing else: it is historical rather
+    than future-facing, its steps end at a failure, and its central claim is
+    that something is wrong. A spreadsheet of test cases with one row that says
+    "this never worked" is a spreadsheet nobody can filter. `bug_md.py` renders
+    those, and the Jira exporter files them as a different issue type.
+    """
+    return [case for case in ir.testCases if case.kind != "bug_report"]
+
+
 def review_warnings(ir: IRDocument) -> list[str]:
     """What a reader must not miss, in any format.
 
@@ -90,4 +102,4 @@ def review_warnings(ir: IRDocument) -> list[str]:
     return out
 
 
-__all__ = ["ExportResult", "Exporter", "case_stem", "review_warnings"]
+__all__ = ["ExportResult", "Exporter", "case_stem", "review_warnings", "test_cases"]

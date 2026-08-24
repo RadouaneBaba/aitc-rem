@@ -60,6 +60,10 @@ class RecordingMetadata(StrictModel):
     Every distinct origin touched during the recording. Load-bearing: the pipeline's pre-send gate checks these against the allowlist before sending anything to a training-eligible endpoint (SS9.12).
     """
     recorderVersion: str | None = None
+    audioOffsetMs: float | None = None
+    """
+    SS6.6 -- milliseconds from the recording's zero to the first audio sample. The microphone takes a moment to open, so narration audio does NOT start when the recording does, and transcription timestamps are relative to the audio rather than to the session. Without this every spoken sentence is shifted by however long the mic took, which attributes it to the wrong step. Absent when no audio was captured.
+    """
     fidelitySummary: dict[str, int] | None = None
     """
     Count of each fidelity flag across all events. Lets the review UI warn before the tester opens a single step.
