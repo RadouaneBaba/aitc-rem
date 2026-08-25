@@ -1,9 +1,12 @@
 /* Generated from schema/ir.schema.json. Do not edit. */
 
 export type TestCaseKind = "test_case" | "bug_report";
+/**
+ * Chosen by the drafting stage, which sees the whole flow, and checked by gherkin_style. It was derived from role plus position while the model was shown one segment at a time and could not know where the scenario turned; an author with the session in view can, and the derivation rule it replaced could silently strip every Given from a file.
+ */
 export type StepKeyword = "Given" | "When" | "Then" | "And";
 /**
- * SS9.3 -- what this step does in the narrative. Given/When/Then is a property of the whole scenario, not of one step, so the keyword is derived from this deterministically rather than chosen per step by a model.
+ * SS9.3 -- what this step does in the narrative. Setup, the behaviour under test, or teardown. Kept alongside `keyword` because it survives re-rendering: a scenario that gets split still knows which of its steps were preconditions.
  */
 export type SegmentRole = "setup" | "test_step" | "teardown" | "exploratory" | "abandoned";
 export type SelectorStrategy = "testId" | "role" | "text" | "css";
@@ -210,7 +213,14 @@ export interface Parameter {
  * via the `definition` "OmittedSegment".
  */
 export interface OmittedSegment {
-  segmentId: string;
+  /**
+   * The segment this omission came from, when a segment is what was omitted. Absent when the drafter omitted a set of events that does not correspond to one segment.
+   */
+  segmentId?: string;
+  /**
+   * The events this omission accounts for. event_coverage is the net under the drafter's freedom to choose step boundaries: every recorded event must land in a step or in one of these, so an omission that names no events cannot discharge anything.
+   */
+  eventIds?: string[];
   reason: OmissionReason;
   eventCount: number;
   /**

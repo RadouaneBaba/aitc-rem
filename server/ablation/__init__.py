@@ -369,7 +369,7 @@ def _accumulate(metrics: ConfigMetrics, result: PipelineResult) -> None:
     assert run_metrics is not None
 
     metrics.recordings += 1
-    metrics.steps += len(result.naming.steps)
+    metrics.steps += len(result.draft.steps)
     metrics.assertions += run_metrics.assertionsTotal or 0
     metrics.grounded += run_metrics.assertionsGrounded or 0
     metrics.ungrounded += run_metrics.assertionsUngrounded or 0

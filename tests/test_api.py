@@ -577,3 +577,169 @@ def test_asking_for_narration_on_a_step_that_does_not_exist_is_a_404(client):
     recording_id, run_id = a_run(client)
     response = client.get(f"/api/runs/{recording_id}/{run_id}/steps/step_999/narration")
     assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# editing the feature file directly (SS13.2)
+# --------------------------------------------------------------------------
+
+
+def test_editing_the_feature_text_changes_the_step_it_came_from(client):
+    # The tab used to DISPLAY the file, and fixing a sentence meant finding its
+    # step in a list and using a form. The reason given was SS13.5's review
+    # record -- and a diff between the generated file and the approved one
+    # yields exactly the same difficulty labels, so the form was an assumption.
+    recording_id, run_id = a_run(client)
+    body = get_run(client, recording_id, run_id)
+    case_id = body["ir"]["testCases"][0]["id"]
+    feature = body["feature"][case_id]
+
+    original = body["ir"]["testCases"][0]["steps"][0]["text"]
+    edited = feature.replace(original, "the tester does something else entirely", 1)
+    assert edited != feature, "the step text should appear in the rendered file"
+
+    response = client.patch(
+        f"/api/runs/{recording_id}/{run_id}/cases/{case_id}/feature",
+        json={"text": edited},
+    )
+    assert response.status_code == 200, response.text
+    after = response.json()
+
+    assert after["ir"]["testCases"][0]["steps"][0]["text"] == (
+        "the tester does something else entirely"
+    )
+    # And it lands in the review record, which is the whole reason every edit
+    # goes through `review.py`: SS13.5's log is the project's only source of
+    # difficulty labels, and an endpoint that mutated the IR directly would
+    # cost that silently.
+    kinds = [e["kind"] for e in after["review"]["edits"]]
+    assert "step_text" in kinds
+
+
+def test_editing_an_expected_result_in_the_feature_text_keeps_its_evidence(client):
+    # A reviewer may say the same thing better. What they may not do is change
+    # `literal` or `toolCallId` -- making an ungrounded claim grounded is not
+    # theirs to give (SS3.2), and this path must not become a way round that.
+    recording_id, run_id = a_run(client)
+    body = get_run(client, recording_id, run_id)
+    case = body["ir"]["testCases"][0]
+    case_id = case["id"]
+
+    assertion = next(
+        (a for s in case["steps"] for a in s["assertions"]),
+        None,
+    )
+    if assertion is None:
+        pytest.skip("this run grounded nothing, so there is no expected result to reword")
+
+    feature = body["feature"][case_id]
+    edited = feature.replace(assertion["text"], "the order is definitely confirmed", 1)
+
+    response = client.patch(
+        f"/api/runs/{recording_id}/{run_id}/cases/{case_id}/feature",
+        json={"text": edited},
+    )
+    assert response.status_code == 200, response.text
+    after = response.json()
+
+    reworded = next(a for s in after["ir"]["testCases"][0]["steps"] for a in s["assertions"])
+    assert reworded["text"] == "the order is definitely confirmed"
+    assert reworded["evidence"]["literal"] == assertion["evidence"]["literal"]
+    assert reworded["evidence"]["toolCallId"] == assertion["evidence"]["toolCallId"]
+
+
+def test_adding_a_step_by_typing_it_is_refused_with_a_reason(client):
+    # A step typed into a text box has no `eventIds`, so it is a sentence about
+    # something nobody recorded -- `event_coverage` would reject the run, and
+    # rightly. Refusing is the honest answer, and the message has to say what
+    # to do instead rather than just "invalid".
+    recording_id, run_id = a_run(client)
+    body = get_run(client, recording_id, run_id)
+    case_id = body["ir"]["testCases"][0]["id"]
+
+    edited = body["feature"][case_id] + "\n    And the tester does one more thing\n"
+    response = client.patch(
+        f"/api/runs/{recording_id}/{run_id}/cases/{case_id}/feature",
+        json={"text": edited},
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "number of steps" in detail
+    assert "step controls" in detail
+
+
+def test_saving_the_feature_text_unchanged_records_nothing(client):
+    # SS13.5's record is a measurement. An edit logged because somebody opened
+    # a tab and pressed Save would put noise into the difficulty labels.
+    recording_id, run_id = a_run(client)
+    body = get_run(client, recording_id, run_id)
+    case_id = body["ir"]["testCases"][0]["id"]
+    before = len(body["review"]["edits"])
+
+    response = client.patch(
+        f"/api/runs/{recording_id}/{run_id}/cases/{case_id}/feature",
+        json={"text": body["feature"][case_id]},
+    )
+    assert response.status_code == 200
+    assert len(response.json()["review"]["edits"]) == before
+
+
+# --------------------------------------------------------------------------
+# screenshots (SS13.1)
+# --------------------------------------------------------------------------
+
+#: The smallest valid PNG. Content does not matter here; what is being tested
+#: is that bytes survive the round trip and land where the review UI looks.
+PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+    "01f15c4890000000a49444154789c6360000002000100ffff0300000600"
+    "05572bd2b40000000049454e44ae426082"
+)
+
+
+def test_a_screenshot_round_trips_to_where_the_review_ui_looks(client):
+    # The recorder has been capturing these since Phase 1 and only the "save to
+    # Downloads" path ever kept them, so every posted recording carried a
+    # `screenshot` field pointing at a file the server did not have and no
+    # reviewer ever saw one.
+    posted = client.post("/api/recordings/rec_shots/screens/evt_001", content=PNG)
+    assert posted.status_code == 201
+    assert posted.json()["bytes"] == len(PNG)
+
+    fetched = client.get("/api/recordings/rec_shots/screens/evt_001")
+    assert fetched.status_code == 200
+    assert fetched.headers["content-type"] == "image/png"
+    assert fetched.content == PNG
+
+
+def test_a_missing_screenshot_is_a_plain_404(client):
+    # An imported recording has none by construction (SS6.1 -- the DevTools
+    # Recorder captures no pixels), and a run made before the upload path
+    # existed has none either. The UI hides the image rather than showing an
+    # error, so this must not be dressed up as a failure.
+    assert client.get("/api/recordings/rec_shots/screens/evt_999").status_code == 404
+
+
+def test_an_event_id_cannot_escape_the_screens_directory(client, tmp_path: Path):
+    # The id arrives from an HTTP path and is about to become a filename.
+    #
+    # Tested at the guard rather than only over HTTP: a client normalises
+    # `../..` out of a URL before it reaches the route, so an HTTP-level test
+    # passes for a reason that has nothing to do with this code being safe.
+    from server.storage.paths import Storage
+
+    storage = Storage(recordings_dir=tmp_path / "rec", runs_dir=tmp_path / "runs")
+    for bad in ("../../secret", "..", "a/b", "evt 001; rm -rf", ""):
+        with pytest.raises(ValueError):
+            storage.screenshot_path("rec_x", bad)
+
+    # And the ids the recorder actually mints are accepted.
+    assert storage.screenshot_path("rec_x", "evt_001").name == "evt_001.png"
+
+    # Over HTTP, anything that does reach the handler is refused rather than
+    # written.
+    assert client.post("/api/recordings/rec_shots/screens/a%20b", content=PNG).status_code == 400
+
+
+def test_an_empty_screenshot_body_is_refused(client):
+    assert client.post("/api/recordings/rec_shots/screens/evt_002", content=b"").status_code == 400

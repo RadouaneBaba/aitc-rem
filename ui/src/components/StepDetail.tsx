@@ -9,6 +9,8 @@
 
 import { useEffect, useState } from 'react';
 import type { Assertion, Step } from '../api';
+import { fidelityCopy } from '../fidelity';
+import { Screenshot } from './Screenshot';
 
 const PROVENANCE_HINT: Record<string, string> = {
   annotated: 'the tester marked this element while recording',
@@ -20,6 +22,7 @@ const PROVENANCE_HINT: Record<string, string> = {
 
 export function StepDetail({
   step,
+  recordingId,
   busy,
   onEdit,
   onDelete,
@@ -28,6 +31,7 @@ export function StepDetail({
   onAnswer,
 }: {
   step: Step;
+  recordingId: string;
   busy: boolean;
   onEdit: (text: string) => void;
   onDelete: () => void;
@@ -62,6 +66,8 @@ export function StepDetail({
         The wording is yours to change. Click away to save.
       </p>
 
+      <Screenshot recordingId={recordingId} eventIds={step.eventIds} />
+
       {step.escalation && <Escalation question={step.escalation} busy={busy} onAnswer={onAnswer} />}
 
       <h3>Expected results</h3>
@@ -86,13 +92,20 @@ export function StepDetail({
 
       {step.fidelity.length > 0 && (
         <>
+          {/* SS6.8 wrote this copy sentence by sentence and the UI shipped the
+              enum -- `rapid_sequence`, in a monospace font, to a QA tester.
+              "A tool that admits what it doesn't know stays trusted" only
+              works if the admission is in a language the reader speaks. */}
           <h3>What the recorder could not determine</h3>
           <ul className="fidelity">
-            {step.fidelity.map((flag) => (
-              <li key={flag}>
-                <code>{flag}</code>
-              </li>
-            ))}
+            {step.fidelity.map((flag) => {
+              const copy = fidelityCopy(flag);
+              return (
+                <li key={flag} className={copy.severity}>
+                  {copy.text}
+                </li>
+              );
+            })}
           </ul>
         </>
       )}

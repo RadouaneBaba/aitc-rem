@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from server.models import Confidence
 from server.pipeline.narrative import (
-    apply_merges,
-    apply_splits,
     build_narrative,
     keyword_for_role,
     merge_repeats,
@@ -233,44 +231,6 @@ def test_an_all_setup_scenario_keeps_its_steps():
 # --------------------------------------------------------------------------
 
 
-def test_composition_can_fold_two_segments_into_one_intent():
-    # Typing a password and pressing Sign in are two segments and one thing the
-    # tester was doing. Named in isolation they come back as two sentences
-    # about signing in, and `merge_repeats` cannot help because they are not
-    # word-for-word identical.
-    merged = apply_merges(
-        [
-            step("s1", 'the tester signs in as "<<user_email_1>>"', "setup", event_ids=["evt_001"]),
-            step("s2", "the tester signs in to the application", "setup", event_ids=["evt_003"]),
-            step("s3", "the tester adds a widget", "test_step", event_ids=["evt_004"]),
-        ],
-        [["s1", "s2"]],
-        texts={"s1": 'the tester signs in as "<<user_email_1>>"'},
-    )
-
-    assert [s.text for s in merged] == [
-        'the tester signs in as "<<user_email_1>>"',
-        "the tester adds a widget",
-    ]
-    assert merged[0].eventIds == ["evt_001", "evt_003"]
-
-
-def test_a_merge_across_a_gap_is_refused():
-    # Merging step 1 with step 3 would silently delete step 2, which is a much
-    # worse outcome than a scenario that reads slightly long.
-    steps = [
-        step("s1", "the tester signs in", "setup"),
-        step("s2", "the tester opens the reports page", "test_step"),
-        step("s3", "the tester signs in again", "setup"),
-    ]
-    assert len(apply_merges(steps, [["s1", "s3"]])) == 3
-
-
-def test_a_merge_naming_an_unknown_step_changes_nothing():
-    steps = [step("s1", "the tester signs in", "setup")]
-    assert len(apply_merges(steps, [["s1", "s99"]])) == 1
-
-
 def test_layout_does_not_merge_on_its_own():
     # `ir.json` and the rendered feature must show the same steps. A renderer
     # that quietly collapsed two of them would make the artifact disagree with
@@ -280,34 +240,6 @@ def test_layout_does_not_merge_on_its_own():
         step("s2", "the tester signs in", "setup"),
     ]
     assert len(build_narrative(steps).body) == 2
-
-
-def test_a_merged_sentence_may_not_drop_a_test_parameter():
-    # SS7.2 -- redaction placeholders carry forward as the test's parameters,
-    # and they are the only thing telling whoever runs it what to supply. A
-    # tidier summary that loses them is worse than the two steps it replaced,
-    # so the more specific original wins.
-    merged = apply_merges(
-        [
-            step("s1", 'the tester signs in as "<<user_email_1>>"', "setup"),
-            step("s2", "the tester signs in to the application", "setup"),
-        ],
-        [["s1", "s2"]],
-        texts={"s1": "the tester signs in to the application"},
-    )
-    assert merged[0].text == 'the tester signs in as "<<user_email_1>>"'
-
-
-def test_a_merged_sentence_that_keeps_the_parameters_is_used():
-    merged = apply_merges(
-        [
-            step("s1", 'the tester enters "<<user_email_1>>"', "setup"),
-            step("s2", 'the tester enters "<<password>>"', "setup"),
-        ],
-        [["s1", "s2"]],
-        texts={"s1": 'the tester signs in as "<<user_email_1>>" with "<<password>>"'},
-    )
-    assert merged[0].text == 'the tester signs in as "<<user_email_1>>" with "<<password>>"'
 
 
 def test_given_belongs_to_the_opening_block_and_nowhere_else():
@@ -438,58 +370,3 @@ def two_attempts():
         event_ids=["evt_006", "evt_007", "evt_008", "evt_009", "evt_010"],
         assertions=[rejected, confirmed],
     )
-
-
-def test_a_rejected_attempt_and_its_retry_become_two_steps():
-    steps = apply_splits([two_attempts()], [Split("step_005", "evt_008")])
-    assert [s.id for s in steps] == ["step_005", "step_005b"]
-    assert steps[0].eventIds == ["evt_006", "evt_007", "evt_008"]
-    assert steps[1].eventIds == ["evt_009", "evt_010"]
-
-
-def test_each_expected_result_follows_its_own_evidence():
-    # The whole trick, and the reason nothing has to guess: the claim about the
-    # rejection is grounded at evt_008, so it stays with the attempt that WAS
-    # rejected. Before this, one step said "submits with manager approval" and
-    # then "the order requires manager approval" -- true literals, contradictory
-    # test case, and only a replay caught it.
-    steps = apply_splits([two_attempts()], [Split("step_005", "evt_008")])
-    assert [a.id for a in steps[0].assertions] == ["asrt_1"]
-    assert [a.id for a in steps[1].assertions] == ["asrt_2"]
-
-
-def test_each_half_can_be_renamed():
-    steps = apply_splits(
-        [two_attempts()],
-        [Split("step_005", "evt_008", ("the tester submits the order", "the tester retries it"))],
-    )
-    assert steps[0].text == "the tester submits the order"
-    assert steps[1].text == "the tester retries it"
-
-
-def test_every_event_survives_a_split():
-    # `event_coverage` must still account for all of them afterwards.
-    before = two_attempts()
-    steps = apply_splits([before], [Split("step_005", "evt_008")])
-    assert [e for s in steps for e in s.eventIds] == before.eventIds
-
-
-def test_a_cut_that_leaves_a_half_empty_is_refused():
-    # Cutting after the last event is a rename plus an empty step, not a split.
-    steps = apply_splits([two_attempts()], [Split("step_005", "evt_010")])
-    assert len(steps) == 1
-
-
-def test_an_unknown_event_does_not_split_anything():
-    steps = apply_splits([two_attempts()], [Split("step_005", "evt_999")])
-    assert len(steps) == 1
-
-
-def test_an_assertion_with_stray_evidence_stays_with_the_first_half():
-    # A model can write anything. Losing a grounded claim to a bookkeeping edge
-    # case would be the worse error, so it keeps the position it already had.
-    step = two_attempts()
-    step.assertions[1].evidence.eventId = "evt_nowhere"
-    steps = apply_splits([step], [Split("step_005", "evt_008")])
-    assert [a.id for a in steps[0].assertions] == ["asrt_1", "asrt_2"]
-    assert steps[1].assertions == []

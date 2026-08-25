@@ -71,20 +71,14 @@ def segment_recording(
     # to an event. The cut below already honours them; this is what lets the
     # resulting segment say which annotation opened it, so decomposition can
     # tell "the tester declared a new test case here" from its own guess.
-    break_times = _annotation_times(recording, {"scenario_break"})
-    # The FIRST event after each break, resolved once. Comparing timestamps
-    # inside the segment builder marked every later segment too: "starts after
-    # the break" is true of all of them, and only one of them opens it.
-    break_openers = {
-        next((e.id for e in recording.events if e.timestamp >= t), "") for t in break_times
-    } - {""}
+    openers = break_openers(recording)
 
     for index, event in enumerate(recording.events):
         previous = recording.events[index - 1] if index else None
 
         opening = _opens_before(event, previous, checkpoint_times)
         if current and opening is not None:
-            segments.append(_build(current, len(segments), current_reason, break_openers))
+            segments.append(_build(current, len(segments), current_reason, openers))
             current = []
             current_reason = opening
 
@@ -92,12 +86,12 @@ def segment_recording(
 
         closing = _closes_after(event, len(current))
         if closing is not None:
-            segments.append(_build(current, len(segments), current_reason, break_openers))
+            segments.append(_build(current, len(segments), current_reason, openers))
             current = []
             current_reason = closing
 
     if current:
-        segments.append(_build(current, len(segments), current_reason, break_openers))
+        segments.append(_build(current, len(segments), current_reason, openers))
 
     document = SegmentsDocument(
         schemaVersion="1.0",
@@ -201,6 +195,31 @@ def _count_named(node: SemanticNode) -> int:
     for child in node.children or []:
         total += _count_named(child)
     return total
+
+
+def break_openers(recording: Recording) -> set[str]:
+    """The first event at or after each declared scenario break.
+
+    Public, and shared with `run._split_on_declared_breaks`, for the same
+    reason `supports_narrated` is shared between `assertions` and
+    `provenance_supported`: two implementations of one rule are two things that
+    can be wrong, and here the second one WAS.
+
+    **A `scenario_break` never carries an `eventId`.** `export.ts` declines to
+    attach it to an event on purpose -- a boundary sits BETWEEN two actions
+    rather than on one of them -- so a reader that filters on `a.eventId` finds
+    nothing and silently declines to split. That is what shipped: SS6.7 says a
+    declared break OVERRIDES the model and `run.py` never saw one, which is why
+    `twoflows` -- the fixture that exists to prove two test cases come out --
+    produced a single scenario with both flows in it.
+
+    A break opens the work that follows it, so it resolves FORWARD. Resolved
+    once, here, rather than by comparing timestamps at each candidate: "starts
+    after the break" is true of every later event, and only one of them opens
+    it.
+    """
+    times = _annotation_times(recording, {"scenario_break"})
+    return {next((e.id for e in recording.events if e.timestamp >= t), "") for t in times} - {""}
 
 
 def _annotation_times(recording: Recording, kinds: set[str]) -> list[float]:

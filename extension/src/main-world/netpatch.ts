@@ -19,6 +19,38 @@ import { NET_CHANNEL, type MainWorldMessage } from '../shared/messages';
 const MAX_BODY = 20_000;
 let seq = 0;
 
+/**
+ * Whose request is this?
+ *
+ * SS6.4 specifies what network capture records and never budgets it. On the
+ * fixture app that cost nothing -- the only script running was ours. On a real
+ * commercial site one recording came to 8.71 MB for 50 seconds, ~96 KB per
+ * event, because every analytics beacon, ad call and tag-manager round trip
+ * had its request AND response body stored in full. `evt_001` alone carried 33
+ * requests, twelve of them "mutating" POSTs, essentially all of them tracking.
+ *
+ * SS17.2 listed "snapshot performance on large enterprise apps" as the main
+ * unvalidated capture assumption. Snapshots were fine; network was the thing
+ * nobody had budgeted.
+ *
+ * A third-party request still gets its LINE recorded -- method, url, status --
+ * because "this click fired a request to a payment provider" is real evidence
+ * about what the application did. What it does not get is its bodies, which is
+ * where the megabytes are and which nothing downstream reads: an assertion
+ * grounded in an analytics payload is noise by construction (SS9.5), and
+ * `bind.NOISE` refuses one anyway.
+ */
+function isFirstParty(url: string): boolean {
+  try {
+    return new URL(url, location.href).origin === location.origin;
+  } catch {
+    // An unparseable URL is a relative one often enough, and relative means
+    // same-origin. Erring toward capture: losing a body from the application
+    // under test costs evidence, and keeping one extra costs bytes.
+    return true;
+  }
+}
+
 function post(message: MainWorldMessage): void {
   try {
     window.postMessage(message, '*');
@@ -61,9 +93,11 @@ if (typeof originalFetch === 'function') {
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
     const url = String(input instanceof Request ? input.url : input);
 
+    const ours = isFirstParty(url);
+
     let requestBody: string | undefined;
     try {
-      if (typeof init?.body === 'string') requestBody = clip(init.body);
+      if (ours && typeof init?.body === 'string') requestBody = clip(init.body);
     } catch {
       /* ignore */
     }
@@ -88,7 +122,7 @@ if (typeof originalFetch === 'function') {
       // Clone before reading: consuming the caller's body would break the page.
       let responseBody: string | undefined;
       try {
-        responseBody = clip(await response.clone().text());
+        if (ours) responseBody = clip(await response.clone().text());
       } catch {
         /* opaque or already-consumed responses simply have no body recorded */
       }
@@ -162,6 +196,7 @@ if (typeof XHR === 'function') {
   ) {
     const m = meta.get(this);
     if (m) {
+      const ours = isFirstParty(m.url);
       m.startTime = performance.now();
       post({
         channel: NET_CHANNEL,
@@ -171,14 +206,14 @@ if (typeof XHR === 'function') {
         url: m.url,
         startTime: m.startTime,
         initiator: 'xhr',
-        requestBody: typeof body === 'string' ? clip(body) : undefined,
+        requestBody: ours && typeof body === 'string' ? clip(body) : undefined,
         requestHeaders: m.headers,
       });
 
       this.addEventListener('loadend', () => {
         let responseBody: string | undefined;
         try {
-          if (this.responseType === '' || this.responseType === 'text') {
+          if (ours && (this.responseType === '' || this.responseType === 'text')) {
             responseBody = clip(this.responseText);
           }
         } catch {

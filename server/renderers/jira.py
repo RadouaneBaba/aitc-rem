@@ -8,16 +8,25 @@ but they are two more third-party APIs and they are not installed everywhere. A
 plain issue with the steps as a table in the description works for every Jira
 there is, which is the whole argument.
 
-**This builds the issue; it does not send it.** Posting needs a site, a project
-key and an API token, and a run that silently required credentials would be a
-run most people cannot make. The payload is written to disk instead, so the
-output is inspectable, diffable and testable with no account at all -- and
-`push()` is one function away for when a project supplies its own.
+**Exporting builds the issue; it does not send it.** Posting needs a site, a
+project key and an API token, and a run that silently required credentials
+would be a run most people cannot make. The payload is written to disk instead,
+so the output is inspectable, diffable and testable with no account at all.
+
+`push()` is the deliberate second step, and it is a separate action on purpose:
+credentials come from the environment, a person invokes it, and the export
+keeps working for everybody who never will. It creates the issue and attaches
+the `.feature`, the evidence sidecar and the recording -- which SS11.3 asks for
+and which is what makes the Jira issue self-contained rather than a pointer to
+a machine nobody else can reach.
 """
 
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -88,8 +97,14 @@ def build_issue(case: TestCaseIR, config: ProjectConfig) -> dict[str, Any]:
             "testCaseId": case.id,
             "recordingId": case.recordingId,
             "runId": case.runId,
+            # What belongs on the issue, per SS11.3. A bug report has no
+            # `.feature` -- Gherkin refuses one (SS14) -- so listing one would
+            # send whoever posts this looking for a file that was never
+            # written.
             "attachments": [
-                f"{case_stem(case, config)}.feature",
+                f"{case_stem(case, config)}.bug.md"
+                if case.kind == "bug_report"
+                else f"{case_stem(case, config)}.feature",
                 f"{case_stem(case, config)}.trace.md",
                 "recording.json",
             ],
@@ -221,4 +236,153 @@ def _labels(case: TestCaseIR, config: ProjectConfig) -> list[str]:
     return out
 
 
-__all__ = ["JiraExporter", "build_issue"]
+# --------------------------------------------------------------------------
+# posting (SS11.3)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class JiraCredentials:
+    """Where to post, and as whom.
+
+    Read from the environment, never from `project.yaml`. A project file is
+    committed; an API token in one is a credential in the repository, and the
+    first person to do that will not be the last.
+    """
+
+    site: str
+    email: str
+    token: str
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] | None = None) -> JiraCredentials | None:
+        source = env if env is not None else os.environ
+        site = (source.get("JIRA_SITE") or "").strip().rstrip("/")
+        email = (source.get("JIRA_EMAIL") or "").strip()
+        token = (source.get("JIRA_API_TOKEN") or "").strip()
+        if not (site and email and token):
+            return None
+        if "://" not in site:
+            site = f"https://{site}"
+        return cls(site=site, email=email, token=token)
+
+    @property
+    def auth(self) -> tuple[str, str]:
+        return (self.email, self.token)
+
+
+@dataclass
+class PushResult:
+    """What actually reached Jira."""
+
+    created: list[dict[str, str]] = field(default_factory=list)
+    attached: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.created) and not self.failures
+
+
+def push(
+    issues: Sequence[dict[str, Any]],
+    *,
+    credentials: JiraCredentials,
+    attachments_dir: Path | None = None,
+    client: Any | None = None,
+) -> PushResult:
+    """Create each issue, then attach the artifacts it names.
+
+    Separate from `export` and deliberately so. The exporter runs on every run
+    and must work for somebody with no Jira account at all; posting is an
+    action a person takes on purpose, with credentials they supplied. That
+    split is why `export` writes a file rather than asking for a token.
+
+    Attachments are best effort and reported rather than raised. An issue that
+    exists without its `.feature` file is recoverable by hand; a run that threw
+    away a created issue key because an upload failed is not.
+    """
+    import httpx
+
+    result = PushResult()
+    owned = client is None
+    http = client or httpx.Client(timeout=30.0)
+
+    try:
+        for issue in issues:
+            body = {"fields": issue.get("fields", {})}
+            meta = issue.get("aitcRem") or {}
+            try:
+                response = http.post(
+                    f"{credentials.site}/rest/api/3/issue",
+                    json=body,
+                    auth=credentials.auth,
+                    headers={"Accept": "application/json"},
+                )
+            except Exception as exc:  # noqa: BLE001 - network, reported not raised
+                result.failures.append(f"{meta.get('testCaseId', '?')}: {exc}")
+                continue
+
+            if response.status_code >= 300:
+                result.failures.append(
+                    f"{meta.get('testCaseId', '?')}: {response.status_code} {response.text[:200]}"
+                )
+                continue
+
+            created = response.json()
+            key = created.get("key") or created.get("id") or "?"
+            result.created.append({"testCaseId": meta.get("testCaseId", "?"), "key": key})
+
+            if attachments_dir is None:
+                continue
+            for name in meta.get("attachments") or []:
+                path = _find_attachment(attachments_dir, name, meta)
+                if path is None:
+                    continue
+                try:
+                    upload = http.post(
+                        f"{credentials.site}/rest/api/3/issue/{key}/attachments",
+                        files={"file": (path.name, path.read_bytes())},
+                        auth=credentials.auth,
+                        # Jira refuses an attachment without this header. It is
+                        # the single most common reason an upload that looks
+                        # correct returns 403.
+                        headers={"X-Atlassian-Token": "no-check", "Accept": "application/json"},
+                    )
+                    if upload.status_code < 300:
+                        result.attached.append(f"{key}/{path.name}")
+                    else:
+                        result.failures.append(
+                            f"{key}/{path.name}: {upload.status_code} {upload.text[:120]}"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    result.failures.append(f"{key}/{path.name}: {exc}")
+    finally:
+        if owned:
+            http.close()
+
+    return result
+
+
+def _find_attachment(run_dir: Path, name: str, meta: Mapping[str, Any]) -> Path | None:
+    """Where an artifact actually is.
+
+    Most live in the run directory. `recording.json` does not -- it belongs to
+    the RECORDING, which outlives any one run of it, so it sits under
+    `recordings/<id>/` and a run-relative lookup silently skipped it. An issue
+    without the recording attached is the one that cannot be re-run by whoever
+    picks it up.
+    """
+    direct = run_dir / name
+    if direct.is_file():
+        return direct
+
+    recording_id = str(meta.get("recordingId") or "")
+    if not recording_id:
+        return None
+    # runs/<rec>/<run>/ -> repo root -> recordings/<rec>/
+    candidate = run_dir.parent.parent.parent / "recordings" / recording_id / name
+    return candidate if candidate.is_file() else None
+
+
+__all__ = ["JiraCredentials", "JiraExporter", "PushResult", "build_issue", "push"]

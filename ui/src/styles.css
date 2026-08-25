@@ -69,7 +69,42 @@ header {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
-.runpicker { display: flex; align-items: center; gap: 8px; }
+/* The run list. A dropdown answered "which runs exist"; a tester with fifteen
+   recordings needs "which of these wants me", so the row carries what the run
+   covers and how much of it is flagged. */
+.runpicker { position: relative; }
+.runpicker-current {
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 10px; cursor: pointer; font: inherit; color: var(--ink);
+}
+.runpicker-current:hover { border-color: var(--muted); }
+.runpicker-title { font-weight: 600; }
+.runpicker-list {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  width: min(560px, 90vw); max-height: 60vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.12);
+}
+.runpicker-search {
+  width: 100%; box-sizing: border-box; padding: 10px 12px;
+  border: none; border-bottom: 1px solid var(--line); font: inherit;
+  background: transparent; color: var(--ink);
+}
+.runpicker-search:focus { outline: none; }
+.runpicker-empty { padding: 14px; margin: 0; }
+.runpicker-row {
+  display: block; width: 100%; text-align: left; background: none;
+  border: none; border-bottom: 1px solid var(--line);
+  padding: 10px 12px; cursor: pointer; font: inherit; color: var(--ink);
+}
+.runpicker-row:last-child { border-bottom: none; }
+.runpicker-row:hover { background: var(--bg); }
+.runpicker-row.current { background: var(--bg); box-shadow: inset 3px 0 0 var(--accent); }
+.runpicker-row-main { display: flex; align-items: center; gap: 8px; }
+.runpicker-row-sub { font-size: 13px; margin-top: 2px; }
+.runpicker-row-stats { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; margin-top: 4px; }
+.runpicker-attention { color: var(--warn); }
 .badge.approved { color: var(--accent); font-weight: 600; }
 .exports { display: flex; align-items: center; gap: 8px; }
 .exports a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--line); }
@@ -268,3 +303,40 @@ button.merge { margin-top: 8px; width: 100%; }
   margin-bottom: 8px;
   line-height: 1.45;
 }
+
+/* The page the step happened on (SS13.1). Captured since Phase 1, rendered
+   nowhere until now -- judging a step from a sentence and an event id is hard,
+   and trivial beside the picture. */
+.shot { margin: 10px 0 14px; }
+.shot img {
+  display: block; max-width: 100%; max-height: 220px;
+  border: 1px solid var(--line); border-radius: 6px; cursor: zoom-in;
+  background: #fff;
+}
+.shot.zoomed img { max-height: none; cursor: zoom-out; }
+.shot-hint { display: block; font-size: 12px; margin-top: 4px; }
+
+/* SS6.8's copy, not SS6.8's enum. The severity split is the spec's: flagging
+   every notice for review is why six of seven steps once carried a marker,
+   which teaches the reader to ignore all of them. */
+.fidelity li { margin-bottom: 6px; line-height: 1.45; }
+.fidelity li.warn { color: var(--ink); border-left: 3px solid var(--warn); padding-left: 8px; }
+.fidelity li.note { color: var(--muted); border-left: 3px solid var(--line); padding-left: 8px; }
+
+/* SS13.2 -- the prose is editable where a reader actually reads it. */
+.featureedit { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+textarea.feature {
+  flex: 1; min-height: 260px; resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+  line-height: 1.5; padding: 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--ink);
+}
+.featureedit-actions { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+
+/* The retrieval chain, one click away rather than in a tester's face. SS13.3
+   asks for "trust and proof, both load-bearing" -- only trust is load-bearing
+   for the tester, and trust comes from the output being right. */
+.telemetry { margin-top: 14px; }
+.telemetry summary { cursor: pointer; }
+.grounding-sentence { margin: 0 0 4px; line-height: 1.5; }
+.grounding details summary { cursor: pointer; font-size: 12px; }

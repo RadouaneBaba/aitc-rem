@@ -14,9 +14,11 @@ import { useEffect, useState } from 'react';
 import { api, type Investigation, type Step, type StepNarration, type Trace } from '../api';
 
 const STAGE_LABEL: Record<string, string> = {
-  name: 'Writing the step',
-  assert: 'Choosing the expected result',
-  decompose: 'Composing the document',
+  decompose: 'Writing the test case',
+  assert: 'Proving the expected result',
+  name: 'Rewriting this step after review',
+  critic: 'Reading it back',
+  coverage: 'Looking for what was not covered',
 };
 
 export function EvidencePanel({
@@ -25,12 +27,16 @@ export function EvidencePanel({
   feature,
   recordingId,
   runId,
+  busy,
+  onEditFeature,
 }: {
   step: Step | undefined;
   trace: Trace | null;
   feature: string;
   recordingId: string;
   runId: string;
+  busy: boolean;
+  onEditFeature: (text: string) => void;
 }) {
   const [tab, setTab] = useState<'why' | 'feature'>('why');
 
@@ -50,25 +56,37 @@ export function EvidencePanel({
       </div>
 
       {tab === 'feature' ? (
-        <pre className="feature">{feature}</pre>
+        <FeatureEditor text={feature} busy={busy} onSave={onEditFeature} />
       ) : !step ? (
         <p className="muted">Select a step.</p>
       ) : (
         <>
-          <h3>Grounding</h3>
+          {/* SS13.3 asks this panel to do "trust AND proof, both
+              load-bearing". Only one of those is load-bearing for a TESTER:
+              trust comes from the output being right, which they judge by
+              reading it. The proof half serves whoever is auditing the tool.
+              So the sentence is what shows, and the retrieval chain is one
+              click away rather than in their face. */}
+          <h3>Why this is here</h3>
           {step.assertions.length === 0 ? (
             <p className="muted">This step claims nothing, so there is nothing to ground.</p>
           ) : (
             <ul className="grounding">
               {step.assertions.map((a) => (
                 <li key={a.id}>
-                  <code>{a.evidence.literal}</code>
-                  <Retrieval
-                    recordingId={recordingId}
-                    runId={runId}
-                    toolCallId={a.evidence.toolCallId}
-                    trace={trace}
-                  />
+                  <p className="grounding-sentence">
+                    &ldquo;{a.evidence.literal}&rdquo; was in the recording at{' '}
+                    {a.evidence.eventId}.
+                  </p>
+                  <details>
+                    <summary className="muted">Show the retrieval that found it</summary>
+                    <Retrieval
+                      recordingId={recordingId}
+                      runId={runId}
+                      toolCallId={a.evidence.toolCallId}
+                      trace={trace}
+                    />
+                  </details>
                 </li>
               ))}
             </ul>
@@ -76,33 +94,92 @@ export function EvidencePanel({
 
           <Narration step={step} recordingId={recordingId} runId={runId} />
 
-          <h3>What the agent did</h3>
-          {investigations.length === 0 ? (
-            <p className="muted">No investigation was recorded for this step.</p>
-          ) : (
-            investigations.map((investigation) => (
-              <Narrative key={investigation.id} investigation={investigation} />
-            ))
-          )}
+          <details className="telemetry">
+            <summary className="muted">What the tool did to work this out</summary>
+            {investigations.length === 0 ? (
+              <p className="muted">
+                Nothing needed looking up for this step. That is the usual answer, and a good
+                one.
+              </p>
+            ) : (
+              investigations.map((investigation) => (
+                <Narrative key={investigation.id} investigation={investigation} />
+              ))
+            )}
 
-          <h3>Events</h3>
-          <p className="ids">{step.eventIds.join(', ')}</p>
+            <h3>Events</h3>
+            <p className="ids">{step.eventIds.join(', ')}</p>
 
-          {step.selectorHints && step.selectorHints.length > 0 && (
-            <>
-              <h3>Selectors</h3>
-              <ul className="ids">
-                {step.selectorHints.map((hint) => (
-                  <li key={hint.value}>
-                    <code>{hint.strategy}</code> {hint.value}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
+            {step.selectorHints && step.selectorHints.length > 0 && (
+              <>
+                <h3>Selectors</h3>
+                <ul className="ids">
+                  {step.selectorHints.map((hint) => (
+                    <li key={hint.value}>
+                      <code>{hint.strategy}</code> {hint.value}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </details>
         </>
       )}
     </aside>
+  );
+}
+
+/**
+ * The feature file, editable (SS13.2).
+ *
+ * This tab used to display the file and nothing else, so fixing a sentence
+ * meant finding its step in the list and using a form. The justification was
+ * SS13.5's review record -- and it does not hold, because a diff between the
+ * generated file and the approved one yields exactly the same difficulty
+ * labels. What the server does with the text is replay it through the same
+ * review functions the forms call, so the record is identical either way.
+ *
+ * Structure is not editable here and the server says so plainly rather than
+ * silently ignoring it: a step typed into this box has no recorded actions
+ * behind it, and `event_coverage` would reject the run.
+ */
+function FeatureEditor({
+  text,
+  busy,
+  onSave,
+}: {
+  text: string;
+  busy: boolean;
+  onSave: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState(text);
+  useEffect(() => setDraft(text), [text]);
+
+  const dirty = draft !== text;
+  return (
+    <div className="featureedit">
+      <textarea
+        className="feature"
+        value={draft}
+        spellCheck={false}
+        disabled={busy}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <div className="featureedit-actions">
+        <span className="muted">
+          {dirty ? 'Unsaved changes' : 'Edit the wording here; use the step list to add or remove.'}
+        </span>
+        <div className="spacer" />
+        {dirty && (
+          <button disabled={busy} onClick={() => setDraft(text)}>
+            Revert
+          </button>
+        )}
+        <button className="primary" disabled={busy || !dirty} onClick={() => onSave(draft)}>
+          Save
+        </button>
+      </div>
+    </div>
   );
 }
 

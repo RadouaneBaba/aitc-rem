@@ -38,14 +38,34 @@ HEADER_FONT = Font(bold=True, color="FFFFFF")
 TITLE_FONT = Font(bold=True, size=13)
 MUTED = Font(italic=True, color="5B6470")
 
+#: SS11.2 offers "one row per step in a flat sheet" as an alternative shape and
+#: this takes it, with the two columns that decide what the file IS.
+#:
+#: Without `Pass / Fail` and `Notes` this is an export -- a record of what the
+#: tool generated, which a tester reads once and closes. With them it is a test
+#: script: something a person opens on Monday, works down, and fills in. The
+#: larger half of SS2.2's wedge does not write Gherkin, and this is the file
+#: they actually execute.
+#:
+#: They are left EMPTY. A generated pass mark would be a claim about a run
+#: nobody made.
 STEP_COLUMNS = [
     ("#", 5),
     ("Keyword", 10),
-    ("Action", 58),
-    ("Expected result", 44),
-    ("Evidence", 20),
+    ("Action", 52),
+    ("Expected result", 40),
+    ("Pass / Fail", 12),
+    ("Notes", 30),
+    ("Evidence", 18),
     ("Confidence", 12),
 ]
+
+#: 1-based, and used in three places. Named so a column inserted before them
+#: cannot silently write results into the wrong cells.
+COL_EXPECTED = 4
+COL_RESULT = 5
+COL_EVIDENCE = 7
+COL_CONFIDENCE = 8
 
 
 class ExcelExporter:
@@ -108,15 +128,24 @@ def _write_case(sheet: Worksheet, case: TestCaseIR) -> None:
         sheet.cell(row=row, column=1, value=number)
         sheet.cell(row=row, column=2, value=line.keyword)
         sheet.cell(row=row, column=3, value=line.text)
-        sheet.cell(row=row, column=4, value="")
-        sheet.cell(row=row, column=5, value=_evidence(step))
-        sheet.cell(row=row, column=6, value=step.confidence.value.title())
+        sheet.cell(row=row, column=COL_EXPECTED, value="")
+        # Pass / Fail and Notes stay empty: they are for the person running
+        # this, and anything written here by the tool would be a claim about a
+        # run that has not happened.
+        sheet.cell(row=row, column=COL_RESULT, value="")
+        sheet.cell(row=row, column=COL_RESULT + 1, value="")
+        sheet.cell(row=row, column=COL_EVIDENCE, value=_evidence(step))
+        sheet.cell(row=row, column=COL_CONFIDENCE, value=step.confidence.value.title())
 
         if step.escalation:
-            sheet.cell(row=row, column=4, value=f"[the agent asks] {step.escalation}")
+            sheet.cell(
+                row=row, column=COL_EXPECTED, value=f"[the agent asks] {step.escalation}"
+            )
         row += 1
 
-    for line in sheet.iter_rows(min_row=6, max_row=max(row - 1, 6), max_col=6):
+    _result_validation(sheet, first=6, last=max(row - 1, 6))
+
+    for line in sheet.iter_rows(min_row=6, max_row=max(row - 1, 6), max_col=len(STEP_COLUMNS)):
         for cell in line:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
 
@@ -133,6 +162,35 @@ def _write_case(sheet: Worksheet, case: TestCaseIR) -> None:
         ).font = MUTED
 
     sheet.freeze_panes = "A6"
+
+
+def _result_validation(sheet: Worksheet, *, first: int, last: int) -> None:
+    """A dropdown on the Pass / Fail column.
+
+    Not decoration. A results column somebody types into by hand comes back as
+    "pass", "PASS", "ok", "y" and a tick character, and a suite whose results
+    cannot be counted is a suite nobody reports on. Three values, chosen so
+    "Blocked" exists -- a step that could not be run is not a failure, and
+    forcing that choice is how a real run gets misreported.
+
+    Best effort: an Excel that ignores the validation still shows a usable
+    column, so a failure here must not cost the export.
+    """
+    if last < first:
+        return
+    try:
+        from openpyxl.worksheet.datavalidation import DataValidation
+
+        rule = DataValidation(
+            type="list", formula1='"Pass,Fail,Blocked"', allow_blank=True, showDropDown=False
+        )
+        rule.error = "Choose Pass, Fail or Blocked."
+        rule.prompt = "Leave blank until this step has actually been run."
+        sheet.add_data_validation(rule)
+        column = get_column_letter(COL_RESULT)
+        rule.add(f"{column}{first}:{column}{last}")
+    except Exception:  # noqa: BLE001 - a dropdown is never worth losing the file for
+        return
 
 
 def _write_preconditions(sheet: Worksheet, ir: IRDocument) -> None:

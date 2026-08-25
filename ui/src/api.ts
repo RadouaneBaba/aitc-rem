@@ -180,6 +180,14 @@ export interface RunSummary {
   approved: boolean;
   titles: string[];
   steps: number;
+  /** Everything below is what the run list needs to say which run wants a
+   *  human first. All of it is read out of `ir.json`; none of it is new. */
+  scenarios?: string[];
+  assertions?: number;
+  warnings?: number;
+  flaggedSteps?: number;
+  editedSteps?: number;
+  hasBug?: boolean;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -215,6 +223,15 @@ export const api = {
 
   toolResponse: (rec: string, run: string, id: string) =>
     call<unknown>(`/api/runs/${rec}/${run}/tools/${id}`),
+
+  /** SS13.2 -- edit the prose where a reader actually reads it. The changes are
+   *  replayed through the same review functions the step forms call, so the
+   *  SS13.5 record is identical either way. */
+  editFeature: (rec: string, run: string, caseId: string, text: string) =>
+    call<RunBody>(`/api/runs/${rec}/${run}/cases/${caseId}/feature`, {
+      method: 'PATCH',
+      body: JSON.stringify({ text }),
+    }),
 
   stepNarration: (rec: string, run: string, stepId: string) =>
     call<StepNarration>(`/api/runs/${rec}/${run}/steps/${stepId}/narration`),

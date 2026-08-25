@@ -121,6 +121,29 @@ class Storage:
         path.write_bytes(data)
         return path
 
+    def screenshot_path(self, recording_id: str, event_id: str) -> Path:
+        """Where one event's screenshot lives.
+
+        SS7.4: a screenshot is never sent to a model. It is captured for the
+        human reviewing the step, and this layout has been in the docstring
+        above since Phase 1 while nothing wrote to it -- the recorder took the
+        pictures and only the "save to Downloads" path ever kept them, so the
+        `screenshot` field on every posted recording pointed at a file the
+        server did not have.
+
+        The event id is validated rather than trusted: it arrives from an HTTP
+        path and is about to become a filename.
+        """
+        if not event_id or not event_id.replace("_", "").replace("-", "").isalnum():
+            raise ValueError(f"not a usable event id for a filename: {event_id!r}")
+        return self.recordings_dir / recording_id / "screens" / f"{event_id}.png"
+
+    def save_screenshot(self, recording_id: str, event_id: str, data: bytes) -> Path:
+        path = self.screenshot_path(recording_id, event_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
     def list_recordings(self) -> list[str]:
         if not self.recordings_dir.exists():
             return []

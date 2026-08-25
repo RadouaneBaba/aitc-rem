@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.0",
-  "id": "rec_MT1VY7C2ZWFW",
+  "id": "rec_MT8TEY493Q7L",
   "projectId": "local",
   "ownerId": "local",
-  "createdAt": "2026-08-20T19:00:27.938Z",
+  "createdAt": "2026-08-25T15:23:53.529Z",
   "objective": "Check that adding an item updates the cart badge",
   "metadata": {
-    "capturedAt": "2026-08-20T19:00:27.938Z",
-    "durationMs": 1747,
+    "capturedAt": "2026-08-25T15:23:53.529Z",
+    "durationMs": 1751,
     "browser": "Chrome/151.0.0.0",
     "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
     "viewport": {
@@ -27,7 +27,7 @@
     {
       "id": "evt_001",
       "seq": 0,
-      "timestamp": 529,
+      "timestamp": 506,
       "type": "input",
       "url": "http://localhost:5173/",
       "target": {
@@ -43,7 +43,7 @@
         "value": "<<user_email_1>>"
       },
       "before": {
-        "capturedAt": 529,
+        "capturedAt": 506,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -90,7 +90,7 @@
         }
       },
       "after": {
-        "capturedAt": 845,
+        "capturedAt": 815,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -163,7 +163,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 313,
+        "waitedMs": 306,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
@@ -175,7 +175,7 @@
     {
       "id": "evt_002",
       "seq": 1,
-      "timestamp": 1001,
+      "timestamp": 988,
       "type": "input",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -191,7 +191,7 @@
         "value": "<<password>>"
       },
       "before": {
-        "capturedAt": 1001,
+        "capturedAt": 988,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -238,7 +238,7 @@
         }
       },
       "after": {
-        "capturedAt": 1012,
+        "capturedAt": 1001,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -343,7 +343,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 10,
+        "waitedMs": 12,
         "mutationCount": 4,
         "inFlightAtEnd": 0
       },
@@ -354,7 +354,7 @@
     {
       "id": "evt_003",
       "seq": 2,
-      "timestamp": 1002,
+      "timestamp": 989,
       "type": "click",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -369,7 +369,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 1002,
+        "capturedAt": 989,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -416,7 +416,7 @@
         }
       },
       "after": {
-        "capturedAt": 1012,
+        "capturedAt": 1002,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -521,7 +521,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 9,
+        "waitedMs": 11,
         "mutationCount": 4,
         "inFlightAtEnd": 0
       },
@@ -530,12 +530,12 @@
           "id": "net_0001",
           "method": "POST",
           "url": "http://localhost:5173/api/login",
-          "startTime": 1004,
+          "startTime": 991,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 1008,
+          "endTime": 995,
           "durationMs": 4,
           "status": 200,
           "requestBody": "{\"email\":\"<<user_email_1>>\",\"password\":\"<<password>>\"}",
@@ -554,7 +554,7 @@
         {
           "id": "ann_1",
           "kind": "intent_note",
-          "timestamp": 1564,
+          "timestamp": 1560,
           "text": "the tester adds a widget to the cart",
           "eventId": "evt_003"
         }
@@ -563,7 +563,7 @@
     {
       "id": "evt_004",
       "seq": 3,
-      "timestamp": 1747,
+      "timestamp": 1751,
       "type": "click",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -578,7 +578,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 1747,
+        "capturedAt": 1751,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -792,7 +792,7 @@
         }
       },
       "after": {
-        "capturedAt": 2070,
+        "capturedAt": 2065,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -1024,7 +1024,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 321,
+        "waitedMs": 312,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
@@ -1033,12 +1033,12 @@
           "id": "net_0002",
           "method": "POST",
           "url": "http://localhost:5173/api/cart",
-          "startTime": 1750,
+          "startTime": 1753,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 1752,
+          "endTime": 1755,
           "durationMs": 2,
           "status": 201,
           "requestBody": "{\"name\":\"Blue Widget\"}",
@@ -1052,7 +1052,7 @@
       "console": [],
       "fidelity": [],
       "transient": {
-        "capturedAt": 1754,
+        "capturedAt": 1758,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -1274,9 +1274,9 @@
       "screenshot": "screens/evt_004.png",
       "annotations": [
         {
-          "id": "ann_1787252430471",
+          "id": "ann_1787671436093",
           "kind": "assertion",
-          "timestamp": 2533,
+          "timestamp": 2564,
           "target": {
             "role": "span",
             "name": "Cart contains 1 items",
@@ -1295,13 +1295,13 @@
     {
       "id": "ann_1",
       "kind": "intent_note",
-      "timestamp": 1564,
+      "timestamp": 1560,
       "text": "the tester adds a widget to the cart"
     },
     {
-      "id": "ann_1787252430471",
+      "id": "ann_1787671436093",
       "kind": "assertion",
-      "timestamp": 2533,
+      "timestamp": 2564,
       "target": {
         "role": "span",
         "name": "Cart contains 1 items",

@@ -99,6 +99,8 @@ def _inspect(text: str) -> list[str]:
             "be true afterwards, which is a transcript rather than a test case"
         )
 
+    problems.extend(_inspect_scenarios(text))
+
     # 2. `And` continues a block; it cannot open one, and `Then` before any
     #    action asserts about a state nothing established.
     first_keyword = steps[0][0]
@@ -174,7 +176,17 @@ def _inspect(text: str) -> list[str]:
                 f"intent: {body!r}"
             )
 
-        # 7. Traceability that belongs in the sidecar.
+        # 7. A step should not end in a full stop -- it is a sentence
+        #    fragment whose subject is the keyword. `draft._clean` strips one,
+        #    so reaching here means something wrote a step without going
+        #    through the drafting stage.
+        if body.rstrip().endswith(".") and not body.rstrip().endswith(".."):
+            problems.append(
+                f"step {index + 1} ends in a full stop; a Gherkin step is a fragment, not a "
+                f"sentence: {body!r}"
+            )
+
+        # 8. Traceability that belongs in the sidecar.
         leak = LEAKED_TRACE.search(body)
         if leak:
             problems.append(
@@ -182,7 +194,7 @@ def _inspect(text: str) -> list[str]:
                 f"step-definition matching; traceability belongs in the sidecar"
             )
 
-    # 8. One test case, one person. Checked for self-consistency rather than
+    # 9. One test case, one person. Checked for self-consistency rather than
     #    against `ProjectConfig.voice`, because a file that calls the same actor
     #    two things is wrong whichever of them the project chose.
     actors = {m.group(1).lower() for m in ACTOR.finditer(" ".join(body for _, body in steps))}
@@ -194,6 +206,146 @@ def _inspect(text: str) -> list[str]:
         )
 
     return problems
+
+
+#: More action blocks than this in one scenario and it is several test cases
+#: sharing a heading. Set from the failure it exists to catch: a real recording
+#: produced six `When`/`Then` beats -- navigate, set country, pick basket,
+#: upgrade size, change quantity, dismiss warning -- with seven expected results
+#: about six unrelated things. No QA engineer writes that; they write three
+#: steps and one `Then`. Four is generous for one behaviour with one verdict.
+MAX_BEATS = 4
+
+
+#: Verbs that make a clause a claim about the application. Used to tell one
+#: expected result from two joined by "and".
+CLAIM_VERB = re.compile(
+    r"\b(is|are|was|were|shows?|showed|displays?|displayed|appears?|appeared|"
+    r"contains?|contained|becomes?|became|indicates?|indicated|states?|stated|"
+    r"reads?|updates?|updated|remains?|reflects?)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_double_claim(body: str) -> bool:
+    """Does this expected result check two independent things at once?
+
+    "the checkout page updates to reflect the Express delivery fee AND the
+    payment method is accepted" is two assertions on one line, and the cost is
+    concrete: when it fails, nobody can say which half failed. A `Then` is the
+    unit that passes or fails, so it has to be one claim.
+
+    `_is_run_on` does not catch this -- it needs three conjunctions or two
+    commas, and this has one "and". The test here is different because the
+    thing being detected is different: two clauses that each make a claim.
+    """
+    parts = re.split(r"\band\b", body, flags=re.IGNORECASE)
+    if len(parts) < 2:
+        return False
+    return sum(1 for part in parts if CLAIM_VERB.search(part)) >= 2
+
+
+def _inspect_scenarios(text: str) -> list[str]:
+    """The checks that are about ONE scenario, not about the file.
+
+    `no Then step` above passes as long as SOMETHING in the file asserts, which
+    is why a scenario ending on a dangling `When` shipped: the file had `Then`
+    lines, just not in the block that needed one. A scenario is the unit that
+    passes or fails, so the unit these are checked over has to be the scenario.
+    """
+    problems: list[str] = []
+
+    for name, steps in _scenarios(text):
+        if not steps:
+            continue
+        where = f"scenario {name!r}" if name else "the scenario"
+
+        # 2. A scenario that ends on an action has no verdict. There is nothing
+        #    to pass or fail, and whoever executes it reaches the last line with
+        #    no idea whether what they saw was right.
+        resolved = _resolved(steps)
+        if resolved and resolved[-1] != "Then":
+            problems.append(
+                f"{where} ends on an action rather than an expected result, so it has "
+                f"no verdict: the last line is {steps[-1][0]} {steps[-1][1]!r}"
+            )
+
+        # 3. Several test cases wearing one heading. Counted as action blocks --
+        #    a run of `When`s broken by a `Then` and resumed -- because that is
+        #    what a reader sees: this happened and was checked, then this
+        #    happened and was checked, six times, about six different things.
+        # An expected result is the unit that passes or fails, so it has to be
+        # one claim. Checked here rather than in the per-step loop because it
+        # applies only to `Then` lines, and only a resolved keyword says which
+        # those are -- an `And` after a `Then` is one.
+        for keyword, (_raw, line_body) in zip(resolved, steps, strict=True):
+            if keyword == "Then" and _is_double_claim(line_body):
+                problems.append(
+                    f"an expected result in {where} checks two things at once, so a failure "
+                    f"will not say which: {line_body!r}"
+                )
+
+        beats = 0
+        previous: str | None = None
+        for keyword in resolved:
+            if keyword in {"Given", "When"} and previous == "Then":
+                beats += 1
+            previous = keyword
+        if beats + 1 > MAX_BEATS:
+            problems.append(
+                f"{where} has {beats + 1} action/outcome blocks. A scenario is one "
+                f"behaviour with one verdict; this reads as {beats + 1} test cases "
+                f"sharing a heading, which is what a reader has to untangle before "
+                f"they can run any of it"
+            )
+
+    return problems
+
+
+def _scenarios(text: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Every `Scenario:` block, as (name, steps).
+
+    A `Background:` block is deliberately not one: it is shared setup, it never
+    asserts, and requiring it to end on a `Then` would be requiring it to stop
+    being a background.
+    """
+    out: list[tuple[str, list[tuple[str, str]]]] = []
+    current: list[tuple[str, str]] | None = None
+    name = ""
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("Scenario:") or line.startswith("Scenario Outline:"):
+            if current is not None:
+                out.append((name, current))
+            name = line.split(":", 1)[1].strip()
+            current = []
+            continue
+        if line.startswith("Background:"):
+            if current is not None:
+                out.append((name, current))
+            current = None
+            continue
+        if current is None or not line or line.startswith("#") or line.startswith("|"):
+            continue
+        head, _, rest = line.partition(" ")
+        if head in KEYWORDS and rest.strip():
+            current.append((head, rest.strip()))
+
+    if current is not None:
+        out.append((name, current))
+    return out
+
+
+def _resolved(steps: list[tuple[str, str]]) -> list[str]:
+    """Each step's effective keyword, with `And` resolved to what it continues."""
+    out: list[str] = []
+    concrete: str | None = None
+    for keyword, _ in steps:
+        if keyword in {"Given", "When", "Then"}:
+            concrete = keyword
+        out.append(concrete or keyword)
+    return out
 
 
 def _is_run_on(body: str) -> bool:

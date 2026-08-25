@@ -235,7 +235,22 @@ def load_allowed_origins(path: Path | None = None) -> list[str]:
         data = data.get("allowed") or data.get("origins") or []
     if not isinstance(data, list):
         return []
-    return [str(item).strip() for item in data if str(item).strip()]
+    return [normalise_origin(str(item)) for item in data if str(item).strip()]
+
+
+def normalise_origin(origin: str) -> str:
+    """Scheme and host, with no trailing slash.
+
+    An origin has no path, so a trailing slash on one is always a typo and never
+    a distinction. Matching the raw strings meant `https://example.com/` in the
+    allowlist silently failed to match `https://example.com` from the recorder,
+    and the tester who had just added the origin got told it was not allowed --
+    with the file open in front of them saying otherwise.
+
+    Applied to both sides, so the comparison cannot be fooled by which one has
+    the slash.
+    """
+    return origin.strip().rstrip("/")
 
 
 def _read_yaml(path: Path) -> Any:

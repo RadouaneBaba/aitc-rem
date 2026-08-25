@@ -9,6 +9,42 @@ from server.models import ValidatorAction, ValidatorName, ValidatorResult, Valid
 from server.pipeline.segment import MUTATING_METHODS
 from server.pipeline.validators.base import ValidationContext, passed, result, skipped
 
+#: A mutation word pointing BACKWARDS at something an earlier step did. "the
+#: shopping bag displays the item previously added" is a claim about what is on
+#: screen now; the adding happened two steps ago and this step made no request
+#: at all. Read as a mutation claim it fails a validator that is right about
+#: everything except which step it is talking about.
+#:
+#: Narrow on purpose. It takes an explicit past-reference marker next to the
+#: verb, so "the order is saved" still claims a mutation and still has to prove
+#: one -- which is the whole point of this check.
+PAST_REFERENCE = re.compile(
+    r"\b(previously|earlier|already|beforehand)\s+\w*(ed|en)\b"
+    r"|\b(\w+(ed|en))\s+(previously|earlier|already|beforehand)\b",
+    re.IGNORECASE,
+)
+
+#: A step's text says what the TESTER did; an expected result says what the
+#: APPLICATION did. Only the second is a claim that state changed, and this
+#: pattern is how the first is told from the second.
+#:
+#: "the tester submits the payment method" describes pressing a button. Read as
+#: a claim about persistence it fails a validator that no rewrite can satisfy:
+#: every honest verb for that action -- saves, submits, adds -- is a mutation
+#: word, so the repair loop spent its budget making the sentence worse, first
+#: hedging it into "attempts to save" and then into "clicks Save", which is the
+#: mechanics language SS11.1 exists to keep out.
+#:
+#: A claim of persistence in a step's own text looks different: it is a RESULT
+#: clause. "the tester submits the order and it is saved" asserts something,
+#: and still has to prove it.
+RESULT_CLAUSE = re.compile(
+    r"\b(is|are|was|were|been|becomes?|gets?)\s+(\w+\s+){0,2}"
+    r"(saved|created|placed|updated|deleted|removed|added|confirmed|approved|"
+    r"uploaded|submitted)\b",
+    re.IGNORECASE,
+)
+
 #: Vocabulary that claims the application changed something. Kept narrow on
 #: purpose: a step saying "opens the order form" must not be read as a mutation
 #: and rejected for lacking a POST.
@@ -40,8 +76,14 @@ def mutation_claimed(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     checked = 0
     for case in ctx.ir.testCases:
         for step in case.steps:
-            claim = f"{step.text} " + " ".join(a.text for a in step.assertions)
-            if not MUTATION_WORDS.search(claim):
+            # An expected result is a claim about the application by
+            # definition, so any mutation word in one counts. A step's text
+            # counts only where it makes a claim rather than describing an
+            # action -- see RESULT_CLAUSE.
+            asserted = PAST_REFERENCE.sub(" ", " ".join(a.text for a in step.assertions))
+            acted = PAST_REFERENCE.sub(" ", step.text)
+            claims = bool(MUTATION_WORDS.search(asserted)) or bool(RESULT_CLAUSE.search(acted))
+            if not claims:
                 continue
             checked += 1
 
@@ -96,8 +138,12 @@ def mutation_claimed(ctx: ValidationContext) -> Iterable[ValidatorResult]:
                 ValidatorAction.warn if incomplete else ValidatorAction.reject,
                 ctx,
                 message=(
-                    f"step claims a change but no successful mutating request is "
-                    f"attributed to it.{detail}"
+                    f"step claims the application changed something, and no successful "
+                    f"mutating request is attributed to it.{detail} Say what the tester "
+                    f"ATTEMPTED rather than what the application did with it -- 'the "
+                    f"tester submits the payment details' rather than 'the payment "
+                    f"method is saved'. Do not describe the mechanism either: 'clicks "
+                    f"Save' is worse than both."
                     + (
                         " Network capture was incomplete for this step, so this is a "
                         "warning rather than a rejection."
@@ -118,9 +164,21 @@ def mutation_claimed(ctx: ValidationContext) -> Iterable[ValidatorResult]:
 def event_coverage(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     """Every recorded event is accounted for. None silently dropped.
 
-    An event that appears in no step and in no omitted segment is work the
-    tester did that the output pretends never happened -- the exact thing
-    SS9.3 refuses to do silently.
+    An event that appears in no step and in no omission is work the tester did
+    that the output pretends never happened -- the exact thing SS9.3 refuses to
+    do silently.
+
+    This became load-bearing when the drafting stage took over step boundaries.
+    A model that decides what a step IS can drop an event by simply not
+    mentioning it, and no amount of prompting makes that impossible; this is
+    the net, and it is the reason the drafter can be given that freedom safely.
+
+    An omission names its events directly. It used to name a SEGMENT and this
+    resolved the segment to find them, which was right while a step was a
+    segment -- the drafter now groups events into intents that cross segment
+    boundaries, so an omission that could only be expressed as a segment could
+    not describe half of what a session actually wanders through. The segment
+    path stays for omissions written the old way.
     """
     all_events = [e.id for e in ctx.recording.events]
     if not all_events:
@@ -134,7 +192,8 @@ def event_coverage(ctx: ValidationContext) -> Iterable[ValidatorResult]:
         for precondition in case.preconditions:
             covered.update(precondition.eventIds)
         for omitted in case.omitted:
-            if ctx.segments:
+            covered.update(omitted.eventIds or [])
+            if omitted.segmentId and ctx.segments:
                 segment = next(
                     (s for s in ctx.segments.segments if s.id == omitted.segmentId), None
                 )
@@ -153,8 +212,8 @@ def event_coverage(ctx: ValidationContext) -> Iterable[ValidatorResult]:
             ctx,
             message=(
                 f"{len(missing)} of {len(all_events)} events appear in no step and in no "
-                f"omitted segment: {shown}. Every event must be assigned or explicitly "
-                f"classified."
+                f"omission: {shown}. Every event must be assigned to a step or explicitly "
+                f"classified as work the test does not cover."
             ),
         )
         return

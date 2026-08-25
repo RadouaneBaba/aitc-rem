@@ -200,8 +200,24 @@ def test_a_notice_level_fidelity_flag_does_not_demand_review():
 
     assert "@needs-review" not in render_test_case(case)
 
-    case.steps[0].fidelity = ["closed_shadow_root"]
+    case.steps[0].fidelity = ["canvas_interaction"]
     assert "@needs-review" in render_test_case(case)
+
+
+def test_a_closed_shadow_root_somewhere_on_the_page_is_a_notice():
+    # It is raised while BUILDING the snapshot, for any closed shadow root
+    # anywhere on the page -- not for the thing the tester acted on. The demo
+    # app has one `<promo-widget>` on its checkout page, so six of seven
+    # fixtures inherited it and six of seven feature files came out tagged
+    # `@needs-review`: the same devaluation the test above describes, arriving
+    # by a different route.
+    #
+    # A true statement about the snapshot and a false one about the step. Only
+    # the second is what the marker means.
+    case = build_case()
+    for step in case.steps:
+        step.fidelity = ["closed_shadow_root"]
+    assert "@needs-review" not in render_test_case(case)
 
 
 def test_the_objective_becomes_the_description_block_not_a_comment():

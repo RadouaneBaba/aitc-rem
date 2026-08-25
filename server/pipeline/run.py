@@ -4,25 +4,29 @@
      file and writes a file, so when output is wrong you open the intermediate
      artifact and see exactly which stage lied."
 
-    segment (code) -> name (agentic) -> compose (agentic) -> validate (code)
-    -> render
+    segment (code) -> digest (code) -> draft (agentic) -> bind (agentic)
+    -> validate (code) -> render
 
-Composition sits between naming and rendering because the document-level
-decisions -- what the feature is called, what each step is doing in the test --
-need every step in view and none of them need to exist before naming runs. The
-ranked assertion stage, the step library, the critic and the repair loop slot
-into the same shape without changing it.
+The shape is the same as it always was. What changed is who writes the test
+case. There used to be three agentic stages between segmentation and rendering
+-- naming, asserting, composing -- and none of them ever saw the test case:
+naming was shown one segment, asserting was shown one step, and composing saw
+the flow but was forbidden from touching assertions. The output read like a
+document written by three people who never met, because it was.
+
+Now one stage writes the document with the whole session in view, and a second
+stage proves every claim it made or deletes the claim. Retrieval effort lands
+where a claim is contested instead of being spent evenly on every step, which
+is what SS3.3 always said an investigating agent should look like.
 """
 
 from __future__ import annotations
 
 import contextlib
-import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from server.config import ProjectConfig
@@ -46,11 +50,12 @@ from server.models import (
     TestCaseIR,
     TestCaseMetadata,
     TruncationPolicy,
+    ValidatorAction,
     ValidatorName,
     ValidatorStatus,
     Warning,
 )
-from server.pipeline.assertions import ASSERT_BUDGET, AssertionResult, propose_assertions
+from server.pipeline.bind import BIND_BUDGET, BindResult, bind_claims
 from server.pipeline.bugmode import (
     BUG_BUDGET,
     BugSignals,
@@ -59,33 +64,27 @@ from server.pipeline.bugmode import (
     detect,
     repro_steps,
 )
-from server.pipeline.compose import (
-    COMPOSE_BUDGET,
-    ComposeResult,
-    compose_test_case,
-    fallback_composition,
-)
 from server.pipeline.coverage import COVERAGE_BUDGET, CoverageResult, attach, suggest_coverage
 from server.pipeline.critic import CRITIC_BUDGET, CriticResult, critique
-from server.pipeline.investigate import DEFAULT_BUDGET
-from server.pipeline.name import NamingResult, name_segments, rename_steps, split_named
-from server.pipeline.narrative import (
-    apply_merges,
-    apply_splits,
-    keyword_for_role,
-    merge_repeats,
-    sync_keywords,
+from server.pipeline.digest import typed_parameters
+from server.pipeline.draft import (
+    DRAFT_BUDGET,
+    DraftResult,
+    apply_intent_notes,
+    draft_document,
+    repropose_expectations,
+    rewrite_steps,
 )
+from server.pipeline.narrative import merge_repeats, sync_keywords
 from server.pipeline.repair import (
     MAX_REPAIR_ATTEMPTS,
     RepairOutcome,
-    protected_steps,
     record,
     still_failing,
     still_flagged,
     targets,
 )
-from server.pipeline.segment import segment_recording
+from server.pipeline.segment import break_openers, segment_recording
 from server.pipeline.validators import (
     ValidationContext,
     ValidationReport,
@@ -107,7 +106,7 @@ class PipelineOptions:
     tools_enabled: bool = True
     critic_enabled: bool = False
     repair_enabled: bool = False
-    budget: int = DEFAULT_BUDGET
+    budget: int = DRAFT_BUDGET
     model_name: str = "gemini-2.5-flash"
     temperature: float = 0.0
     fallback_enabled: bool = True
@@ -117,10 +116,6 @@ class PipelineOptions:
     #: and two things called config in one signature is how a caller silently
     #: sets the wrong one. Never affects what is true, only how it reads.
     project: ProjectConfig = field(default_factory=ProjectConfig)
-    #: Composition runs in every ablation configuration. It makes no assertions
-    #: and so cannot move the grounding rate; turning it off for A0 would make
-    #: the comparison measure readability instead of architecture.
-    compose_enabled: bool = True
     #: Pre-declared for A0, whose whole-context prompt will not fit a long
     #: recording. Silent truncation would make the ablation measure truncation
     #: rather than architecture.
@@ -137,7 +132,13 @@ class PipelineOptions:
     #: once. Requires tools -- reasoning about the unobserved still has to rest
     #: on something observed.
     suggestions_enabled: bool = True
-    #: SS12's approved phrasing, shared by the naming stage and the validator.
+    #: SS14. Off by default: on a commercial site the uncaught-exception signal
+    #: fires on third-party advertising and consent scripts, and one bug report
+    #: that sends a developer to reproduce somebody else's JavaScript costs more
+    #: trust than fifty good test cases earn. `bugmode` now checks the script is
+    #: first-party, and this stays off until a real recording says it works.
+    bug_mode_enabled: bool = False
+    #: SS12's approved phrasing, shared by the drafting stage and the validator.
     #: `None` is a project with no history, which every project starts as.
     library: Any = None
 
@@ -171,11 +172,10 @@ class PipelineResult:
     trace: AgentTrace
     report: ValidationReport
     rendered: dict[str, str]
-    naming: NamingResult
+    draft: DraftResult
     grounding_rate: float
     duration_ms: float
-    compose: ComposeResult | None = None
-    assertions: AssertionResult | None = None
+    bound: BindResult | None = None
     critic: CriticResult | None = None
     repair: RepairOutcome = field(default_factory=RepairOutcome)
     #: The gate's verdict on attempt 1, kept whole. `report` above is the FINAL
@@ -183,15 +183,14 @@ class PipelineResult:
     #: SS3.5 asks for the first, the reviewer needs the last.
     first_report: ValidationReport | None = None
     sidecars: dict[str, str] = field(default_factory=dict)
-    artifacts: dict[str, Path] = field(default_factory=dict)
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
     @property
     def tool_calls_per_step(self) -> dict[str, int]:
         """Retrievals per step, summed across every stage that investigated it.
 
         The x-axis of SS3.4. Read from the trace rather than from any one
-        stage: effort is what the run spent on a step, and naming's share of it
-        stopped being the whole story when the assertion stage landed.
+        stage: effort is what the run spent on a step, not what one stage did.
         """
         return dict(self.trace.metrics.toolCallsPerStep or {}) if self.trace.metrics else {}
 
@@ -221,6 +220,11 @@ def run_pipeline(
             options.on_stage(stage)
 
     # -- 1. segment (deterministic) ---------------------------------------
+    #
+    # Demoted, deliberately. Its boundaries no longer decide step boundaries --
+    # a step is an INTENT and the drafter groups events into one -- but idle
+    # gaps, URL changes and the tester's own checkpoints are real signals about
+    # where intents end, and they reach the drafter as hints in the index.
     announce(PipelineStage.segment)
     t0 = time.time()
     segments = segment_recording(recording, run_id=run_id)
@@ -238,13 +242,17 @@ def run_pipeline(
 
     store = EvidenceStore(recording=recording, segments=segments)
     runner = ToolRunner(
-        store=store, storage=storage, run=run, stage=PipelineStage.name, library=options.library
+        store=store,
+        storage=storage,
+        run=run,
+        stage=PipelineStage.decompose,
+        library=options.library,
     )
 
-    # -- 2. name (agentic) -------------------------------------------------
-    announce(PipelineStage.name)
+    # -- 2. draft (agentic) ------------------------------------------------
+    announce(PipelineStage.decompose)
     t0 = time.time()
-    naming = name_segments(
+    drafted = draft_document(
         store,
         runner,
         model,
@@ -254,33 +262,37 @@ def run_pipeline(
         temperature=options.temperature,
         config=options.project,
     )
-    path = storage.save_artifact(run, "naming", naming.to_artifact())
+    # SS6.7 -- where the tester typed the step name themselves, it is theirs.
+    # Applied here rather than asked for in the prompt, because the popup makes
+    # the tester a promise ("used word for word") and a prompt that asks is not
+    # a guarantee.
+    dictated = apply_intent_notes(store, drafted)
+    _split_on_declared_breaks(store, drafted)
+    path = storage.save_artifact(run, "draft", drafted.to_artifact())
     stages.append(
         StageRecord(
-            stage=PipelineStage.name,
+            stage=PipelineStage.decompose,
             attempt=1,
             inputPath=run.relative(run.artifact("segments")),
             outputPath=run.relative(path),
             startedAt=t0,
             endedAt=time.time(),
-            status=StageStatus.ok,
+            status=StageStatus.degraded if drafted.degraded else StageStatus.ok,
+            **({"error": drafted.degraded} if drafted.degraded else {}),
         )
     )
 
-    # -- 3. assert (agentic) -----------------------------------------------
+    # -- 3. bind (agentic, per contested claim) ----------------------------
     announce(PipelineStage.assert_)
-    #
-    # Before composition, so the roles and the scenario name are decided with
-    # the expected results in view: a step that produced a checkable outcome is
-    # rarely setup, and the title of a test is largely what it verifies.
     t0 = time.time()
-    proposed = _assert(store, runner, model, naming, options)
-    path = storage.save_artifact(run, "assertions", proposed.to_artifact())
+    bound = _bind(store, runner, model, drafted, options)
+    bound = _second_chance(store, runner, model, drafted, bound, options)
+    path = storage.save_artifact(run, "assertions", bound.to_artifact())
     stages.append(
         StageRecord(
             stage=PipelineStage.assert_,
             attempt=1,
-            inputPath=run.relative(run.artifact("naming")),
+            inputPath=run.relative(run.artifact("draft")),
             outputPath=run.relative(path),
             startedAt=t0,
             endedAt=time.time(),
@@ -288,61 +300,20 @@ def run_pipeline(
         )
     )
 
-    # -- 4. compose (agentic) ---------------------------------------------
-    announce(PipelineStage.decompose)
-    t0 = time.time()
-    composed = _compose(store, runner, model, naming, options)
-
-    # A split makes two steps out of one, and neither is the step the assertion
-    # stage was asked about. Reconsider just those, and only when it happened:
-    # inheriting the old step's expected results is how the successful retry
-    # ended up saying nothing while "Order confirmed" -- the outcome the test
-    # exists to reach -- went unmentioned.
-    if composed.splits:
-        naming, resplit = split_named(naming, composed.splits)
-        proposed = _merge_assertions(
-            proposed,
-            propose_assertions(
-                store,
-                runner,
-                model,
-                naming,
-                model_name=options.model_name,
-                budget=ASSERT_BUDGET if options.tools_enabled else 0,
-                tools_enabled=options.tools_enabled,
-                temperature=options.temperature,
-                config=options.project,
-                only=resplit,
-            ),
-            replacing=resplit,
-        )
-
-    stages.append(
-        StageRecord(
-            stage=PipelineStage.decompose,
-            attempt=1,
-            inputPath=run.relative(run.artifact("assertions")),
-            outputPath=run.relative(run.artifact("ir")),
-            startedAt=t0,
-            endedAt=time.time(),
-            status=StageStatus.degraded if composed.degraded else StageStatus.ok,
-        )
-    )
-
-    # -- 5-8. draft, validate, critique, repair ---------------------------
+    # -- 4-7. assemble, validate, critique, repair -------------------------
     #
     # SS9.9's cycle: generate -> validate (code) -> critique (model) -> repair
     # -> validate -> ... Bounded at three attempts, after which the finding is
     # stated to the human rather than silently accepted.
     #
-    # `composed` and `runner` are built once and outlive the loop; everything
-    # downstream of them is rebuilt per attempt. That rebuild is what keeps the
-    # trace's retrieval log current -- an assertion re-proposed on attempt 2
-    # cites a `tc_` id minted during the repair, and `evidence_retrieved` can
-    # only resolve it if the trace has been re-synced since. See `_sync_calls`,
-    # which exists because assuming otherwise cost a real run.
+    # `runner` outlives the loop; everything downstream of it is rebuilt per
+    # attempt. That rebuild is what keeps the trace's retrieval log current --
+    # a claim re-bound on attempt 2 cites a `tc_` id minted during the repair,
+    # and `evidence_retrieved` can only resolve it if the trace has been
+    # re-synced since. See `_sync_calls`, which exists because assuming
+    # otherwise cost a real run.
     attempt = 1
-    draft = _draft(
+    draft = _attempt(
         recording,
         run_id,
         options,
@@ -350,9 +321,8 @@ def run_pipeline(
         storage=storage,
         run=run,
         segments=segments,
-        naming=naming,
-        composed=composed,
-        proposed=proposed,
+        drafted=drafted,
+        bound=bound,
         critic=None,
         stages=stages,
         announce=announce,
@@ -366,31 +336,28 @@ def run_pipeline(
     # A COPY, not the object. When nothing repairs, `draft.report` is still the
     # live report, and the coverage stage below edits `report.results` in
     # place -- which silently backdated a later validator result into the
-    # first-attempt number. It showed up as A1 scoring HIGHER on first-attempt
-    # than A2 on identical attempt-1 output, which is impossible and was the
-    # only reason anyone looked.
+    # first-attempt number.
     first_report = ValidationReport(results=list(draft.report.results))
     outcome = RepairOutcome()
-    protected = protected_steps(store, naming)
     critic: CriticResult | None = None
 
     if options.critic_enabled:
-        critic = _critique(runner, model, draft, options, protected, storage, run, stages, announce)
+        critic = _critique(runner, model, draft, options, dictated, storage, run, stages, announce)
 
     while options.repair_enabled and attempt < MAX_REPAIR_ATTEMPTS:
         pending = targets(
             draft.report,
             critic.findings if critic else [],
-            protected=protected,
-            known_steps={s.step_id for s in naming.steps},
+            protected=dictated,
+            known_steps={s.step_id for s in drafted.steps},
         )
         if not pending:
             break
         attempt += 1
-        naming, proposed, repaired = _repair_round(
-            store, runner, model, naming, proposed, pending, options, attempt
+        bound, repaired = _repair_round(
+            store, runner, model, drafted, bound, pending, options, attempt
         )
-        draft = _draft(
+        draft = _attempt(
             recording,
             run_id,
             options,
@@ -398,9 +365,8 @@ def run_pipeline(
             storage=storage,
             run=run,
             segments=segments,
-            naming=naming,
-            composed=composed,
-            proposed=proposed,
+            drafted=drafted,
+            bound=bound,
             critic=critic,
             stages=stages,
             announce=announce,
@@ -412,7 +378,7 @@ def run_pipeline(
                 model,
                 draft,
                 options,
-                protected,
+                dictated,
                 storage,
                 run,
                 stages,
@@ -432,7 +398,7 @@ def run_pipeline(
 
     ir, rendered, sidecars, trace, ctx, report = draft.unpack()
 
-    # -- 9. bug mode (SS14) ------------------------------------------------
+    # -- 8. bug mode (SS14) ------------------------------------------------
     #
     # Offered ALONGSIDE the test case, never instead of it: the steps that
     # reached the failure are a test case whether or not the failure is a bug,
@@ -440,7 +406,7 @@ def run_pipeline(
     signals = detect(recording)
     storage.save_artifact(run, "bug", signals.to_artifact())
     bugged = False
-    if signals.detected and options.tools_enabled:
+    if signals.detected and options.tools_enabled and options.bug_mode_enabled:
         announce(PipelineStage.assert_)
         t0 = time.time()
         added = bugged = _bug_report(store, runner, model, recording, ir, signals, options, trace)
@@ -478,7 +444,7 @@ def run_pipeline(
             )
             report = validate(ctx)
 
-    # -- 10. coverage suggestions (SS9.8) ---------------------------------
+    # -- 9. coverage suggestions (SS9.8) ----------------------------------
     #
     # After the gate has settled, which SS9.8 requires in as many words. A
     # suggestion derived from a draft the validators went on to reject would be
@@ -537,7 +503,28 @@ def run_pipeline(
     # in a log. The `.feature` body is untouched by design (SS11.1: it is prose
     # and nothing else), which is why this needs no re-validation.
     annotated = _annotate(ir, critic, outcome)
-    if annotated or suggestions is not None or bugged:
+
+    # A claim the gate rejected and the repair loop could not fix is DELETED,
+    # not shipped with a warning beside it. See `_drop_rejected`.
+    dropped = _drop_rejected(ir, report)
+    if dropped:
+        rendered = render_document(ir, config=options.project)
+        _sync_calls(trace, runner)
+        ctx = ValidationContext(
+            recording=recording,
+            ir=ir,
+            trace=trace,
+            storage=storage,
+            run=run,
+            segments=segments,
+            rendered=rendered,
+            attempt=attempt,
+            library=options.library,
+            narration_min_confidence=options.project.narration_min_confidence,
+        )
+        report = validate(ctx)
+
+    if annotated or dropped or suggestions is not None or bugged:
         storage.save_artifact(run, "ir", ir)
         if options.project.trace == "sidecar":
             sidecars = trace_md.render_document(ir, trace=trace, config=options.project)
@@ -571,9 +558,8 @@ def run_pipeline(
         report=report,
         rendered=rendered,
         sidecars=sidecars,
-        naming=naming,
-        compose=composed,
-        assertions=proposed,
+        draft=drafted,
+        bound=bound,
         critic=critic,
         repair=outcome,
         first_report=first_report,
@@ -581,7 +567,7 @@ def run_pipeline(
         duration_ms=(time.perf_counter() - started) * 1000,
         artifacts={
             "segments": run.artifact("segments"),
-            "naming": run.artifact("naming"),
+            "draft": run.artifact("draft"),
             "assertions": run.artifact("assertions"),
             "ir": run.artifact("ir"),
             "trace": trace_path,
@@ -611,7 +597,7 @@ class _Draft:
         return self.ir, self.rendered, self.sidecars, self.trace, self.ctx, self.report
 
 
-def _draft(
+def _attempt(
     recording: Recording,
     run_id: str,
     options: PipelineOptions,
@@ -620,9 +606,8 @@ def _draft(
     storage: Storage,
     run: RunPaths,
     segments: Any,
-    naming: NamingResult,
-    composed: ComposeResult,
-    proposed: AssertionResult,
+    drafted: DraftResult,
+    bound: BindResult,
     critic: CriticResult | None,
     stages: list[StageRecord],
     announce: Callable[[PipelineStage], None],
@@ -630,38 +615,31 @@ def _draft(
 ) -> _Draft:
     """Assemble the IR, render it, and put it through the gate. Once.
 
-    Safe to replay because `_assemble` is a pure function of its inputs and
-    never mutates `naming`: `apply_merges` always sees the unmerged list, and
-    `apply_splits` no-ops on already-split steps thanks to its
-    `0 < cut < len(eventIds)` guard -- which the pipeline already relied on,
-    since `split_named` cuts `naming` before `_assemble` cuts it again.
+    Safe to replay because `_assemble` is a pure function of its inputs.
 
-    The trace is rebuilt rather than reused. `_trace` reads
-    `naming.investigations` and `proposed.investigations`, and a repair REBINDS
-    both objects, so a trace built once would hold stale lists.
-
-    Rebuilding is also the only thing that keeps `toolCalls` current, which is
-    load-bearing and was got wrong once: `AgentTrace(toolCalls=runner.calls)`
-    looks like it aliases the runner's live list and does not -- Pydantic
-    validates the field and COPIES it. A retrieval made after the trace was
-    built is therefore invisible to `evidence_retrieved`, which then rejects the
-    perfectly good assertion citing it. Any stage that runs after the last
-    `_draft` has to call `_sync_calls` before it is validated.
+    The trace is rebuilt rather than reused, and rebuilding is the only thing
+    that keeps `toolCalls` current -- which is load-bearing and was got wrong
+    once: `AgentTrace(toolCalls=runner.calls)` looks like it aliases the
+    runner's live list and does not, because Pydantic validates the field and
+    COPIES it. A retrieval made after the trace was built is therefore
+    invisible to `evidence_retrieved`, which then rejects the perfectly good
+    assertion citing it. Any stage that runs after the last `_attempt` has to
+    call `_sync_calls` before it is validated.
     """
     # Never overwrite a superseded draft. SS9.1's whole claim is that you can
     # open the intermediate artifact and see which stage lied; a repair that
     # silently replaced the draft it was repairing would take that away exactly
     # when it is most wanted.
     if attempt > 1:
-        _archive(storage, run, attempt - 1, ("naming", "assertions", "ir"))
-        storage.save_artifact(run, "naming", naming.to_artifact())
-        storage.save_artifact(run, "assertions", proposed.to_artifact())
+        _archive(storage, run, attempt - 1, ("draft", "assertions", "ir"))
+        storage.save_artifact(run, "draft", drafted.to_artifact())
+        storage.save_artifact(run, "assertions", bound.to_artifact())
 
     announce(PipelineStage.render)
     t0 = time.time()
-    ir = _assemble(recording, run_id, naming, composed, proposed)
+    ir = _assemble(recording, run_id, drafted, bound)
     storage.save_artifact(run, "ir", ir)
-    trace = _trace(recording, run_id, options, runner, naming, composed, proposed, critic)
+    trace = _trace(recording, run_id, options, runner, drafted, bound, critic)
     rendered = render_document(ir, config=options.project)
     sidecars: dict[str, str] = {}
     if options.project.trace == "sidecar":
@@ -720,13 +698,141 @@ def _sync_calls(trace: AgentTrace, runner: ToolRunner) -> None:
 
 
 def _archive(storage: Storage, run: RunPaths, attempt: int, names: tuple[str, ...]) -> None:
-    """Keep the superseded draft under `<stage>.attempt<N>.json`."""
     for name in names:
         source = run.artifact(name)
         if source.exists():
-            storage.save_artifact(
-                run, f"{name}.attempt{attempt}", json.loads(source.read_text(encoding="utf-8"))
+            source.replace(run.artifact(f"{name}.attempt{attempt}"))
+
+
+# --------------------------------------------------------------------------
+# stages
+# --------------------------------------------------------------------------
+
+
+def _bind(
+    store: EvidenceStore,
+    runner: ToolRunner,
+    model: ModelClient,
+    drafted: DraftResult,
+    options: PipelineOptions,
+) -> BindResult:
+    """Prove every proposed expected result, or delete it (SS9.5)."""
+    return bind_claims(
+        store,
+        runner,
+        model,
+        drafted,
+        model_name=options.model_name,
+        budget=min(BIND_BUDGET, options.budget),
+        tools_enabled=options.tools_enabled,
+        temperature=options.temperature,
+        config=options.project,
+    )
+
+
+def _second_chance(
+    store: EvidenceStore,
+    runner: ToolRunner,
+    model: ModelClient,
+    drafted: DraftResult,
+    bound: BindResult,
+    options: PipelineOptions,
+) -> BindResult:
+    """Ask again where binding left a scenario with no verdict at all.
+
+    A scenario that ends on an action has nothing to pass or fail. It is the
+    defect that shipped on a real recording, and draft-then-bind can produce it
+    honestly: the drafter proposes the outcome it expected, the recording shows
+    the opposite, and the claim is correctly deleted -- leaving a test case that
+    describes what the tester did and never what should be true.
+
+    Deleting was right. Stopping there was not. The run knows exactly why the
+    claim failed, and that reason is the most useful thing anyone could hand a
+    second attempt: *the export returned 500, so nothing was downloaded.* On a
+    session that ended in an error the answer is usually that the error IS the
+    expected result.
+
+    Once, and only for a scenario left with nothing. This is not a repair loop
+    -- it is the difference between an empty verdict and a real one, and a
+    second attempt that also fails costs one call and changes nothing.
+    """
+    if not options.tools_enabled:
+        return bound
+
+    reasons: dict[str, str] = {}
+    for scenario in drafted.scenarios:
+        if not scenario.steps:
+            continue
+        step_ids = {s.step_id for s in scenario.steps}
+        anything = any(bound.for_step(sid) for sid in step_ids)
+        closes = bool(bound.for_step(scenario.steps[-1].step_id))
+
+        # Two ways a scenario ends up with no verdict, and both are worth one
+        # more question.
+        #
+        #   * nothing in it bound at all
+        #   * it bound something and then ENDS ON AN ACTION -- which reads as a
+        #     test that stops mid-sentence. Seen on a real recording: the
+        #     scenario proved the quantity limit and then trailed off with
+        #     "the tester opens the shopping bag".
+        if anything and closes:
+            continue
+
+        target = scenario.steps[-1].step_id if anything else None
+        dropped = [c for c in bound.claims if c.step_id in step_ids and c.assertion is None]
+
+        if target is None:
+            if not dropped:
+                # Nothing was proposed for this scenario in the first place, so
+                # there is no evidence to feed back. `gherkin_style` says
+                # plainly that the scenario has no verdict, and that is the
+                # honest outcome.
+                continue
+            last = dropped[-1]
+            target = last.step_id
+            why = (
+                f"the expected result {last.text!r} could not be proved: {last.reason}. "
+                f"This scenario now has no expected result at all."
             )
+        else:
+            why = (
+                "this is the last step of the scenario and it has no expected result, so "
+                "the test ends on an action with nothing to pass or fail."
+            )
+
+        reasons[target] = (
+            f"{why} Propose one that says what the recording actually shows happened -- "
+            f"including a failure, if that is what happened. An empty list is still a "
+            f"valid answer if this step genuinely established nothing."
+        )
+
+    if not reasons:
+        return bound
+
+    changed = repropose_expectations(
+        store,
+        runner,
+        model,
+        drafted,
+        findings=reasons,
+        model_name=options.model_name,
+        budget=min(BIND_BUDGET, options.budget),
+        tools_enabled=options.tools_enabled,
+        temperature=options.temperature,
+        config=options.project,
+        attempt=1,
+    )
+    if not changed:
+        return bound
+
+    retried = _bind(store, runner, model, drafted, options)
+    # Keep the record of what was tried and rejected the first time. A reviewer
+    # asking "why is there no expected result here" deserves both answers, and
+    # SS3.4 counts the retrievals either attempt spent.
+    retried.claims = [*bound.claims, *retried.claims]
+    retried.investigations = [*bound.investigations, *retried.investigations]
+    retried.model_calls = [*bound.model_calls, *retried.model_calls]
+    return retried
 
 
 def _critique(
@@ -761,11 +867,11 @@ def _critique(
             attempt=attempt,
         )
     except Exception as exc:  # noqa: BLE001 - any provider failure, surfaced as degraded
-        # A critic failure must not cost the run: naming and the assert stage
-        # have already produced the expensive, evidence-bound part. But it must
-        # not read as approval either -- an empty findings list from a critic
-        # that crashed and one from a critic that read the output and liked it
-        # are the same value and opposite facts.
+        # A critic failure must not cost the run: the drafting and binding
+        # stages have already produced the expensive, evidence-bound part. But
+        # it must not read as approval either -- an empty findings list from a
+        # critic that crashed and one from a critic that read the output and
+        # liked it are the same value and opposite facts.
         result = CriticResult(failed=f"{type(exc).__name__}: {exc}")
     name = "critic" if attempt == 1 else f"critic.attempt{attempt}"
     path = storage.save_artifact(run, name, result.to_artifact())
@@ -788,30 +894,35 @@ def _repair_round(
     store: EvidenceStore,
     runner: ToolRunner,
     model: ModelClient,
-    naming: NamingResult,
-    proposed: AssertionResult,
+    drafted: DraftResult,
+    bound: BindResult,
     pending: list,
     options: PipelineOptions,
     attempt: int,
-) -> tuple[NamingResult, AssertionResult, set[str]]:
-    """Re-run the offending stages for the flagged steps only (SS9.9).
+) -> tuple[BindResult, set[str]]:
+    """Re-run the offending stage for the flagged steps only (SS9.9).
+
+    Two repairs, matching the two things a model wrote: the step's sentence and
+    the step's expected result. Both edit the DRAFT in place and never touch
+    `eventIds` or `step_id` -- that constraint is what keeps `event_coverage`
+    and the scenario grouping stable across attempts.
 
     Returns the ids that actually changed, which is not the same as the ids
-    asked about: `rename_steps` refuses a rewrite that would collide with a
-    neighbour, and the assert stage can legitimately come back with nothing. A
-    finding whose repair produced no change stays unresolved rather than being
-    marked fixed because a stage ran.
+    asked about: `rewrite_steps` refuses a rewrite that would collide with a
+    neighbour, and a re-proposed expected result can legitimately come back
+    empty. A finding whose repair produced no change stays unresolved rather
+    than being marked fixed because a stage ran.
     """
     renames = {t.step_id: t.finding for t in pending if t.stage == PipelineStage.name}
     reasserts = {t.step_id: t.finding for t in pending if t.stage == PipelineStage.assert_}
     touched: set[str] = set()
 
     if renames:
-        naming, changed = rename_steps(
+        touched |= rewrite_steps(
             store,
             runner,
             model,
-            naming,
+            drafted,
             findings=renames,
             model_name=options.model_name,
             budget=options.budget if options.tools_enabled else 0,
@@ -820,28 +931,97 @@ def _repair_round(
             config=options.project,
             attempt=attempt,
         )
-        touched |= changed
 
     if reasserts:
-        redone = propose_assertions(
+        # What each flagged step could prove BEFORE the repair. A repair that
+        # trades a bound claim for an unbindable one has made the output worse
+        # (see `_keep_provable`), and the only way to know is to remember.
+        previous = {sid: list(s.expects) for sid, s in _by_id(drafted).items()}
+        changed = repropose_expectations(
             store,
             runner,
             model,
-            naming,
+            drafted,
+            findings=reasserts,
             model_name=options.model_name,
-            budget=min(ASSERT_BUDGET, options.budget) if options.tools_enabled else 0,
+            budget=min(BIND_BUDGET, options.budget) if options.tools_enabled else 0,
             tools_enabled=options.tools_enabled,
             temperature=options.temperature,
             config=options.project,
-            only=set(reasserts),
-            findings=reasserts,
-            previous=proposed.by_step(),
             attempt=attempt,
         )
-        proposed = _merge_assertions(proposed, redone, replacing=set(reasserts))
-        touched |= set(reasserts)
+        touched |= changed
+        # Re-bound from scratch, including the claims that were left alone: a
+        # rewritten step sentence changes what its expected result has to be
+        # about, and binding is cheap for anything the deterministic pass can
+        # settle.
+        if changed or renames:
+            retried = _bind(store, runner, model, drafted, options)
+            bound, reverted = _keep_provable(drafted, previous, bound, retried)
+            touched -= reverted
 
-    return naming, proposed, touched
+    return bound, touched
+
+
+def _by_id(drafted: DraftResult) -> dict[str, Any]:
+    return {step.step_id: step for step in drafted.steps}
+
+
+def _keep_provable(
+    drafted: DraftResult,
+    previous: dict[str, list],
+    before: BindResult,
+    after: BindResult,
+) -> tuple[BindResult, set[str]]:
+    """A repair may not trade a claim that binds for one that does not.
+
+    Found in an ablation, and it cost real output. On the `hardpaths` fixture
+    A1 bound two true expected results -- *the status shows "Payment method
+    saved"* and *the page displays "Validating with the finance system..."*.
+    The critic then said each checked "a status message rather than the
+    successful saving" and "a loading state rather than the completion of the
+    validation process": plausible sentences, and both asking for something the
+    recording does not contain, because the slow validation never finishes
+    inside it. Repair obeyed, binding correctly refused the replacements, and
+    A2 shipped a scenario with NO expected results where A1 had two.
+
+    The critic being wrong is not the bug. The critic is allowed to be wrong --
+    it is a second opinion, and SS9.9 bounds it precisely because it can be.
+    The bug is that repair replaced a proven claim before finding out whether
+    the replacement could be proven at all.
+
+    So the swap only stands where it is not a loss. Where it is, the original
+    claims come back and the finding is reported unresolved, which is SS9.9's
+    designed outcome on exhaustion and an honest description of what happened:
+    somebody thought this could be said better, and it could not be said at
+    all.
+    """
+    steps = _by_id(drafted)
+    reverted: set[str] = set()
+
+    for step_id, was in previous.items():
+        if not before.for_step(step_id) or after.for_step(step_id):
+            continue
+        reverted.add(step_id)
+        if step_id in steps:
+            steps[step_id].expects = was
+
+    if not reverted:
+        return after, reverted
+
+    # Keep every claim the retry DID settle, and restore the originals for the
+    # steps that lost everything. The superseded attempt stays in the record:
+    # the run really did spend those retrievals, and SS3.4's effort column
+    # under-reporting a step that took two passes would hide exactly the step
+    # it exists to find.
+    merged = BindResult(
+        claims=[c for c in after.claims if c.step_id not in reverted]
+        + [c for c in before.claims if c.step_id in reverted]
+        + [c for c in after.claims if c.step_id in reverted and c.assertion is None],
+        investigations=[*after.investigations],
+        model_calls=[*after.model_calls],
+    )
+    return merged, reverted
 
 
 def _bug_report(
@@ -908,11 +1088,10 @@ def _annotate(ir: IRDocument, critic: CriticResult | None, outcome: RepairOutcom
     Three sources, all of them things the loop could not fix:
 
       * a finding whose kind no stage can act on -- `coherence` and
-        `state_jump` need composition, and re-running composition can change
+        `state_jump` need the document re-drafted, and re-drafting can change
         the step count (SS3.6)
       * a finding whose repair ran out of budget
-      * a rewrite the naming stage refused because it would have collapsed two
-        steps into one
+      * a rewrite that was refused because it would have collapsed two steps
 
     None of them are dropped. "The critic found nothing" and "the critic found
     something nobody acted on" are different facts about a run, and only one of
@@ -966,118 +1145,85 @@ def _annotate(ir: IRDocument, critic: CriticResult | None, outcome: RepairOutcom
     return True
 
 
-# --------------------------------------------------------------------------
+def _drop_rejected(ir: IRDocument, report: ValidationReport) -> bool:
+    """Delete every claim the gate rejected and the repair loop could not fix.
 
+    SS9.7 gives `assertion_grounding` and `evidence_retrieved` the action
+    **Reject**, and SS9.5 says "an assertion whose evidence cannot be retrieved
+    is not emitted". Neither was true. `reject` only made the REPORT not-ok;
+    the repair loop is bounded, so a run could exhaust its attempts and then
+    render the claim anyway with a warning recorded beside it in `ir.json`. A
+    real feature file shipped
 
-def _assert(
-    store: EvidenceStore,
-    runner: ToolRunner,
-    model: ModelClient,
-    naming: NamingResult,
-    options: PipelineOptions,
-) -> AssertionResult:
-    """Propose ranked expected results (SS9.5)."""
-    return propose_assertions(
-        store,
-        runner,
-        model,
-        naming,
-        model_name=options.model_name,
-        budget=min(ASSERT_BUDGET, options.budget),
-        tools_enabled=options.tools_enabled,
-        temperature=options.temperature,
-        config=options.project,
-    )
+        Then the quantity of the tea selection increases to 18
 
+    while the same run's own warnings said the literal did not appear at the
+    event it cited. Two components disagreeing about grounding, resolved in
+    favour of shipping, with a clean evidence trail behind a wrong number.
 
-def _compose(
-    store: EvidenceStore,
-    runner: ToolRunner,
-    model: ModelClient,
-    naming: NamingResult,
-    options: PipelineOptions,
-) -> ComposeResult:
-    """Compose the document, or fall back to something readable.
+    Under draft-then-bind this is nearly always already handled: an unbindable
+    claim is deleted by `bind.py` and never reaches the renderer. This is the
+    net for what repair touched afterwards, and for anything a future stage
+    adds to the IR without going through binding.
 
-    A model failure here must not cost the run: naming has already produced the
-    expensive, evidence-bound part, and a plainer title is a far better outcome
-    than losing it. The fallback is recorded as `degraded` rather than passed
-    off as a composition that happened.
+    Deleting the assertion and not the step: the step happened, and the reader
+    should still see what the tester did. What is removed is the claim about it
+    that nothing supports.
     """
-    if not options.compose_enabled:
-        return _degraded(store, naming)
-    try:
-        return compose_test_case(
-            store,
-            runner,
-            model,
-            naming,
-            model_name=options.model_name,
-            budget=min(COMPOSE_BUDGET, options.budget),
-            tools_enabled=options.tools_enabled,
-            temperature=options.temperature,
-            config=options.project,
-        )
-    except Exception:  # noqa: BLE001 - any provider failure, surfaced as degraded
-        return _degraded(store, naming)
+    doomed: set[str] = {
+        r.assertionId
+        for r in report.results
+        if r.assertionId
+        and r.status == ValidatorStatus.fail
+        and r.action == ValidatorAction.reject
+    }
+    if not doomed:
+        return False
+
+    removed = False
+    for case in ir.testCases:
+        for step in case.steps:
+            keep = [a for a in step.assertions if a.id not in doomed]
+            if len(keep) == len(step.assertions):
+                continue
+            removed = True
+            for assertion in step.assertions:
+                if assertion.id in doomed:
+                    case.warnings.append(
+                        Warning(
+                            id=f"warn_dropped_{len(case.warnings) + 1:03d}",
+                            source="validator",
+                            severity="warn",
+                            message=(
+                                f"an expected result was removed because the run could not "
+                                f"prove it: {assertion.text!r}"
+                            ),
+                            code="unbound_claim_removed",
+                            stepId=step.id,
+                        )
+                    )
+            step.assertions = keep
+    return removed
 
 
-def _degraded(store: EvidenceStore, naming: NamingResult) -> ComposeResult:
-    return fallback_composition(store, naming)
+# --------------------------------------------------------------------------
+# assembly
+# --------------------------------------------------------------------------
 
 
 def _assemble(
     recording: Recording,
     run_id: str,
-    naming: NamingResult,
-    composed: ComposeResult,
-    proposed: AssertionResult,
+    drafted: DraftResult,
+    bound: BindResult,
 ) -> IRDocument:
-    """One test case in Phase 1. Decomposition into N is SS9.3."""
-    candidates = proposed.by_step()
-    steps = [
-        Step(
-            id=named.step_id,
-            keyword=keyword_for_role(composed.roles.get(named.step_id, named.role)),
-            role=composed.roles.get(named.step_id, named.role),
-            text=named.text,
-            eventIds=named.event_ids,
-            investigationRef=named.investigation.id,
-            assertions=candidates.get(named.step_id, []),
-            confidence=named.confidence,
-            fidelity=_flags(recording, named.event_ids),
-            selectorHints=_selector_hints(recording, named.event_ids),
-            **({"escalation": named.escalation} if named.escalation else {}),
-            **({"libraryRef": named.library_ref} if named.library_ref else {}),
-        )
-        for named in naming.steps
-    ]
+    """Turn the drafted document and its bound claims into the IR.
 
-    # Merging happens once, here, so `ir.json` and the rendered feature always
-    # show the same steps. Composition supplies the judgment (it read the whole
-    # flow); `merge_repeats` is the net for an exact repeat it did not catch.
-    # Splits first. A split can turn one step into two that a merge group was
-    # never written about, whereas a merge can absorb a step a split was going
-    # to cut -- doing it the other way round loses the cut silently.
-    steps = merge_repeats(
-        apply_merges(
-            apply_splits(steps, composed.splits),
-            [group.step_ids for group in composed.merges],
-            texts={
-                sid: group.text for group in composed.merges for sid in group.step_ids if group.text
-            },
-        )
-    )
-    # SS9.3 -- a recorded sitting is a person working, and their wrong turns are
-    # not test steps. Pruned rather than deleted: `omitted` is rendered where it
-    # happened, so a reader knows the narrative is not the whole session and
-    # does not trust it for something it never covered.
-    steps, omitted = _prune(steps, {n.step_id: n.segment_id for n in naming.steps})
-    sync_keywords(steps)
-
-    # Fidelity totals belong with the evidence, not above the Feature line. A
-    # reader opening a test case does not need "7 event(s) flagged
-    # network_incomplete" before the first step.
+    The drafter decided the steps and the scenarios, so there is nothing here
+    that re-decides them. `merge_repeats` stays as the net for two adjacent
+    steps that came back with identical sentences, which is a defect wherever
+    it comes from.
+    """
     warnings = [
         Warning(
             id=f"warn_{i + 1:03d}",
@@ -1091,28 +1237,59 @@ def _assemble(
         )
     ]
 
-    # SS9.3 -- one recording can hold several test cases. Split here, after
-    # merging and splitting, so every case is built from the same final steps
-    # the feature file will show.
-    groups = _case_groups(steps, composed)
+    omitted = [
+        {
+            "eventIds": list(o.event_ids),
+            "reason": o.reason.value,
+            "eventCount": len(o.event_ids),
+            "summary": o.summary,
+            "afterStepId": "",
+        }
+        for o in drafted.omitted
+    ]
+
     cases: list[TestCaseIR] = []
+    scenarios = [s for s in drafted.scenarios if s.steps]
     earlier_setup: list[Step] = []
-    for index, (scenario, group_steps) in enumerate(groups, start=1):
+
+    for index, scenario in enumerate(scenarios, start=1):
+        steps = merge_repeats(
+            [
+                Step(
+                    id=step.step_id,
+                    keyword=step.keyword,
+                    role=step.role,
+                    text=step.text,
+                    eventIds=step.event_ids,
+                    # Every step points at the one investigation that wrote the
+                    # document. The old per-step investigation ref described a
+                    # retrieval loop run for that step alone, and there is no
+                    # longer any such thing: one author wrote all of them.
+                    investigationRef="inv_draft",
+                    assertions=bound.for_step(step.step_id),
+                    confidence=drafted.confidence,
+                    fidelity=_flags(recording, step.event_ids),
+                    selectorHints=_selector_hints(recording, step.event_ids),
+                )
+                for step in scenario.steps
+            ]
+        )
+        sync_keywords(steps)
         cases.append(
             _build_case(
                 recording,
                 run_id,
-                group_steps,
-                composed,
-                scenario=scenario,
+                steps,
+                drafted,
+                scenario=scenario.name,
                 warnings=warnings,
                 index=index,
-                of=len(groups),
+                of=len(scenarios),
                 inherited_setup=list(earlier_setup),
-                omitted=omitted,
+                omitted=omitted if index == 1 else [],
             )
         )
-        earlier_setup.extend(s for s in group_steps if s.role == SegmentRole.setup)
+        earlier_setup.extend(s for s in steps if s.role == SegmentRole.setup)
 
     return IRDocument(
         schemaVersion="1.0",
@@ -1125,95 +1302,72 @@ def _assemble(
     )
 
 
-PRUNED_ROLES = {SegmentRole.exploratory, SegmentRole.abandoned}
+def _split_on_declared_breaks(store: EvidenceStore, drafted: DraftResult) -> None:
+    """Cut where the tester said to, with no model in the loop (SS6.7).
 
+    A scenario break is deterministic and overrides the drafter. Composition
+    used to answer this differently on two consecutive runs of the same
+    recording, once putting the tester's own boundary inside a single case --
+    which is the tool overruling the person who was there.
 
-def _prune(steps: list[Step], segment_of: dict[str, str]) -> tuple[list[Step], list[dict]]:
-    """Separate the wrong turns from the test case (SS9.3).
+    Splits only; it never joins. Where the tester declared a boundary the
+    drafter already honoured, this does nothing.
 
-    Every pruned step is reported with the id of the last step that survived
-    before it, so the marker lands where the detour actually happened rather
-    than in a footnote. `event_coverage` accepts an event covered by an
-    omission, so nothing goes missing -- and `no_pruned_assertion` then has a
-    subject: an assertion grounded in pruned evidence is one the reader cannot
-    see the basis for, however true it is.
+    **The break is resolved by TIMESTAMP, not by `eventId`.** It has never had
+    one and never will: `export.ts` attaches an annotation to an event only
+    when it is a fact ABOUT that event, and a boundary sits between two of
+    them. This read `a.eventId` and filtered out everything without one, so the
+    set was always empty and the function always returned on its first line --
+    a deterministic override that never once fired. `twoflows` exists to prove
+    two test cases come out of one recording and had been shipping a single
+    scenario with both flows inside it. `segment.break_openers` is the one
+    resolution, shared so the two cannot drift apart again.
     """
-    kept: list[Step] = []
-    omitted: list[dict] = []
-    for step in steps:
-        if step.role not in PRUNED_ROLES:
-            kept.append(step)
-            continue
-        # The SEGMENT id, not the step id: `event_coverage` and
-        # `no_pruned_assertion` both resolve an omission back to the segment to
-        # find out which events it covered, and a step id resolves to nothing --
-        # which would report every pruned event as unaccounted for.
-        omitted.append(
-            {
-                "segmentId": segment_of.get(step.id, step.id),
-                "reason": step.role.value,
-                "eventCount": len(step.eventIds),
-                "summary": step.text,
-                "afterStepId": kept[-1].id if kept else "",
-            }
-        )
-    return kept, omitted
+    breaks = break_openers(store.recording)
+    if not breaks:
+        return
+
+    out = []
+    for scenario in drafted.scenarios:
+        current = type(scenario)(name=scenario.name, steps=[])
+        for step in scenario.steps:
+            opens_break = bool(set(step.event_ids[:1]) & breaks)
+            if opens_break and current.steps:
+                out.append(current)
+                # Left unnamed on purpose: `_scenario_from` names it after what
+                # it verifies. Inventing a name here would be a guess wearing
+                # the authority of a deterministic rule.
+                current = type(scenario)(name="", steps=[])
+            current.steps.append(step)
+        if current.steps:
+            out.append(current)
+
+    if len(out) > len(drafted.scenarios):
+        drafted.scenarios = out
 
 
-def _scenario_from(steps: list[Step], composed: ComposeResult, index: int, of: int) -> str:
-    """A name for a case the deterministic split created.
+def _scenario_from(steps: list[Step], drafted: DraftResult, index: int, of: int) -> str:
+    """A name for a scenario the deterministic split created.
 
-    Composition names the cases it proposes. When the tester's own scenario
-    break overrode it, nobody named these -- and reusing composition's one name
-    for all of them puts two identical `Scenario:` lines in a suite, which is
-    the same defect as a Feature that repeats its Scenario, wearing a new hat.
-
-    So it is named after what it VERIFIES -- its last accepted expected result --
-    rather than after what it does. A scenario line that repeats the `When`
-    under it is the same defect as a Feature that repeats its Scenario, and a
-    reader scanning a list of them learns nothing from either. Falls back to the
-    last step only when the case checks nothing, which is itself worth seeing.
+    Named after what it VERIFIES -- its last accepted expected result -- rather
+    than after what it does. A scenario line that repeats the `When` under it is
+    the same defect as a Feature that repeats its Scenario, and a reader
+    scanning a list of them learns nothing from either. Falls back to the last
+    step only when the case checks nothing, which is itself worth seeing.
     """
-    if of == 1:
-        return composed.scenario_name
-
     tested = [s for s in steps if s.role != SegmentRole.setup] or steps
     checks = [a.text for s in tested for a in s.assertions if a.accepted]
     text = (checks[-1] if checks else (tested[-1].text if tested else "")).strip()
-    return (text[:1].upper() + text[1:]) if text else composed.scenario_name
-
-
-def _case_groups(steps: list[Step], composed: ComposeResult) -> list[tuple[str, list[Step]]]:
-    """Partition the finished steps into test cases.
-
-    Falls back to one case whenever the decomposition does not account for
-    exactly the steps that exist -- which it may not, because merges and splits
-    ran after composition decided. A partial decomposition is worse than none:
-    the steps left out would vanish from every artifact.
-    """
-    if not composed.cases:
-        return [(composed.scenario_name, steps)]
-
-    by_id = {step.id: step for step in steps}
-    groups: list[tuple[str, list[Step]]] = []
-    claimed: set[str] = set()
-    for group in composed.cases:
-        members = [by_id[sid] for sid in group.step_ids if sid in by_id]
-        if not members:
-            continue
-        claimed.update(s.id for s in members)
-        groups.append((group.scenario, members))
-
-    if len(groups) < 2 or claimed != set(by_id):
-        return [(composed.scenario_name, steps)]
-    return groups
+    if text:
+        return text[:1].upper() + text[1:]
+    return drafted.title if of == 1 else f"{drafted.title} ({index})"
 
 
 def _build_case(
     recording: Recording,
     run_id: str,
     steps: list[Step],
-    composed: ComposeResult,
+    drafted: DraftResult,
     *,
     scenario: str,
     warnings: list[Warning],
@@ -1227,9 +1381,9 @@ def _build_case(
         recordingId=recording.id,
         runId=run_id,
         kind="test_case",
-        title=composed.title,
-        description=composed.description or scenario,
-        scenarioName=scenario or _scenario_from(steps, composed, index, of),
+        title=drafted.title,
+        description=drafted.description or scenario,
+        scenarioName=scenario or _scenario_from(steps, drafted, index, of),
         # SS9.3 -- the second test case out of a recording cannot start halfway
         # through a session. The setup earlier cases performed becomes this
         # one's preconditions, which the renderer emits as a `Background`, so
@@ -1247,18 +1401,10 @@ def _build_case(
             }
             for i, step in enumerate(inherited_setup or [])
         ],
-        tags=composed.tags,
+        tags=drafted.tags,
+        parameters=_parameters(recording, steps),
         steps=steps,
-        parameters=[
-            {"name": p.name, "placeholder": p.placeholder, "category": p.category.value}
-            for p in recording.parameters
-        ],
-        omitted=[
-            o
-            for o in (omitted or [])
-            # An omission belongs to the case the pruned work happened inside.
-            if o["afterStepId"] in {step.id for step in steps} or not o["afterStepId"]
-        ],
+        omitted=omitted or [],
         metadata=TestCaseMetadata(
             capturedAt=recording.metadata.capturedAt,
             durationMs=recording.metadata.durationMs,
@@ -1273,6 +1419,34 @@ def _build_case(
     if recording.objective:
         case.objective = recording.objective
     return case
+
+
+def _parameters(recording: Recording, steps: list[Step]) -> list[dict[str, str]]:
+    """The values whoever runs this test actually has to supply (SS7.2).
+
+    Redaction runs over every request and response body on every origin, and
+    that is correct: a secret must never reach disk, and a rule that fired only
+    on the application's own traffic would miss one leaking through a third
+    party. But publishing every placeholder it minted as a required test
+    parameter is a different thing entirely, and on a commercial site it is
+    badly wrong -- eleven numeric strings inside analytics payloads matched the
+    phone pattern and were handed to the tester under a heading telling them to
+    supply real values. None of them existed.
+
+    Two filters, and a parameter has to pass one of them: it appears in the
+    rendered test, or it stands for something the tester actually typed. The
+    first is what makes the list useful; the second keeps a placeholder that a
+    step legitimately dropped from vanishing silently.
+    """
+    written = " ".join(
+        [s.text for s in steps] + [a.text for s in steps for a in s.assertions]
+    )
+    typed = {p.placeholder for p in typed_parameters(recording)}
+    return [
+        {"name": p.name, "placeholder": p.placeholder, "category": p.category.value}
+        for p in recording.parameters
+        if p.placeholder and (p.placeholder in written or p.placeholder in typed)
+    ]
 
 
 def _write_output(
@@ -1322,15 +1496,13 @@ def _trace(
     run_id: str,
     options: PipelineOptions,
     runner: ToolRunner,
-    naming: NamingResult,
-    composed: ComposeResult,
-    proposed: AssertionResult,
+    drafted: DraftResult,
+    bound: BindResult,
     critic: CriticResult | None = None,
 ) -> AgentTrace:
     models = {
-        "name": {"provider": "configured", "model": options.model_name},
-        "assert": {"provider": "configured", "model": options.model_name},
-        "compose": {"provider": "configured", "model": options.model_name},
+        "draft": {"provider": "configured", "model": options.model_name},
+        "bind": {"provider": "configured", "model": options.model_name},
     }
     if options.critic_enabled:
         models["critic"] = {"provider": "configured", "model": options.model_name}
@@ -1350,11 +1522,15 @@ def _trace(
             strategy="head_tail", tokenBudget=options.a0_token_budget
         )
 
-    investigations = [*naming.investigations, *proposed.investigations]
-    if composed.investigation is not None:
-        investigations.append(composed.investigation)
+    investigations = [*bound.investigations, *drafted.repairs]
+    if drafted.investigation is not None:
+        investigations.insert(0, drafted.investigation)
     if critic is not None:
         investigations.extend(critic.investigations)
+
+    model_calls = [*drafted.model_calls, *bound.model_calls]
+    if critic is not None:
+        model_calls.extend(critic.model_calls)
 
     return AgentTrace(
         schemaVersion="1.0",
@@ -1365,58 +1541,27 @@ def _trace(
         createdAt=datetime.now(UTC),
         config=config,
         toolCalls=runner.calls,
-        modelCalls=[
-            *naming.model_calls,
-            *proposed.model_calls,
-            *composed.model_calls,
-            *(critic.model_calls if critic else []),
-        ],
+        modelCalls=model_calls,
         investigations=investigations,
         stages=[],
         validatorResults=[],
         repairAttempts=[],
-        decompositionDecisions=composed.decisions,
+        decompositionDecisions=[],
     )
 
 
 #: Calls made because the process requires them on every step, not because this
 #: step was hard. Excluded from the effort metrics below.
+#:
+#: `search_step_library` is no longer called on every step -- the per-step
+#: search went with the naming stage -- but the exclusion stays, because the
+#: reason it exists is general: a call the process mandates regardless of
+#: difficulty is a constant added to every reading of an adaptive-effort metric.
 ROUTINE_TOOLS = {"search_step_library"}
-
-
-def _merge_assertions(
-    original: AssertionResult, redone: AssertionResult, *, replacing: set[str]
-) -> AssertionResult:
-    """Swap in freshly proposed results for the steps a split created.
-
-    The replaced investigations are kept in `superseded` rather than dropped:
-    the run really did spend those retrievals on those steps, and both SS9.10's
-    trace and SS3.4's effort column would otherwise under-report a step that
-    took two passes -- which is exactly the step the effort metric exists to
-    find.
-    """
-    merged = AssertionResult(model_calls=[*original.model_calls, *redone.model_calls])
-    merged.steps = [s for s in original.steps if s.step_id not in replacing]
-    merged.steps.extend(redone.steps)
-    merged.superseded = [
-        *original.superseded,
-        *redone.superseded,
-        *(
-            s.investigation
-            for s in original.steps
-            if s.step_id in replacing and s.investigation is not None
-        ),
-    ]
-    return merged
 
 
 def _selector_hints(recording: Recording, event_ids: list[str]) -> list[SelectorHint]:
     """Carry the recorder's selectors onto the step, ranked.
-
-    `SelectorHint` has existed since Phase 1 and nothing in `server/` had ever
-    constructed one, so `selector_resolvable` skipped on every run this project
-    has made. The data was always there -- every event's target carries a
-    `SelectorSet` -- it just never reached the IR.
 
     Ranked most-stable first, which is the order a replay should try them in:
     a `data-testid` is put there on purpose and survives a redesign; role and
@@ -1454,25 +1599,25 @@ def _calls_per_step(investigations: list, trace_calls: list | None = None) -> di
     Summed across every stage that investigated the step. Effort is what the
     agent spent on a decision about that step, not what one stage spent.
 
-    Search-before-invent (SS12.2) is deliberately NOT counted. The metric it
-    feeds is SS3.3's claim that effort varies with difficulty -- "a step with an
-    obvious outcome costs zero calls; an ambiguous one costs several" -- and a
-    call the process mandates on every step regardless of difficulty is a
-    constant added to every reading. Measured: introducing the library lifted
-    calls-per-step from 1.56 to 2.17 and collapsed the spread from 1.08 to 0.16,
-    which reads as an agent that stopped adapting when nothing of the sort
-    happened. `toolCallsTotal` still counts them -- they are real calls that
-    cost real quota -- but they are not evidence of investigation.
+    The drafting investigation carries no step id and so appears only in the
+    total, which is correct rather than a gap: it wrote the whole document, and
+    charging its retrievals to one step would invent a difficulty signal that
+    does not exist. What IS per-step now is what was spent settling that step
+    specifically -- binding a contested claim, and repairing a finding -- which
+    is a sharper reading of "how hard was this step" than a per-segment naming
+    loop that ran whether or not anything about the segment was unclear.
+
+    A call the process mandates on every step regardless of difficulty is a
+    constant added to every reading, so `ROUTINE_TOOLS` is excluded. Measured
+    when search-before-invent ran per step: it lifted calls-per-step from 1.56
+    to 2.17 and collapsed the spread from 1.08 to 0.16, which reads as an agent
+    that stopped adapting when nothing of the sort had happened.
+    `toolCallsTotal` still counts them -- they are real calls that cost real
+    quota -- but they are not evidence of investigation.
     """
     routine = {c.id for c in (trace_calls or []) if getattr(c, "tool", None) in ROUTINE_TOOLS}
     per_step: dict[str, int] = {}
 
-    # Summed over every investigation carrying a step id, INCLUDING the ones a
-    # repair superseded. A step that took two passes really did cost the run two
-    # passes, and under-reporting that would hide exactly the step SS3.4's
-    # correlation exists to find -- the hard one. The critic's own investigation
-    # carries no step id (it judges a whole scenario), so it stays out of the
-    # per-step column and is counted only in the total.
     for investigation in investigations:
         step_id = getattr(investigation, "stepId", None)
         if not step_id:
@@ -1488,12 +1633,8 @@ def _pass_rate(report: ValidationReport, restrict_to: set | None = None) -> floa
 
     `restrict_to` makes the first and final rates comparable, which they are not
     by default. `suggestions_quarantined` skips on attempt 1 -- coverage has not
-    run yet, so it genuinely has nothing to check -- and passes at the end. That
-    shifts the denominator between the two measurements, and the resulting
-    +0.9 points reads as the repair loop working when the repair loop did
-    nothing. Measuring the final rate over the validators that judged the FIRST
-    draft means only a repair can move it, which is the whole question the pair
-    is there to answer.
+    run yet -- and counting it only in the final rate would move the number for
+    a reason that has nothing to do with repair.
     """
     checks = [r for r in report.results if r.status != ValidatorStatus.skip]
     if restrict_to is not None:
@@ -1515,10 +1656,9 @@ def _metrics(
     """Read from the finished trace rather than from each stage.
 
     The stage-by-stage version had to be edited every time a stage was added,
-    and a stage nobody remembered to add was simply invisible in the numbers --
-    which is how `toolCallsTotal` came to exclude composition without anyone
-    noticing. The trace already has to hold every model call and every
-    investigation (SS9.10), so there is exactly one list to be wrong about.
+    and a stage nobody remembered to add was simply invisible in the numbers.
+    The trace already has to hold every model call and every investigation
+    (SS9.10), so there is exactly one list to be wrong about.
     """
     total = claim_total(ir)
     ungrounded = round(total * (1 - rate))
@@ -1537,9 +1677,7 @@ def _metrics(
         validatorFinalPassRate=_pass_rate(
             report,
             restrict_to={
-                r.validator
-                for r in first_report.results
-                if r.status != ValidatorStatus.skip
+                r.validator for r in first_report.results if r.status != ValidatorStatus.skip
             },
         ),
         # Never one without the other. A convergence rate over zero findings is
@@ -1548,10 +1686,23 @@ def _metrics(
         # four separate columns.
         criticFindingsRaised=outcome.findings_raised,
         repairConvergenceRate=outcome.convergence_rate,
-        toolCallsTotal=sum(len(i.toolCallIds) for i in investigations),
+        # Every retrieval the run actually made, read from the log rather than
+        # summed over investigations. Summing investigations undercounts by
+        # exactly the calls no investigation wrapped -- which is how this came
+        # to exclude composition once, and would now exclude every claim the
+        # deterministic pass settled without asking a model.
+        toolCallsTotal=len(trace.toolCalls),
         toolCallsPerStep=_calls_per_step(investigations, trace.toolCalls),
         promptTokensTotal=sum(m.promptTokens or 0 for m in model_calls),
         completionTokensTotal=sum(m.completionTokens or 0 for m in model_calls),
         uncachedModelCalls=len([m for m in model_calls if not m.cached]),
         durationMs=elapsed * 1000,
     )
+
+
+__all__ = [
+    "PipelineOptions",
+    "PipelineResult",
+    "ROUTINE_TOOLS",
+    "run_pipeline",
+]

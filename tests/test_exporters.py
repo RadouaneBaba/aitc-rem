@@ -358,3 +358,172 @@ def test_the_xray_test_key_tag_makes_a_re_import_update_rather_than_duplicate():
     assert "@TEST_TEST_" not in render_test_case(
         case, config=ProjectConfig(xray_test_key="TEST_TR-142")
     )
+
+
+# --------------------------------------------------------------------------
+# posting to Jira (SS11.3)
+# --------------------------------------------------------------------------
+
+
+class _FakeResponse:
+    def __init__(self, status: int, payload: dict | None = None, text: str = ""):
+        self.status_code = status
+        self._payload = payload or {}
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
+class _FakeJira:
+    """Records what was posted, so the test can assert on the wire calls."""
+
+    def __init__(self, *, create_status: int = 201, attach_status: int = 200):
+        self.create_status = create_status
+        self.attach_status = attach_status
+        self.issues: list[dict] = []
+        self.attachments: list[tuple[str, str]] = []
+        self.headers: list[dict] = []
+        self.auth: list[tuple[str, str]] = []
+
+    def post(self, url, *, json=None, files=None, auth=None, headers=None):
+        self.auth.append(auth)
+        self.headers.append(headers or {})
+        if files is not None:
+            key = url.rsplit('/issue/', 1)[1].split('/')[0]
+            self.attachments.append((key, files['file'][0]))
+            return _FakeResponse(self.attach_status, text='attach failed')
+        self.issues.append(json)
+        return _FakeResponse(self.create_status, {'key': f'QA-{len(self.issues)}'}, 'create failed')
+
+    def close(self):
+        pass
+
+
+def _credentials():
+    from server.renderers.jira import JiraCredentials
+
+    return JiraCredentials(site='https://acme.atlassian.net', email='a@b.c', token='t')
+
+
+def test_credentials_come_from_the_environment_and_not_from_project_yaml():
+    # `project.yaml` is committed. An API token in one is a credential in the
+    # repository, and the first person to do that will not be the last.
+    from server.renderers.jira import JiraCredentials
+
+    assert JiraCredentials.from_env({}) is None
+    assert JiraCredentials.from_env({'JIRA_SITE': 'acme.atlassian.net'}) is None
+
+    full = JiraCredentials.from_env(
+        {'JIRA_SITE': 'acme.atlassian.net', 'JIRA_EMAIL': 'a@b.c', 'JIRA_API_TOKEN': 't'}
+    )
+    assert full is not None
+    # A bare host is what people paste, and a URL is what the API needs.
+    assert full.site == 'https://acme.atlassian.net'
+
+
+def test_pushing_creates_an_issue_and_attaches_what_it_names(tmp_path: Path):
+    from server.renderers.jira import push
+
+    (tmp_path / 'tc_x.feature').write_text('Feature: x', encoding='utf-8')
+    issues = [
+        {
+            'fields': {'summary': 'An order over EUR500 is held'},
+            'aitcRem': {'testCaseId': 'tc_x', 'attachments': ['tc_x.feature', 'missing.md']},
+        }
+    ]
+    jira = _FakeJira()
+    result = push(issues, credentials=_credentials(), attachments_dir=tmp_path, client=jira)
+
+    assert result.ok
+    assert result.created == [{'testCaseId': 'tc_x', 'key': 'QA-1'}]
+    assert jira.attachments == [('QA-1', 'tc_x.feature')]
+    # An attachment the run never wrote is skipped, not reported as a failure:
+    # a bug report has no `.feature`, and a payload naming one is not an error
+    # anybody can act on.
+    assert result.failures == []
+
+
+def test_an_attachment_upload_needs_the_atlassian_token_header(tmp_path: Path):
+    # Jira refuses an attachment without `X-Atlassian-Token: no-check`. It is
+    # the single most common reason an upload that looks correct returns 403,
+    # and it fails in a way that reads as an auth problem rather than a header
+    # problem.
+    from server.renderers.jira import push
+
+    (tmp_path / 'a.feature').write_text('Feature: a', encoding='utf-8')
+    jira = _FakeJira()
+    push(
+        [{'fields': {}, 'aitcRem': {'testCaseId': 't', 'attachments': ['a.feature']}}],
+        credentials=_credentials(),
+        attachments_dir=tmp_path,
+        client=jira,
+    )
+    assert any(h.get('X-Atlassian-Token') == 'no-check' for h in jira.headers)
+
+
+def test_a_failed_attachment_does_not_discard_the_issue_that_was_created(tmp_path: Path):
+    # An issue that exists without its feature file is recoverable by hand. A
+    # run that threw away a created issue key because an upload failed is not.
+    from server.renderers.jira import push
+
+    (tmp_path / 'a.feature').write_text('Feature: a', encoding='utf-8')
+    jira = _FakeJira(attach_status=403)
+    result = push(
+        [{'fields': {}, 'aitcRem': {'testCaseId': 't', 'attachments': ['a.feature']}}],
+        credentials=_credentials(),
+        attachments_dir=tmp_path,
+        client=jira,
+    )
+    assert result.created and result.created[0]['key'] == 'QA-1'
+    assert result.failures and '403' in result.failures[0]
+    assert not result.ok
+
+
+def test_a_rejected_issue_is_reported_and_the_rest_still_go(tmp_path: Path):
+    from server.renderers.jira import push
+
+    jira = _FakeJira(create_status=400)
+    result = push(
+        [
+            {'fields': {}, 'aitcRem': {'testCaseId': 'one'}},
+            {'fields': {}, 'aitcRem': {'testCaseId': 'two'}},
+        ],
+        credentials=_credentials(),
+        client=jira,
+    )
+    assert result.created == []
+    assert len(result.failures) == 2
+    assert 'one' in result.failures[0]
+
+
+def test_a_bug_report_names_its_own_artifact_not_a_feature_file():
+    # Gherkin refuses a bug report (SS14), so it has no `.feature`. Naming one
+    # sends whoever posts the issue looking for a file that was never written.
+    from server.config import ProjectConfig
+    from server.renderers.jira import build_issue
+
+    case = f.test_case(steps=[f.step('step_001', 'the tester exports', assertions=[])])
+    case.kind = 'bug_report'
+    attachments = build_issue(case, ProjectConfig())['aitcRem']['attachments']
+
+    assert not any(a.endswith('.feature') for a in attachments)
+    assert any(a.endswith('.bug.md') for a in attachments)
+
+
+def test_the_recording_is_found_even_though_it_is_not_in_the_run_directory(tmp_path: Path):
+    # `recording.json` belongs to the RECORDING, which outlives any one run of
+    # it, so it lives under `recordings/<id>/`. A run-relative lookup skipped it
+    # silently -- and the recording is the one attachment that lets whoever
+    # picks up the issue re-run the thing.
+    from server.renderers.jira import _find_attachment
+
+    run_dir = tmp_path / 'runs' / 'rec_x' / 'run_001'
+    run_dir.mkdir(parents=True)
+    recordings = tmp_path / 'recordings' / 'rec_x'
+    recordings.mkdir(parents=True)
+    (recordings / 'recording.json').write_text('{}', encoding='utf-8')
+
+    found = _find_attachment(run_dir, 'recording.json', {'recordingId': 'rec_x'})
+    assert found is not None and found.is_file()
+    assert _find_attachment(run_dir, 'nothing.json', {'recordingId': 'rec_x'}) is None

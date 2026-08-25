@@ -40,6 +40,25 @@ This is not a style preference. Two real recordings, same tool, same day:
 The second objective describes an area. The first describes a check. That
 difference is most of the quality gap.
 
+**And a vague objective is worse than none at all.** That is worth saying
+plainly, because it is the opposite of what most people expect. The same
+34-click recording of a hamper builder, run three times with nothing changed
+but this one line:
+
+| What was typed | What came out |
+|---|---|
+| *"check if hamper sizes change correctly"* | Three checks about sizes changing. Ends on the hamper reaching 18 of 18 items. Never notices that the tester then hit the ceiling. |
+| *(nothing)* | Three checks, ending on **"no bigger hampers are available"** — the thing the session was actually about. |
+| *"check that a hamper cannot be upgraded past the largest size"* | Two steps and one check: **"Unfortunately, there are no bigger hampers available"**. Exactly the test, nothing else. |
+
+The vague objective did not fail to help. It actively steered the test toward
+the mechanism it named — sizes changing — and away from the outcome. With no
+objective the tool read the session and found the interesting part on its own.
+
+So: a sharp objective is the best input you can give it, and a woolly one is a
+worse input than silence. If you cannot say in one line what you are checking,
+leave it blank and record carefully instead.
+
 ---
 
 ## While you record
@@ -132,7 +151,12 @@ it is.
 
 The recorder reads the page the way a screen reader does — roles and labels,
 not pixels. It also captures network requests, console errors, and a screenshot
-per step.
+per step, which you will see beside each step when you review it.
+
+Requests to other companies' servers — advertising, analytics, chat widgets —
+are noted but their contents are not kept. They say nothing about the
+application you are testing, and on a real site they are the overwhelming
+majority of what a page does.
 
 **Passwords, emails, card numbers and phone numbers are replaced before anything
 is written to disk.** Not redacted afterwards — replaced in the browser, so the

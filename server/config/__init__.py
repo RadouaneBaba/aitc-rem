@@ -6,6 +6,7 @@ from server.config.project import (
     ProjectConfig,
     load_allowed_origins,
     load_project_config,
+    normalise_origin,
 )
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "KNOWN_WHISPER_MODELS",
     "ProjectConfig",
     "load_allowed_origins",
+    "normalise_origin",
     "load_project_config",
 ]

@@ -286,13 +286,43 @@ def test_a_reference_to_an_event_that_does_not_exist_is_rejected(h: Harness):
 
 
 def test_a_save_claim_without_a_successful_mutation_is_rejected(h: Harness):
-    # The step says data changed; the recording shows no successful POST.
-    h.ir.testCases[0].steps[0].text = "the tester saves the customer record"
+    # The step says data CHANGED; the recording shows no successful POST.
+    #
+    # "and it is saved" rather than "saves", and the difference is the whole
+    # rule: a step's text says what the TESTER did, an expected result says
+    # what the APPLICATION did, and only the second is a claim about state.
+    h.ir.testCases[0].steps[0].text = "the tester submits the record and it is saved"
     report = validate(h.ctx())
 
     fails = failures_for(report, ValidatorName.mutation_claimed)
     assert fails
     assert "no successful mutating request" in fails[0].message
+
+
+def test_a_step_describing_an_action_is_not_a_claim_about_the_application(h: Harness):
+    # "the tester saves the payment method" describes pressing a button. Read
+    # as a claim that something persisted, it fails a validator that NO rewrite
+    # can satisfy -- every honest verb for that action is a mutation word. On a
+    # real fixture the repair loop spent its whole budget making the sentence
+    # worse, hedging it to "attempts to save" and then to "clicks Save", which
+    # is exactly the mechanics language SS11.1 exists to keep out.
+    #
+    # The claim, when there is one, lives in the expected result.
+    h.ir.testCases[0].steps[0].text = "the tester saves the customer record"
+    h.ir.testCases[0].steps[0].assertions = []
+    report = validate(h.ctx())
+    assert not failures_for(report, ValidatorName.mutation_claimed)
+
+
+def test_an_expected_result_claiming_a_change_still_has_to_prove_it(h: Harness):
+    # The other half, and the one that keeps this validator worth having. An
+    # expected result is a claim about the application by definition, so any
+    # mutation word in one counts.
+    step = h.ir.testCases[0].steps[0]
+    step.text = "the tester fills in the customer form"
+    step.assertions = [f.assertion("a1", "the customer record is saved")]
+    report = validate(h.ctx())
+    assert failures_for(report, ValidatorName.mutation_claimed)
 
 
 def test_a_save_claim_backed_by_a_real_mutation_passes(h: Harness):
@@ -306,7 +336,7 @@ def test_incomplete_network_capture_downgrades_the_rejection_to_a_warning(h: Har
     # Rejecting a true claim because the evidence was unobtainable would be the
     # wrong failure.
     h.recording.events[0].fidelity = [FidelityFlag.network_incomplete]
-    h.ir.testCases[0].steps[0].text = "the tester saves the customer record"
+    h.ir.testCases[0].steps[0].text = "the tester submits the record and it is saved"
     report = validate(h.ctx())
 
     assert not failures_for(report, ValidatorName.mutation_claimed)

@@ -133,6 +133,8 @@ def detect(recording: Recording) -> BugSignals:
     verdict.
     """
     out = BugSignals()
+    app = _app_hosts(recording)
+    seen_exceptions: set[str] = set()
 
     for annotation in recording.annotations or []:
         if annotation.kind == "bug_marker":
@@ -147,16 +149,52 @@ def detect(recording: Recording) -> BugSignals:
 
     for event in recording.events:
         for entry in event.console or []:
-            if entry.uncaught:
-                out.signals.append(
-                    Signal("uncaught_exception", STRONG, entry.text[:160], event.id)
+            if not entry.uncaught:
+                continue
+
+            # Whose JavaScript threw this? On a commercial site the answer is
+            # almost always "not the application's": ad tags, consent managers
+            # and analytics throw constantly and nobody who works on the site
+            # can do anything about it. The first bug report this tool ever
+            # produced on a real recording said `Uncaught [object Object]` from
+            # a third-party script on a shop's home page -- ninety minutes of a
+            # developer's time to find nothing, and the tool is dead in that
+            # org afterwards.
+            #
+            # One false report costs more trust than fifty good test cases
+            # earn, so an exception with no evidence it came from the
+            # application is corroboration, not a trigger.
+            key = " ".join((entry.text or "").split())[:160]
+            strong = _first_party_stack(entry.stack, app) and _informative(key)
+            if key in seen_exceptions:
+                # The same exception on every event is one defect, and counting
+                # it thirty times makes a single noisy console look like a
+                # catastrophe.
+                continue
+            seen_exceptions.add(key)
+            out.signals.append(
+                Signal(
+                    "uncaught_exception" if strong else "opaque_exception",
+                    STRONG if strong else WEAK,
+                    key,
+                    event.id,
                 )
+            )
 
         for call in event.network or []:
             status = call.status or 0
             if status >= 500:
+                # Same reasoning, and it matters more here: a 500 from an
+                # analytics collector says nothing about the application under
+                # test, and it is the single loudest signal in the table.
+                strength = STRONG if _host(call.url) in app else WEAK
                 out.signals.append(
-                    Signal("http_5xx", STRONG, f"{call.method} {call.url} -> {status}", event.id)
+                    Signal(
+                        "http_5xx" if strength == STRONG else "third_party_5xx",
+                        strength,
+                        f"{call.method} {call.url} -> {status}",
+                        event.id,
+                    )
                 )
             elif 400 <= status < 500 and (call.method or "").upper() in MUTATING:
                 out.signals.append(
@@ -175,6 +213,72 @@ def detect(recording: Recording) -> BugSignals:
     out.signals.extend(_repeats(recording))
     out.failure_event_id = _failure_event(out, recording)
     return out
+
+
+def _app_hosts(recording: Recording) -> set[str]:
+    """The hosts the application under test is served from.
+
+    Taken from the pages the tester was actually on rather than from a config
+    entry, because the recorder is black-box (SS6.1) and must not need to be
+    told what it is recording. A session that stays on one site yields one
+    host; one that legitimately spans a checkout hand-off yields both.
+    """
+    hosts = {_host(recording.metadata.startUrl)} if recording.metadata.startUrl else set()
+    for event in recording.events:
+        hosts.add(_host(event.url))
+    return {h for h in hosts if h}
+
+
+#: An exception message that says nothing. Throwing a non-Error gives
+#: `[object Object]`, which is what the first bug report this tool ever wrote
+#: on a real recording was grounded in.
+OPAQUE = re.compile(r"^\s*(uncaught\s*)?(\[object \w+\]|error|exception)?\s*:?\s*$", re.IGNORECASE)
+
+
+def _informative(text: str) -> bool:
+    """Does this exception tell a developer anything at all?
+
+    A bug report's `actual` is the one sentence somebody reads before deciding
+    whether to spend an afternoon reproducing something. "Uncaught [object
+    Object]" is not a defect description; it is the absence of one, and it is
+    what comes out when code throws a non-Error -- which third-party scripts do
+    constantly and which carries no stack either.
+
+    Separate from the first-party test on purpose. Even the application's own
+    code throwing an opaque object gives a developer nothing to go on, so this
+    holds whoever threw it. The signal is still recorded, at WEAK, so "why is
+    this not a bug" has an answer.
+    """
+    return not OPAQUE.match(text)
+
+
+def _first_party_stack(stack: str | None, app: set[str]) -> bool:
+    """Did this exception come from the application's own code?
+
+    A stack naming no host at all is treated as first-party. Browsers omit the
+    source for a same-origin inline script and for a cross-origin script the
+    page did not opt into reporting, and refusing to report a real defect
+    because the browser was terse would be the wrong failure -- the threshold
+    exists to stop obvious third-party noise, not to require proof of guilt.
+    """
+    if not stack:
+        return True
+    # The authority is captured directly rather than sliced off a matched URL.
+    # A stack frame ends in `:line:column`, so a pattern that stops at the
+    # first colon in order to avoid those also stops before the PORT --
+    # `http://localhost:5173/...` came back as `localhost`, which matches no
+    # app host and made the demo app's own exception look third-party.
+    hosts = {h.lower() for h in re.findall(r"https?://([^/\s)]+)", stack)}
+    hosts.discard("")
+    if not hosts:
+        return True
+    return bool(hosts & app)
+
+
+def _host(url: str | None) -> str:
+    if not url or "://" not in url:
+        return ""
+    return url.split("://", 1)[1].split("/", 1)[0].lower()
 
 
 def describe(

@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.0",
-  "id": "rec_MT77MABWW6VH",
+  "id": "rec_MT8TF5SO6S71",
   "projectId": "local",
   "ownerId": "local",
-  "createdAt": "2026-08-24T12:25:58.220000Z",
+  "createdAt": "2026-08-25T15:24:03.480Z",
   "objective": "Check that an order over EUR500 requires approval",
   "metadata": {
-    "capturedAt": "2026-08-24T12:25:58.220000Z",
-    "durationMs": 6310.0,
+    "capturedAt": "2026-08-25T15:24:03.480Z",
+    "durationMs": 6272,
     "browser": "Chrome/151.0.0.0",
     "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
     "viewport": {
@@ -19,7 +19,7 @@
       "http://localhost:5173"
     ],
     "recorderVersion": "0.1.0",
-    "audioOffsetMs": 38.0,
+    "audioOffsetMs": 60,
     "fidelitySummary": {
       "rapid_sequence": 2,
       "closed_shadow_root": 2
@@ -29,31 +29,26 @@
     {
       "id": "evt_001",
       "seq": 0,
-      "timestamp": 580.0,
+      "timestamp": 554,
       "type": "input",
       "url": "http://localhost:5173/",
       "target": {
         "role": "textbox",
         "name": "Email address",
-        "value": "<<user_email_1>>",
         "tagName": "input",
         "selectors": {
+          "css": "#email",
           "role": "getByRole('textbox', { name: \"Email address\" })",
-          "text": "Email address",
-          "css": "#email"
+          "text": "Email address"
         },
-        "frame": []
+        "frame": [],
+        "value": "<<user_email_1>>"
       },
       "before": {
-        "capturedAt": 580.0,
+        "capturedAt": 554,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        },
         "root": {
           "ref": "0",
           "role": "form",
@@ -89,18 +84,18 @@
             }
           ]
         },
-        "liveRegions": []
-      },
-      "after": {
-        "capturedAt": 887.0,
-        "url": "http://localhost:5173/",
-        "title": "Northwind Orders",
-        "scope": "scoped",
+        "liveRegions": [],
         "scopeRoot": {
           "role": "form",
           "name": "",
           "landmark": "form"
-        },
+        }
+      },
+      "after": {
+        "capturedAt": 862,
+        "url": "http://localhost:5173/",
+        "title": "Northwind Orders",
+        "scope": "scoped",
         "root": {
           "ref": "0",
           "role": "form",
@@ -136,7 +131,12 @@
             }
           ]
         },
-        "liveRegions": []
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
       },
       "diff": {
         "added": [],
@@ -165,43 +165,38 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 304.0,
+        "waitedMs": 304,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
-      "screenshot": "screens/evt_001.png",
-      "fidelity": []
+      "fidelity": [],
+      "screenshot": "screens/evt_001.png"
     },
     {
       "id": "evt_002",
       "seq": 1,
-      "timestamp": 1058.0,
+      "timestamp": 1026,
       "type": "input",
       "url": "http://localhost:5173/catalog",
       "target": {
         "role": "textbox",
         "name": "Password",
-        "value": "<<password>>",
         "tagName": "input",
         "selectors": {
+          "css": "#password",
           "role": "getByRole('textbox', { name: \"Password\" })",
-          "text": "Password",
-          "css": "#password"
+          "text": "Password"
         },
-        "frame": []
+        "frame": [],
+        "value": "<<password>>"
       },
       "before": {
-        "capturedAt": 1058.0,
+        "capturedAt": 1026,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        },
         "root": {
           "ref": "0",
           "role": "form",
@@ -237,18 +232,18 @@
             }
           ]
         },
-        "liveRegions": []
-      },
-      "after": {
-        "capturedAt": 1068.0,
-        "url": "http://localhost:5173/catalog",
-        "title": "Northwind Orders",
-        "scope": "scoped",
+        "liveRegions": [],
         "scopeRoot": {
           "role": "form",
           "name": "",
           "landmark": "form"
-        },
+        }
+      },
+      "after": {
+        "capturedAt": 1036,
+        "url": "http://localhost:5173/catalog",
+        "title": "Northwind Orders",
+        "scope": "scoped",
         "root": {
           "ref": "0",
           "role": "form",
@@ -287,7 +282,12 @@
             }
           ]
         },
-        "liveRegions": []
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
       },
       "diff": {
         "added": [
@@ -345,7 +345,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 9.0,
+        "waitedMs": 9,
         "mutationCount": 4,
         "inFlightAtEnd": 0
       },
@@ -356,7 +356,7 @@
     {
       "id": "evt_003",
       "seq": 2,
-      "timestamp": 1059.0,
+      "timestamp": 1027,
       "type": "click",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -364,22 +364,17 @@
         "name": "Sign in",
         "tagName": "button",
         "selectors": {
+          "css": "button.primary",
           "role": "getByRole('button', { name: \"Sign in\" })",
-          "text": "Sign in",
-          "css": "button.primary"
+          "text": "Sign in"
         },
         "frame": []
       },
       "before": {
-        "capturedAt": 1059.0,
+        "capturedAt": 1027,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        },
         "root": {
           "ref": "0",
           "role": "form",
@@ -415,18 +410,18 @@
             }
           ]
         },
-        "liveRegions": []
-      },
-      "after": {
-        "capturedAt": 1069.0,
-        "url": "http://localhost:5173/catalog",
-        "title": "Northwind Orders",
-        "scope": "scoped",
+        "liveRegions": [],
         "scopeRoot": {
           "role": "form",
           "name": "",
           "landmark": "form"
-        },
+        }
+      },
+      "after": {
+        "capturedAt": 1036,
+        "url": "http://localhost:5173/catalog",
+        "title": "Northwind Orders",
+        "scope": "scoped",
         "root": {
           "ref": "0",
           "role": "form",
@@ -465,7 +460,12 @@
             }
           ]
         },
-        "liveRegions": []
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
       },
       "diff": {
         "added": [
@@ -523,7 +523,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 9.0,
+        "waitedMs": 8,
         "mutationCount": 4,
         "inFlightAtEnd": 0
       },
@@ -532,16 +532,16 @@
           "id": "net_0001",
           "method": "POST",
           "url": "http://localhost:5173/api/login",
-          "status": 200,
-          "startTime": 1061.0,
-          "endTime": 1064.0,
-          "durationMs": 3.0,
+          "startTime": 1028,
           "initiator": "fetch",
-          "requestBody": "{\"email\":\"<<user_email_1>>\",\"password\":\"<<password>>\"}",
-          "responseBody": "{\"token\":\"<<token>>\",\"user\":\"<<user_email_1>>\"}",
           "requestHeaders": {
             "content-type": "application/json"
           },
+          "endTime": 1032,
+          "durationMs": 4,
+          "status": 200,
+          "requestBody": "{\"email\":\"<<user_email_1>>\",\"password\":\"<<password>>\"}",
+          "responseBody": "{\"token\":\"<<token>>\",\"user\":\"<<user_email_1>>\"}",
           "responseHeaders": {
             "content-length": "57",
             "content-type": "application/json"
@@ -556,7 +556,7 @@
     {
       "id": "evt_004",
       "seq": 3,
-      "timestamp": 1538.0,
+      "timestamp": 1513,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -564,22 +564,17 @@
         "name": "Checkout",
         "tagName": "button",
         "selectors": {
+          "css": "button:nth-of-type(2)",
           "role": "getByRole('button', { name: \"Checkout\" })",
-          "text": "Checkout",
-          "css": "button:nth-of-type(2)"
+          "text": "Checkout"
         },
         "frame": []
       },
       "before": {
-        "capturedAt": 1538.0,
+        "capturedAt": 1513,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "navigation",
-          "name": "Main",
-          "landmark": "navigation"
-        },
         "root": {
           "ref": "0",
           "role": "navigation",
@@ -623,18 +618,18 @@
             }
           ]
         },
-        "liveRegions": []
-      },
-      "after": {
-        "capturedAt": 1545.0,
-        "url": "http://localhost:5173/checkout",
-        "title": "Northwind Orders",
-        "scope": "scoped",
+        "liveRegions": [],
         "scopeRoot": {
           "role": "navigation",
           "name": "Main",
           "landmark": "navigation"
-        },
+        }
+      },
+      "after": {
+        "capturedAt": 1519,
+        "url": "http://localhost:5173/checkout",
+        "title": "Northwind Orders",
+        "scope": "scoped",
         "root": {
           "ref": "0",
           "role": "navigation",
@@ -678,7 +673,12 @@
             }
           ]
         },
-        "liveRegions": []
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "navigation",
+          "name": "Main",
+          "landmark": "navigation"
+        }
       },
       "diff": {
         "added": [],
@@ -732,43 +732,38 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 6.0,
+        "waitedMs": 6,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
-      "screenshot": "screens/evt_004.png",
-      "fidelity": []
+      "fidelity": [],
+      "screenshot": "screens/evt_004.png"
     },
     {
       "id": "evt_005",
       "seq": 4,
-      "timestamp": 6308.0,
+      "timestamp": 6270,
       "type": "input",
       "url": "http://localhost:5173/checkout",
       "target": {
         "role": "spinbutton",
         "name": "Order total (EUR)",
-        "value": "750",
         "tagName": "input",
         "selectors": {
+          "css": "#total",
           "role": "getByRole('spinbutton', { name: \"Order total (EUR)\" })",
-          "text": "Order total (EUR)",
-          "css": "#total"
+          "text": "Order total (EUR)"
         },
-        "frame": []
+        "frame": [],
+        "value": "750"
       },
       "before": {
-        "capturedAt": 6308.0,
+        "capturedAt": 6270,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        },
         "root": {
           "ref": "0",
           "role": "form",
@@ -903,24 +898,29 @@
                 {
                   "ref": "0.8.2",
                   "role": "button",
+                  "name": "Export the order"
+                },
+                {
+                  "ref": "0.8.3",
+                  "role": "button",
                   "name": ""
                 }
               ]
             }
           ]
         },
-        "liveRegions": []
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
       },
       "after": {
-        "capturedAt": 6622.0,
+        "capturedAt": 6596,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        },
         "root": {
           "ref": "0",
           "role": "form",
@@ -1060,170 +1060,23 @@
                 {
                   "ref": "0.9.2",
                   "role": "button",
+                  "name": "Export the order"
+                },
+                {
+                  "ref": "0.9.3",
+                  "role": "button",
                   "name": ""
                 }
               ]
             }
           ]
         },
-        "liveRegions": []
-      },
-      "transient": {
-        "capturedAt": 6318.0,
-        "url": "http://localhost:5173/checkout",
-        "title": "Northwind Orders",
-        "scope": "scoped",
+        "liveRegions": [],
         "scopeRoot": {
           "role": "form",
           "name": "",
           "landmark": "form"
-        },
-        "root": {
-          "ref": "0",
-          "role": "form",
-          "name": "",
-          "landmark": "form",
-          "children": [
-            {
-              "ref": "0.0",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.0.0",
-                  "role": "group",
-                  "name": "",
-                  "children": [
-                    {
-                      "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
-                    },
-                    {
-                      "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
-                    }
-                  ]
-                },
-                {
-                  "ref": "0.0.1",
-                  "role": "group",
-                  "name": "",
-                  "children": [
-                    {
-                      "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
-                      ]
-                    },
-                    {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "alert",
-              "name": "Orders over EUR500 require approval"
-            },
-            {
-              "ref": "0.9",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.9.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.9.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.9.2",
-                  "role": "button",
-                  "name": ""
-                }
-              ]
-            }
-          ]
-        },
-        "liveRegions": []
+        }
       },
       "diff": {
         "added": [
@@ -1239,21 +1092,183 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 312.0,
+        "waitedMs": 325,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
-      "screenshot": "screens/evt_005.png",
       "fidelity": [
         "closed_shadow_root"
-      ]
+      ],
+      "transient": {
+        "capturedAt": 6279,
+        "url": "http://localhost:5173/checkout",
+        "title": "Northwind Orders",
+        "scope": "scoped",
+        "root": {
+          "ref": "0",
+          "role": "form",
+          "name": "",
+          "landmark": "form",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "group",
+                  "name": "",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "text",
+                      "name": "Purchase order number"
+                    },
+                    {
+                      "ref": "0.0.0.1",
+                      "role": "textbox",
+                      "name": "Purchase order number",
+                      "value": ""
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "group",
+                  "name": "",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "text",
+                      "name": "Order total (EUR)"
+                    },
+                    {
+                      "ref": "0.0.1.1",
+                      "role": "spinbutton",
+                      "name": "Order total (EUR)",
+                      "value": "750"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "ref": "0.1",
+              "role": "checkbox",
+              "name": "Manager approval obtained"
+            },
+            {
+              "ref": "0.2",
+              "role": "delivery-options",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.2.0",
+                  "role": "group",
+                  "name": "Delivery speed",
+                  "children": [
+                    {
+                      "ref": "0.2.0.0",
+                      "role": "legend",
+                      "name": "Delivery speed"
+                    },
+                    {
+                      "ref": "0.2.0.1",
+                      "role": "radio",
+                      "name": "Standard (3-5 days)",
+                      "state": [
+                        "checked"
+                      ]
+                    },
+                    {
+                      "ref": "0.2.0.2",
+                      "role": "radio",
+                      "name": "Express (next day, +EUR12)"
+                    },
+                    {
+                      "ref": "0.2.0.3",
+                      "role": "radio",
+                      "name": "Collect in store"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "ref": "0.3",
+              "role": "promo-widget",
+              "name": ""
+            },
+            {
+              "ref": "0.4",
+              "role": "text",
+              "name": "Attach a signed PO"
+            },
+            {
+              "ref": "0.5",
+              "role": "button",
+              "name": "Attach a signed PO"
+            },
+            {
+              "ref": "0.6",
+              "role": "text",
+              "name": "Signature"
+            },
+            {
+              "ref": "0.7",
+              "role": "canvas",
+              "name": ""
+            },
+            {
+              "ref": "0.8",
+              "role": "alert",
+              "name": "Orders over EUR500 require approval"
+            },
+            {
+              "ref": "0.9",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.9.0",
+                  "role": "button",
+                  "name": "Place order"
+                },
+                {
+                  "ref": "0.9.1",
+                  "role": "button",
+                  "name": "Submit for slow validation"
+                },
+                {
+                  "ref": "0.9.2",
+                  "role": "button",
+                  "name": "Export the order"
+                },
+                {
+                  "ref": "0.9.3",
+                  "role": "button",
+                  "name": ""
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
+      },
+      "screenshot": "screens/evt_005.png"
     },
     {
       "id": "evt_006",
       "seq": 5,
-      "timestamp": 6310.0,
+      "timestamp": 6272,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -1261,22 +1276,17 @@
         "name": "Place order",
         "tagName": "button",
         "selectors": {
+          "css": "button.primary:nth-of-type(1)",
           "role": "getByRole('button', { name: \"Place order\" })",
-          "text": "Place order",
-          "css": "button.primary:nth-of-type(1)"
+          "text": "Place order"
         },
         "frame": []
       },
       "before": {
-        "capturedAt": 6310.0,
+        "capturedAt": 6272,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        },
         "root": {
           "ref": "0",
           "role": "form",
@@ -1411,24 +1421,29 @@
                 {
                   "ref": "0.8.2",
                   "role": "button",
+                  "name": "Export the order"
+                },
+                {
+                  "ref": "0.8.3",
+                  "role": "button",
                   "name": ""
                 }
               ]
             }
           ]
         },
-        "liveRegions": []
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
       },
       "after": {
-        "capturedAt": 6623.0,
+        "capturedAt": 6598,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        },
         "root": {
           "ref": "0",
           "role": "form",
@@ -1568,170 +1583,23 @@
                 {
                   "ref": "0.9.2",
                   "role": "button",
+                  "name": "Export the order"
+                },
+                {
+                  "ref": "0.9.3",
+                  "role": "button",
                   "name": ""
                 }
               ]
             }
           ]
         },
-        "liveRegions": []
-      },
-      "transient": {
-        "capturedAt": 6320.0,
-        "url": "http://localhost:5173/checkout",
-        "title": "Northwind Orders",
-        "scope": "scoped",
+        "liveRegions": [],
         "scopeRoot": {
           "role": "form",
           "name": "",
           "landmark": "form"
-        },
-        "root": {
-          "ref": "0",
-          "role": "form",
-          "name": "",
-          "landmark": "form",
-          "children": [
-            {
-              "ref": "0.0",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.0.0",
-                  "role": "group",
-                  "name": "",
-                  "children": [
-                    {
-                      "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
-                    },
-                    {
-                      "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
-                    }
-                  ]
-                },
-                {
-                  "ref": "0.0.1",
-                  "role": "group",
-                  "name": "",
-                  "children": [
-                    {
-                      "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
-                      ]
-                    },
-                    {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "alert",
-              "name": "Orders over EUR500 require approval"
-            },
-            {
-              "ref": "0.9",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.9.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.9.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.9.2",
-                  "role": "button",
-                  "name": ""
-                }
-              ]
-            }
-          ]
-        },
-        "liveRegions": []
+        }
       },
       "diff": {
         "added": [
@@ -1747,7 +1615,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 312.0,
+        "waitedMs": 325,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
@@ -1756,16 +1624,16 @@
           "id": "net_0002",
           "method": "POST",
           "url": "http://localhost:5173/api/orders",
-          "status": 409,
-          "startTime": 6312.0,
-          "endTime": 6315.0,
-          "durationMs": 3.0,
+          "startTime": 6273,
           "initiator": "fetch",
-          "requestBody": "{\"total\":750,\"approved\":false,\"poNumber\":\"\",\"speed\":\"standard\"}",
-          "responseBody": "{\"error\":\"Orders over EUR500 require approval\",\"code\":\"APPROVAL_REQUIRED\"}",
           "requestHeaders": {
             "content-type": "application/json"
           },
+          "endTime": 6276,
+          "durationMs": 3,
+          "status": 409,
+          "requestBody": "{\"total\":750,\"approved\":false,\"poNumber\":\"\",\"speed\":\"standard\"}",
+          "responseBody": "{\"error\":\"Orders over EUR500 require approval\",\"code\":\"APPROVAL_REQUIRED\"}",
           "responseHeaders": {
             "content-length": "74",
             "content-type": "application/json"
@@ -1776,18 +1644,172 @@
       "fidelity": [
         "rapid_sequence",
         "closed_shadow_root"
-      ]
+      ],
+      "transient": {
+        "capturedAt": 6280,
+        "url": "http://localhost:5173/checkout",
+        "title": "Northwind Orders",
+        "scope": "scoped",
+        "root": {
+          "ref": "0",
+          "role": "form",
+          "name": "",
+          "landmark": "form",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "group",
+                  "name": "",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "text",
+                      "name": "Purchase order number"
+                    },
+                    {
+                      "ref": "0.0.0.1",
+                      "role": "textbox",
+                      "name": "Purchase order number",
+                      "value": ""
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "group",
+                  "name": "",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "text",
+                      "name": "Order total (EUR)"
+                    },
+                    {
+                      "ref": "0.0.1.1",
+                      "role": "spinbutton",
+                      "name": "Order total (EUR)",
+                      "value": "750"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "ref": "0.1",
+              "role": "checkbox",
+              "name": "Manager approval obtained"
+            },
+            {
+              "ref": "0.2",
+              "role": "delivery-options",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.2.0",
+                  "role": "group",
+                  "name": "Delivery speed",
+                  "children": [
+                    {
+                      "ref": "0.2.0.0",
+                      "role": "legend",
+                      "name": "Delivery speed"
+                    },
+                    {
+                      "ref": "0.2.0.1",
+                      "role": "radio",
+                      "name": "Standard (3-5 days)",
+                      "state": [
+                        "checked"
+                      ]
+                    },
+                    {
+                      "ref": "0.2.0.2",
+                      "role": "radio",
+                      "name": "Express (next day, +EUR12)"
+                    },
+                    {
+                      "ref": "0.2.0.3",
+                      "role": "radio",
+                      "name": "Collect in store"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "ref": "0.3",
+              "role": "promo-widget",
+              "name": ""
+            },
+            {
+              "ref": "0.4",
+              "role": "text",
+              "name": "Attach a signed PO"
+            },
+            {
+              "ref": "0.5",
+              "role": "button",
+              "name": "Attach a signed PO"
+            },
+            {
+              "ref": "0.6",
+              "role": "text",
+              "name": "Signature"
+            },
+            {
+              "ref": "0.7",
+              "role": "canvas",
+              "name": ""
+            },
+            {
+              "ref": "0.8",
+              "role": "alert",
+              "name": "Orders over EUR500 require approval"
+            },
+            {
+              "ref": "0.9",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.9.0",
+                  "role": "button",
+                  "name": "Place order"
+                },
+                {
+                  "ref": "0.9.1",
+                  "role": "button",
+                  "name": "Submit for slow validation"
+                },
+                {
+                  "ref": "0.9.2",
+                  "role": "button",
+                  "name": "Export the order"
+                },
+                {
+                  "ref": "0.9.3",
+                  "role": "button",
+                  "name": ""
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
+      }
     }
   ],
-  "narration": [
-    {
-      "id": "nar_001",
-      "startMs": 5848.0,
-      "endMs": 9848.0,
-      "text": "Now I'm checking that an order this size needs manager approval.",
-      "confidence": 0.7411003576891415
-    }
-  ],
+  "narration": [],
   "annotations": [],
   "parameters": [
     {

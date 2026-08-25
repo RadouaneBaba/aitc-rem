@@ -135,6 +135,7 @@ export function App() {
         {step && testCase ? (
           <StepDetail
             step={step}
+            recordingId={selected.recordingId}
             busy={busy}
             onEdit={(text) => act((rec, run) => api.editStep(rec, run, step.id, text))}
             onDelete={() => act((rec, run) => api.deleteStep(rec, run, step.id))}
@@ -160,6 +161,10 @@ export function App() {
           feature={Object.values(body.feature)[0] ?? ''}
           recordingId={selected.recordingId}
           runId={selected.runId}
+          busy={busy}
+          onEditFeature={(text) =>
+            testCase && act((rec, run) => api.editFeature(rec, run, testCase.id, text))
+          }
         />
       </main>
 

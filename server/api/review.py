@@ -29,7 +29,7 @@ from server.models import (
     Step,
     TestCaseIR,
 )
-from server.pipeline.narrative import sync_keywords
+from server.pipeline.narrative import build_narrative, sync_keywords
 
 
 class ReviewError(ValueError):
@@ -294,6 +294,97 @@ def rename_case(
     return case
 
 
+def apply_feature_text(
+    ir: IRDocument,
+    review: ReviewDocument,
+    *,
+    case_id: str,
+    text: str,
+    rendered: str,
+) -> TestCaseIR:
+    """Take a hand-edited feature file and put its changes through the IR.
+
+    SS13.2 requires accept/reject, edit, merge, split, reorder and move. The UI
+    had a Feature tab that DISPLAYED the file, and every edit had to go through
+    a step-shaped form -- which is a slow way to fix a sentence, and the reason
+    given for it does not hold: SS13.5 needs a difficulty label per step, and a
+    diff between the generated file and the approved one yields exactly the
+    same label. The form was an assumption, not a requirement.
+
+    What is a requirement is that every edit lands in the review record, so
+    this parses the text back and replays it through the same functions the
+    forms call. Nothing writes to the IR directly, and SS13.5's record stays
+    the project's only source of difficulty labels.
+
+    STRUCTURE IS NOT EDITABLE HERE, and refusing is the honest answer rather
+    than a limitation to apologise for. A step typed into this box has no
+    `eventIds`, so it is a sentence about something nobody recorded --
+    `event_coverage` would reject the run, and rightly. Adding, deleting and
+    reordering steps have their own controls, which keep the events attached.
+    """
+    case = next((c for c in ir.testCases if c.id == case_id), None)
+    if case is None:
+        raise ReviewError(f"no test case {case_id}")
+
+    was = _feature_lines(rendered)
+    now = _feature_lines(text)
+
+    if len(was) != len(now):
+        raise ReviewError(
+            f"this edit changes the number of steps ({len(was)} to {len(now)}). "
+            f"A step typed in here has no recorded actions behind it, so the run would be "
+            f"rejected for dropping an event. Use the step controls to add, delete or "
+            f"reorder, then edit the wording here."
+        )
+
+    # Steps and assertions in render order, which is the order `_feature_lines`
+    # walked. Built from the same narrative the renderer used, so the two
+    # cannot drift.
+    narrative = build_narrative(case.steps)
+    targets = [line for line in narrative.body if line.text.strip()]
+    if len(targets) != len(now):
+        raise ReviewError(
+            "this feature file does not line up with the test case it came from. "
+            "Reload the run and try again."
+        )
+
+    changed = 0
+    for line, (_keyword, after) in zip(targets, now, strict=True):
+        before = " ".join(line.text.split())
+        after = " ".join(after.split())
+        if before == after or not after:
+            continue
+        changed += 1
+        if line.assertion is not None and line.step is not None:
+            edit_assertion_text(
+                ir, review, step_id=line.step.id, assertion_id=line.assertion.id, text=after
+            )
+        elif line.step is not None:
+            edit_step_text(ir, review, step_id=line.step.id, text=after)
+
+    if changed:
+        resync_keywords(ir)
+    return case
+
+
+def _feature_lines(text: str) -> list[tuple[str, str]]:
+    """Every step and expected-result line, as (keyword, body).
+
+    A `Background` line is included: it is a step, it belongs to a case, and a
+    reviewer editing one means it.
+    """
+    keywords = ("Given", "When", "Then", "And", "But", "*")
+    out: list[tuple[str, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("|"):
+            continue
+        head, _, rest = line.partition(" ")
+        if head in keywords and rest.strip():
+            out.append((head, rest.strip()))
+    return out
+
+
 def approve(
     ir: IRDocument,
     review: ReviewDocument,
@@ -417,6 +508,7 @@ def _magnitude(before: str | None, after: str | None) -> int:
 __all__ = [
     "ReviewError",
     "answer_escalation",
+    "apply_feature_text",
     "approve",
     "delete_step",
     "edit_assertion_text",

@@ -203,3 +203,167 @@ def test_one_scenario_refers_to_one_person():
 
 def test_a_consistent_voice_is_not_flagged():
     assert "more than one way" not in messages(GOOD)
+
+
+# --------------------------------------------------------------------------
+# the shape of a scenario, not of the file
+# --------------------------------------------------------------------------
+
+
+DANGLING = """\
+Feature: Hamper creation
+
+  Scenario: Upgrading hamper size and adjusting item quantities
+    When the tester opens the hampers category
+    Then the hampers category page is loaded
+
+    When the tester dismisses the hamper capacity warning
+"""
+
+
+def test_a_scenario_that_ends_on_an_action_has_no_verdict():
+    # Shipped, on a real recording. The file-level check above passes here --
+    # there IS a `Then` in the file -- so a scenario ending on a dangling
+    # `When` went out with nothing to pass or fail. Whoever executes it reaches
+    # the last line having been told to do something and never told what should
+    # have happened.
+    assert "ends on an action rather than an expected result" in messages(DANGLING)
+
+
+def test_a_background_is_not_required_to_end_on_a_then():
+    # A Background is shared setup. It never asserts, and requiring a verdict
+    # from it would be requiring it to stop being a background.
+    feature = """\
+Feature: Order approval
+
+  Background:
+    Given the tester signs in
+
+  Scenario: An order over EUR500 is held
+    When the tester submits an order totalling "615"
+    Then the order is held for manager approval
+"""
+    assert "ends on an action" not in messages(feature)
+
+
+SIX_BEATS = """\
+Feature: Hamper creation
+
+  Scenario: Upgrading hamper size and adjusting item quantities
+    When the tester opens the hampers category
+    Then the hampers category page is loaded
+
+    When the tester selects "Morocco" as the delivery country
+    Then the hamper selection options are displayed
+
+    When the tester selects the "Small Wicker Basket"
+    Then the hamper capacity is updated to 5 items
+
+    When the tester increases the quantity of an item
+    Then the quantity increases to 18
+
+    When the tester upgrades the hamper
+    Then a larger basket is offered
+"""
+
+
+def test_a_scenario_of_unrelated_beats_is_several_test_cases():
+    # Navigate, set country, pick basket, change quantity, upgrade -- five
+    # actions each with its own unrelated outcome. Every literal in it can be
+    # true and the test case is still wrong, because nobody executing it can
+    # tell what failed when it fails.
+    #
+    # This is the finding no deterministic check had an opinion on, and it is
+    # the one that decides whether the output reads as a test or a transcript.
+    assert "action/outcome blocks" in messages(SIX_BEATS)
+
+
+def test_a_scenario_with_two_checkpoints_is_not_flagged():
+    # The bar is not "one Then per scenario". A test that establishes something
+    # and then checks the consequence is normal and good, and flagging it would
+    # push the generator toward scenarios that assert once and prove little.
+    feature = """\
+Feature: Hamper creation
+
+  Scenario: A hamper at capacity cannot be upgraded past the largest size
+    Given the tester starts creating a hamper
+    When the tester fills the basket to its capacity
+    Then the basket is full at 5 of 5 items
+
+    When the tester upgrades to the largest hamper and fills it
+    Then no bigger hampers are available
+"""
+    assert check(feature)[0].status == ValidatorStatus.pass_
+
+
+def test_the_shape_findings_still_only_warn():
+    # Same posture as every other style finding: refusing to emit a grounded
+    # test case because its shape is wrong would trade the valuable thing for
+    # the cheap one. What this buys is that the shape cannot regress quietly.
+    for result in check(SIX_BEATS):
+        assert result.action == ValidatorAction.warn
+        assert result.status == ValidatorStatus.warn
+
+
+def test_an_expected_result_that_checks_two_things_is_flagged():
+    # A `Then` is the unit that passes or fails, so it has to be one claim.
+    # Shipped on a fixture: "the checkout page updates to reflect the selected
+    # Express delivery fee and the payment method is accepted" is two
+    # assertions on one line, and when it fails nobody can say which half did.
+    #
+    # `_is_run_on` does not catch it -- that needs three conjunctions or two
+    # commas, and this has one "and".
+    feature = """\
+Feature: Checkout validation
+
+  Scenario: A payment method can be saved
+    Given the tester signs in
+    When the tester saves the payment method
+    Then the checkout page updates to reflect the fee and the payment method is accepted
+"""
+    assert "checks two things at once" in messages(feature)
+
+
+def test_one_claim_with_an_and_in_it_is_not_flagged():
+    # The bar is two CLAIMS, not two words. "the order is confirmed with a
+    # success alert and a reference number" is one thing being described, and
+    # flagging it would push the generator toward stilted sentences.
+    feature = """\
+Feature: Order approval
+
+  Scenario: An order is confirmed
+    Given the tester signs in
+    When the tester submits the order
+    Then the order is confirmed with a success alert and a reference number
+"""
+    assert "checks two things at once" not in messages(feature)
+
+
+def test_a_step_ending_in_a_full_stop_is_flagged():
+    # A Gherkin step is a sentence FRAGMENT -- the keyword is its subject -- so
+    # a full stop is never right on one. The voice rule has said so all along
+    # and nothing enforced it; steps shipped with one.
+    feature = """\
+Feature: Checkout
+
+  Scenario: A payment method can be saved
+    Given the tester signs in
+    When the tester saves the payment method.
+    Then the payment method appears in the list
+"""
+    assert "ends in a full stop" in messages(feature)
+
+
+def test_an_ellipsis_is_content_and_is_left_alone():
+    # "Validating with the finance system..." is what the page said, and the
+    # expected result is bound to that literal. Trimming it would break the
+    # binding to make a style point.
+    feature = """\
+Feature: Checkout
+
+  Scenario: Slow validation is reported
+    Given the tester signs in
+    When the tester submits the order for validation
+    Then the page displays "Validating with the finance system..."
+"""
+    assert "full stop" not in messages(feature)

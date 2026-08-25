@@ -1,6 +1,7 @@
 import { validateRecording } from '../schemas/validators.js';
 import { allEventRows, allObservations, allScreenshots, audioBlob, getSession } from '../background/store';
 import type { ConsoleEntry, NetworkCall, Recording } from '../types/recording';
+import { budgetNetwork } from './budget';
 
 /**
  * Assembly and export.
@@ -143,6 +144,13 @@ function attributeObservations(
 
     if (obs.kind === 'network') owner.event.network.push(obs.payload as NetworkCall);
     else owner.event.console.push(obs.payload as ConsoleEntry);
+  }
+
+  // The event's own URL, not `location`: this file runs on an extension page,
+  // so `location.origin` here is `chrome-extension://…` and every request in
+  // the recording would be third-party by that measure.
+  for (const row of rows) {
+    row.event.network = budgetNetwork(row.event.network, row.event.url);
   }
 }
 
@@ -332,6 +340,7 @@ async function main(): Promise<void> {
     const base = ($('server') as HTMLInputElement).value.trim().replace(/\/$/, '');
     button.disabled = true;
     $('sent').textContent = 'Sending…';
+    let shotNote = '';
 
     try {
       // Audio first, and the order is load-bearing: POST /api/recordings
@@ -360,11 +369,37 @@ async function main(): Promise<void> {
       }
 
       const { job, unknownOrigins, narration } = await response.json();
+
+      // Screenshots last, and deliberately so. The pipeline never reads one
+      // (SS7.4 -- they are not sent to a model), so they must not hold up the
+      // job; they exist for the human who is about to review the draft, and
+      // the draft takes minutes. A failure here is reported and swallowed for
+      // the same reason: losing a picture must not cost the recording.
+      if (screenshots.length) {
+        $('sent').textContent = `Sending ${screenshots.length} screenshot(s)…`;
+        let sentShots = 0;
+        for (const shot of screenshots) {
+          try {
+            const posted = await fetch(
+              `${base}/api/recordings/${recording.id}/screens/${shot.key}`,
+              { method: 'POST', headers: { 'content-type': 'image/png' }, body: dataUrlToBlob(shot.dataUrl) },
+            );
+            if (posted.ok) sentShots += 1;
+          } catch {
+            /* the review UI simply shows no picture for that step */
+          }
+        }
+        shotNote = sentShots
+          ? `<br />${sentShots} screenshot${sentShots === 1 ? '' : 's'} sent for review.`
+          : '';
+      }
+
       const review = `${base}/`;
       $('sent').innerHTML =
         `Sent. Job <code>${job.id}</code> is running the pipeline — a draft takes a ` +
         `couple of minutes. <a href="${review}" target="_blank">Open the review UI</a>.` +
         narrationNote(narration) +
+        shotNote +
         (unknownOrigins?.length
           ? `<br /><strong>Note:</strong> ${unknownOrigins.join(', ')} ` +
             `${unknownOrigins.length === 1 ? 'is' : 'are'} not on the allowlist, so this ` +

@@ -15,9 +15,10 @@ and this is the one place in the pipeline where being wrong costs a rewrite of
 work that was already correct. So the mapping below is code, and two of its rows
 are deliberately empty:
 
-`event_coverage` rejects when an event appears in no step and no omission. That
-is an assembly bug -- something in `_assemble` dropped it -- and re-running a
-model cannot fix it. Worse, a re-run might produce different step text and make
+`event_coverage` rejects when an event appears in no step and no omission. Under
+draft-then-bind that means the drafter failed to account for an event, and it is
+the one net under its freedom to choose step boundaries -- but a re-run cannot
+fix it either. Worse, a re-run might produce different step text and make
 the failure *look* different, which is how a structural bug becomes a haunting.
 
 `no_placeholder_leak` hard-fails when a secret reached the rendered output. The
@@ -31,7 +32,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from server.evidence.store import EvidenceStore
 from server.models import (
     PipelineStage,
     RepairAttempt,
@@ -41,33 +41,46 @@ from server.models import (
     ValidatorStatus,
 )
 from server.pipeline.critic import CriticResult, Finding
-from server.pipeline.name import NamingResult, intent_notes
 
 #: SS9.9's bound. Three attempts per stage, then the human is told.
 MAX_REPAIR_ATTEMPTS = 3
 
 #: Which stage owns a rejection. Everything absent from this table is either
 #: warn-only by design, or not a model's fault -- see the module docstring.
-VALIDATOR_REPAIR: dict[ValidatorName, PipelineStage] = {
+VALIDATOR_REPAIR: dict[ValidatorName, tuple[PipelineStage, ...]] = {
     # The claim, or its citation, is wrong. The assert stage retrieves again.
-    ValidatorName.evidence_retrieved: PipelineStage.assert_,
-    ValidatorName.assertion_grounding: PipelineStage.assert_,
-    ValidatorName.element_exists: PipelineStage.assert_,
-    ValidatorName.mutation_claimed: PipelineStage.assert_,
-    ValidatorName.no_pruned_assertion: PipelineStage.assert_,
+    ValidatorName.evidence_retrieved: (PipelineStage.assert_,),
+    ValidatorName.assertion_grounding: (PipelineStage.assert_,),
+    ValidatorName.element_exists: (PipelineStage.assert_,),
+    ValidatorName.no_pruned_assertion: (PipelineStage.assert_,),
+    # BOTH, and this is the one row with two stages. `mutation_claimed` reads
+    # the step text AND its expected results, because either can claim the
+    # application changed something -- "the tester SAVES the payment method"
+    # asserts persistence just as loudly as "the payment method is saved
+    # does". Routed only to the assert stage, a re-proposed expected result
+    # could not fix a rejection caused by the verb in the step name, and the
+    # finding came back unresolved on every attempt.
+    #
+    # Two stages rather than a judgement about which one: this is still a
+    # table. What must not happen is a model deciding where to send a finding.
+    ValidatorName.mutation_claimed: (PipelineStage.assert_, PipelineStage.name),
     # The step TEXT is what broke -- a reuse claim that does not match the
     # library entry, or prose the Gherkin parser could not read.
-    ValidatorName.library_verbatim: PipelineStage.name,
-    ValidatorName.gherkin_parses: PipelineStage.name,
+    ValidatorName.library_verbatim: (PipelineStage.name,),
+    ValidatorName.gherkin_parses: (PipelineStage.name,),
 }
 
 #: SS9.9's five judgement axes, and which of them a re-run can act on.
 #:
 #: `coherence` and `state_jump` are absent on purpose. Acting on either means
-#: re-running composition, which decides merges, splits and case boundaries --
-#: so it can change the step COUNT, and SS3.6 promises the same recording
+#: re-drafting the document, which decides step boundaries and case boundaries
+#: -- so it can change the step COUNT, and SS3.6 promises the same recording
 #: produces the same count every time. A reproducibility guarantee is worth more
 #: than an automatic fix for a finding a human can act on in five seconds.
+#:
+#: The two repairs that ARE here match the two things a model wrote: the step's
+#: sentence (`rewrite_steps`) and its expected result (`repropose_expectations`).
+#: Neither may touch `eventIds` or `step_id`.
 CRITIC_REPAIR: dict[str, PipelineStage] = {
     "step_name": PipelineStage.name,
     "vocabulary": PipelineStage.name,
@@ -112,28 +125,6 @@ class RepairOutcome:
         return resolved / raised
 
 
-def protected_steps(store: EvidenceStore, naming: NamingResult) -> set[str]:
-    """Steps whose wording is not the tool's to change.
-
-    Two sources, both promises made elsewhere and both enforced here rather
-    than trusted to a prompt:
-
-      * a step named from a tester's intent note (SS6.7). The popup tells the
-        tester it will be used "word for word", and Milestone 8 already shipped
-        one bug where a promise like that went unread on the server side.
-      * a step copied character-for-character from an approved library entry
-        (SS12.2). Rewriting it makes `library_verbatim` reject on the next
-        pass -- so a repair would trade a critic finding for a validator
-        rejection, which is not progress.
-    """
-    dictated = set(intent_notes(store))
-    return {
-        named.step_id
-        for named in naming.steps
-        if named.library_ref or named.segment_id in dictated
-    }
-
-
 def targets(
     report,
     findings: list[Finding],
@@ -153,15 +144,16 @@ def targets(
     for row in report.results:
         if row.action != ValidatorAction.reject or row.status != ValidatorStatus.fail:
             continue
-        stage = VALIDATOR_REPAIR.get(row.validator)
+        stages = VALIDATOR_REPAIR.get(row.validator)
         # No stepId means the rejection is about the document, not a step --
         # `event_coverage` is the case that matters, and it is not repairable
         # anyway. Nothing to re-run.
-        if stage is None or not row.stepId:
+        if not stages or not row.stepId:
             continue
-        collected.setdefault((stage, row.stepId), []).append(
-            (RepairTrigger.validator, f"{row.validator.value}: {row.message or 'rejected'}")
-        )
+        for stage in stages:
+            collected.setdefault((stage, row.stepId), []).append(
+                (RepairTrigger.validator, f"{row.validator.value}: {row.message or 'rejected'}")
+            )
 
     for finding in findings:
         stage = CRITIC_REPAIR.get(finding.kind)
@@ -251,7 +243,7 @@ __all__ = [
     "VALIDATOR_REPAIR",
     "RepairOutcome",
     "Target",
-    "protected_steps",
+
     "record",
     "still_failing",
     "still_flagged",

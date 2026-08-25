@@ -10,13 +10,24 @@ Every claim the system makes is licensed by evidence it went and retrieved.
 | running the pipeline yourself | this file |
 | recording a real public site | [TESTING.md](TESTING.md) |
 | changing the code | [CLAUDE.md](CLAUDE.md), then [SPEC.md](SPEC.md) |
-| wondering what is next | [PLAN.md](PLAN.md) |
+| wondering what is broken or what is next | [STATUS.md](STATUS.md) |
 
-Phase 1 (the provable spine) is implemented: recorder, evidence store,
-deterministic segmentation, agentic naming, the validation gate, the Gherkin
-renderer and the ablation harness. Phase 2 has begun with composition -- the
-stage that decides what the document *is*, which is what turns a list of steps
-into something a QA lead will read.
+Phases 1 to 3 are implemented: the recorder, the evidence store, the validation
+gate, the Gherkin renderer, the review UI, narration, bug mode and the ablation
+harness.
+
+The generator itself was rebuilt in Phase 4, after the output was read against
+a real recording rather than against the fixtures. Three agentic stages used to
+write the test case between them without any one of them seeing it -- one was
+shown a single segment, one a single step, and the third could not touch the
+expected results -- and the file read like a document written by three people
+who never met, because it was. Now a deterministic **index** summarises the
+whole session, one **drafting** call writes the document from it, and a
+**binding** stage proves every claim against a real retrieval or deletes it.
+
+The guarantee got stronger in the process, not weaker: the model never supplies
+a `toolCallId` at all, so a fabricated citation is not something it can
+express. See [CRITIQUE.md](CRITIQUE.md) for the read that prompted the rebuild.
 
 ---
 

@@ -39,6 +39,23 @@ NOTICE_FLAGS = frozenset(
         FidelityFlag.file_content_omitted,
         FidelityFlag.rapid_sequence,
         FidelityFlag.network_incomplete,
+        # Raised while BUILDING the snapshot, for any closed shadow root
+        # anywhere on the page -- not for the thing the tester acted on. The
+        # demo app has one `<promo-widget>` on its checkout page, so six of
+        # seven fixtures inherited it and six of seven feature files came out
+        # tagged `@needs-review`: precisely the devaluation the paragraph above
+        # describes, arriving again by a different route.
+        #
+        # It is a true statement about the snapshot and a false one about the
+        # step. Something on the page was unreadable; that says nothing about
+        # whether this step's description is right, and only the second is what
+        # the marker means.
+        #
+        # The better fix is in the recorder: raise it as a warning only when
+        # the ACTION TARGET is inside the closed root, which is the case SS6.8
+        # actually describes ("contents of this component were not readable").
+        # `content/snapshot.ts:buildChildren` is where that would go.
+        FidelityFlag.closed_shadow_root,
     }
 )
 
@@ -301,6 +318,14 @@ def needs_review(step: Step) -> bool:
     marker everywhere else.
     """
     if step.escalation or step.confidence.value == "low":
+        return True
+    # A finding nothing resolved. `_annotate` writes every unrepaired critic
+    # finding and every claim the gate rejected onto the step as a note, and
+    # this did not look at them -- so a step the run itself had said was wrong
+    # went out with no marker on it at all. A wrong number shipped that way,
+    # confident and untagged, while the same run's `ir.json` recorded that its
+    # literal did not appear where it claimed.
+    if step.criticNotes:
         return True
     return any(flag not in NOTICE_FLAGS for flag in step.fidelity)
 

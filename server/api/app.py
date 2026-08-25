@@ -27,7 +27,12 @@ from pydantic import BaseModel
 
 from server.api import review as review_ops
 from server.api.jobs import Job, JobRunner
-from server.config import ProjectConfig, load_allowed_origins, load_project_config
+from server.config import (
+    ProjectConfig,
+    load_allowed_origins,
+    load_project_config,
+    normalise_origin,
+)
 from server.library import StepLibrary, library_path
 from server.models import IRDocument, PipelineStage, Recording, ReviewDocument
 from server.pipeline.run import PipelineOptions, run_pipeline
@@ -44,10 +49,10 @@ UI_DIST = REPO_ROOT / "ui" / "dist"
 #: again. Prose rather than stage names: the reader is a QA tester, not a
 #: developer reading a trace.
 STAGE_DETAIL = {
-    PipelineStage.segment: "splitting the recording into steps",
-    PipelineStage.name: "writing the steps",
-    PipelineStage.assert_: "working out the expected results",
-    PipelineStage.decompose: "composing the test case",
+    PipelineStage.segment: "reading the recording",
+    PipelineStage.decompose: "writing the test case",
+    PipelineStage.assert_: "checking each expected result against the recording",
+    PipelineStage.name: "rewriting a step a review flagged",
     PipelineStage.render: "writing the feature file",
     PipelineStage.validate: "checking every claim against the evidence",
     PipelineStage.critic: "reading it back the way a reviewer would",
@@ -211,6 +216,41 @@ def create_app(
         if not path.is_file():
             raise HTTPException(404, "this recording has no narration audio")
         return FileResponse(path, media_type="audio/webm", filename=path.name)
+
+    @app.post("/api/recordings/{recording_id}/screens/{event_id}", status_code=201)
+    async def post_screenshot(recording_id: str, event_id: str, request: Request):
+        """One event's screenshot, posted after the recording (SS13.1).
+
+        The recorder has been taking these since Phase 1 and only the "save to
+        Downloads" path ever kept them, so every posted recording carried a
+        `screenshot` field pointing at a file this server did not have and no
+        reviewer ever saw one. They are the cheapest large improvement
+        available to the review UI: a step is much easier to judge beside the
+        page it happened on.
+
+        Deliberately after the recording rather than before it, which is the
+        opposite of the audio ordering. Audio has to arrive first because
+        transcription feeds the run; a screenshot feeds nothing but a human, so
+        it must not delay the job.
+        """
+        data = await request.body()
+        if not data:
+            raise HTTPException(400, "empty screenshot body")
+        try:
+            path = storage.save_screenshot(recording_id, event_id, data)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"bytes": len(data), "path": str(path)}
+
+    @app.get("/api/recordings/{recording_id}/screens/{event_id}")
+    def get_screenshot(recording_id: str, event_id: str):
+        try:
+            path = storage.screenshot_path(recording_id, event_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not path.is_file():
+            raise HTTPException(404, "no screenshot for this event")
+        return FileResponse(path, media_type="image/png", filename=path.name)
 
     @app.get("/api/recordings")
     def list_recordings() -> dict[str, Any]:
@@ -395,6 +435,29 @@ def create_app(
             ),
         )
 
+    @app.patch("/api/runs/{recording_id}/{run_id}/cases/{case_id}/feature")
+    def patch_feature(recording_id: str, run_id: str, case_id: str, body: TextEdit):
+        """Edit the feature file directly (SS13.2).
+
+        The tab used to display it and every edit had to go through a
+        step-shaped form. The reason given for that was SS13.5's review record,
+        and it does not hold: a diff between the generated file and the
+        approved one yields exactly the same difficulty labels the forms do.
+
+        So the text is editable and the changes are replayed through the same
+        review functions the forms call -- the record is identical either way,
+        and nothing writes to the IR behind its back.
+        """
+        run = storage.run(recording_id, run_id)
+        rendered = _feature_text(run.root, _load_ir(run.root), config).get(case_id, "")
+        return _edit(
+            recording_id,
+            run_id,
+            lambda ir, rv: review_ops.apply_feature_text(
+                ir, rv, case_id=case_id, text=body.text, rendered=rendered
+            ),
+        )
+
     @app.post("/api/runs/{recording_id}/{run_id}/approve")
     def approve(recording_id: str, run_id: str, body: ApproveRequest):
         return _edit(
@@ -504,8 +567,8 @@ def _unknown_origins(recording: Recording, policy: str = "warn") -> list[str]:
     """
     if policy == "off":
         return []
-    allowed = load_allowed_origins()
-    return [o for o in recording.metadata.origins if o not in allowed]
+    allowed = set(load_allowed_origins())
+    return [o for o in recording.metadata.origins if normalise_origin(o) not in allowed]
 
 
 def _transcribe_if_audio(
@@ -583,6 +646,14 @@ def _list_runs(storage: Storage) -> list[dict[str, Any]]:
         except Exception:  # noqa: BLE001 - a half-written run must not hide the rest
             continue
         review = _load_review(ir_path.parent, ir)
+        # Enough for a reviewer to decide which run to open next, without
+        # opening any of them. A dropdown of ids answers "which runs exist";
+        # a tester with fifteen recordings needs "which of these needs me",
+        # and the answer is in `ir.json` already.
+        warnings = sum(len(c.warnings) for c in ir.testCases)
+        flagged = sum(
+            1 for c in ir.testCases for s in c.steps if s.criticNotes or s.escalation
+        )
         out.append(
             {
                 "recordingId": ir.recordingId,
@@ -590,7 +661,16 @@ def _list_runs(storage: Storage) -> list[dict[str, Any]]:
                 "createdAt": ir.createdAt.isoformat(),
                 "approved": review.approved,
                 "titles": [c.title for c in ir.testCases],
+                "scenarios": [c.scenarioName or c.title for c in ir.testCases],
                 "steps": sum(len(c.steps) for c in ir.testCases),
+                "assertions": sum(len(s.assertions) for c in ir.testCases for s in c.steps),
+                "warnings": warnings,
+                "flaggedSteps": flagged,
+                # SS13.5's record, read back as progress. `edits` is
+                # append-only, so the distinct steps touched is the honest
+                # count of "how far through this has somebody got".
+                "editedSteps": len({e.stepId for e in review.edits if e.stepId}),
+                "hasBug": any(c.kind == "bug_report" for c in ir.testCases),
             }
         )
     return sorted(out, key=lambda r: r["createdAt"], reverse=True)

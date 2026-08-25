@@ -16,7 +16,12 @@ from pathlib import Path
 
 from server.ablation import run_ablation, write_report
 from server.api.review import new_review
-from server.config import KNOWN_WHISPER_MODELS, load_allowed_origins, load_project_config
+from server.config import (
+    KNOWN_WHISPER_MODELS,
+    load_allowed_origins,
+    load_project_config,
+    normalise_origin,
+)
 from server.library import StepLibrary, library_path
 from server.llm.cassette import CassetteClient
 from server.llm.chain import BudgetGuard, FallbackChain, RateLimiter, RetryingClient
@@ -162,8 +167,8 @@ def check_origins(recording: Recording, *, allow: bool, policy: str = "warn") ->
     if policy == "off":
         return
 
-    allowed = load_allowed_origins()
-    unknown = [o for o in recording.metadata.origins if o not in allowed]
+    allowed = set(load_allowed_origins())
+    unknown = [o for o in recording.metadata.origins if normalise_origin(o) not in allowed]
     if not unknown:
         return
 
@@ -217,7 +222,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     print(f"Recording:      {recording.id}  ({len(recording.events)} events)")
     print(f"Run:            {result.run.root}")
-    print(f"Steps:          {len(result.naming.steps)}")
+    print(f"Steps:          {len(result.draft.steps)}")
     print(f"Tool calls:     {len(result.trace.toolCalls)}  {result.tool_calls_per_step}")
     print(f"Grounding rate: {result.grounding_rate:.1%}")
     print(f"Duration:       {result.duration_ms / 1000:.1f}s")
@@ -430,6 +435,55 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_jira_push(args: argparse.Namespace) -> int:
+    """Post the issues a run already built (SS11.3).
+
+    A separate command rather than an export flag, and that is the point. The
+    exporter runs on every run and must work for somebody with no Jira account;
+    this needs three credentials and creates things in a system other people
+    watch. Making it an explicit act keeps the default honest.
+    """
+    from server.renderers.jira import JiraCredentials, _find_attachment, push
+
+    run_dir = Path(args.run_dir)
+    payloads = sorted(run_dir.glob("*.jira.json"))
+    if not payloads:
+        print(f"No Jira payloads in {run_dir}. Add `jira` to `exports` in config/project.yaml")
+        print("and re-run, or export from the review UI.")
+        return 1
+
+    issues = [json.loads(p.read_text(encoding="utf-8")) for p in payloads]
+
+    if args.dry_run:
+        for issue in issues:
+            fields = issue.get("fields", {})
+            print(f"  {fields.get('issuetype', {}).get('name', '?'):8} {fields.get('summary', '')}")
+            meta = issue.get("aitcRem") or {}
+            for name in meta.get("attachments", []):
+                found = _find_attachment(run_dir, name, meta)
+                print(f"           {'+' if found else '-'} {name}")
+        print()
+        print(f"{len(issues)} issue(s) would be created. Nothing was sent.")
+        return 0
+
+    credentials = JiraCredentials.from_env()
+    if credentials is None:
+        # Named individually rather than as "credentials are missing", because
+        # the usual cause is one of the three being absent.
+        print("Set JIRA_SITE, JIRA_EMAIL and JIRA_API_TOKEN (in .env or the environment).")
+        print("A token comes from id.atlassian.com -> Security -> API tokens.")
+        return 1
+
+    result = push(issues, credentials=credentials, attachments_dir=run_dir)
+    for created in result.created:
+        print(f"  created {created['key']}  ({created['testCaseId']})")
+    for name in result.attached:
+        print(f"  attached {name}")
+    for failure in result.failures:
+        print(f"  FAILED  {failure}")
+    return 0 if result.ok else 1
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     """SS13 -- the tester never touches a terminal.
 
@@ -566,6 +620,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     tr.add_argument("--language", default=None, help="e.g. en, fr. Overrides project.yaml")
     tr.set_defaults(func=cmd_transcribe)
+
+    jira = sub.add_parser(
+        "jira-push",
+        help="create the Jira issues an exported run built, and attach its artifacts",
+    )
+    jira.add_argument("run_dir", help="a run directory, e.g. runs/rec_X/run_001")
+    jira.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="say what would be created and post nothing",
+    )
+    jira.set_defaults(func=cmd_jira_push)
 
     serve = sub.add_parser("serve", parents=[common], help="run the local server and the review UI")
     serve.add_argument("--host", default="127.0.0.1")

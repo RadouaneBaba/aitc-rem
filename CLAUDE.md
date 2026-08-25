@@ -104,11 +104,23 @@ in the `.trace.md` sidecar (`server/renderers/trace_md.py`); the machine-readabl
 form is in `ir.json` and `trace.json`, which is what the validators actually
 read. Putting anything back in the body will trip `gherkin_style`.
 
-**Keywords are derived, never chosen per step.** Given/When/Then is a property
-of a scenario. The model supplies a step's *role* (`setup`/`test_step`/
-`teardown`); `narrative.py` turns roles into keywords, collapses runs into
-`And`, and places assertions. Asking a model for the keyword while showing it
-one segment is how the output came to be seven `When`s in a row.
+**The drafting stage chooses the shape; `narrative.py` lays out what it chose.**
+Given/When/Then used to be DERIVED from a step's role plus its position, and
+that was right while the model writing steps saw one segment at a time: asked
+for a keyword with no view of the flow, it answered `When` every time, which is
+how Phase 1 shipped seven `When`s in a row. An author with the whole session in
+front of it knows where the scenario turns.
+
+`draft.py` therefore emits both `keyword` and `role`, and `_reconcile` makes
+them agree at parse time -- a `Given` is taken as a statement that the step is
+setup. Downstream, **`role` is authoritative** (`narrative._base_keyword`),
+because it is what survives a reviewer deleting a step; the stored keyword is
+already `And` half the time. `narrative.py` still owns `And` collapsing, beat
+layout, and the one positional rule that cannot be a matter of opinion:
+`_opening_block`. Read its comment before touching it -- the running flag it
+replaced reached through a whole scenario from one step's assertion, and was
+invisible for months because every fixture opened with a sign-in nobody
+asserted on.
 
 **The recorder is black-box.** It reads the live accessibility tree and needs no
 access to the target app's source. `data-testid` is used when present, but the
@@ -128,8 +140,10 @@ server/
                  review.py = every human edit, and the record of it
   config/        ProjectConfig: voice, tags, sidecar, parameter rendering
   evidence/      store.py = the recording, indexed. tools.py = the 12 tools + ToolRunner
-  pipeline/      segment.py (code) -> name.py -> assertions.py -> compose.py
-                 (agentic) -> narrative.py (code) -> validators/ (code)
+  pipeline/      segment.py (code, hints only) -> digest.py (code, the session
+                 index) -> draft.py (agentic, writes the whole document) ->
+                 bind.py (agentic per contested claim, proves or deletes each)
+                 -> narrative.py (code) -> validators/ (code)
                  -> critic.py + repair.py (agentic, bounded) -> bugmode.py
                  -> coverage.py -> run.py
                  investigate.py = the shared decide-retrieve-observe loop
@@ -148,8 +162,16 @@ tests/           pytest; tests/e2e/ is Playwright
 ```
 
 Stage order is deliberate: deterministic where possible, agentic where
-necessary. Segmentation and validation are code so the same recording always
-produces the same step count. Do not "improve" the segmenter by adding a model.
+necessary. Segmentation and validation are still code, and `segment.py` still
+runs -- but its boundaries are now HINTS in the index (idle gaps, URL changes,
+the tester's checkpoints), not step boundaries. A step is an intent, and five
+consecutive clicks on "Increase Quantity" are one; only something reading the
+whole session can say that. Do not put a model inside `segment.py` itself: what
+it produces has to be the same every time, because the drafter reads it.
+
+The net under that freedom is `event_coverage`. The drafter decides what a step
+IS, so every recorded event must land in a step or in an explicit `omitted`
+entry naming it. That validator is the reason the freedom is safe to grant.
 
 **Every review edit goes through `server/api/review.py`.** Not because it is
 tidy, but because SS13.5's record is the project's only source of difficulty
@@ -170,59 +192,187 @@ implements `base.Exporter` and reads a finished `IRDocument`. Gherkin and its
 sidecar are always written because the validation gate reads the rendered
 feature; xlsx and jira are opt-in per project.
 
-**The Jira exporter builds an issue and does not send it.** Posting needs a
-site, a project key and an API token. A run that silently required credentials
-would be a run most people cannot make, so the payload goes to disk where it is
-inspectable and testable with no account.
+**The Jira EXPORT builds an issue and does not send it; `jira-push` sends it.**
+Posting needs a site, a project key and an API token, and a run that silently
+required credentials would be a run most people cannot make -- so the export
+writes to disk, inspectable and testable with no account. Posting is a separate
+command reading `JIRA_SITE` / `JIRA_EMAIL` / `JIRA_API_TOKEN` from the
+environment, never from `project.yaml`, which is committed.
 
-**Naming writes the step; the assert stage writes the expected result.** They
-were one prompt in Phase 1 and the output showed it -- roughly one `Then` per
-scenario. Splitting them lets the assert stage apply SS9.5's ranking
-(annotated > narrated > objective > inferred), which is the ordering that
-decides whether an assertion is about the thing under test or about one of the
-other forty things that changed. Do not move assertions back into naming.
+**Draft first, then bind. Never the other way round.** `draft.py` writes the
+whole document -- steps, keywords, scenario names, and the SENTENCE of every
+expected result -- with the session index in front of it and no obligation to
+have retrieved anything yet. `bind.py` then proves each claim or **deletes** it.
+
+The order is the point, and it is the reverse of what the pipeline used to do.
+An author that may only claim what it has already retrieved writes about
+whatever was easy to retrieve, which is how the old assert stage came to emit
+"the hampers category page is loaded" -- an assertion that the browser works.
+Letting the drafter propose freely is what lets the document have a shape;
+deleting what will not bind is what keeps it honest. Yield drops before it
+rises, and that is the correct trade.
+
+**The drafter never supplies a `toolCallId`.** It names a literal it says it
+saw; `bind._resolve_call` searches the retrievals the agent actually made for a
+response containing that string. A fabricated citation is not something the
+model can express, which is strictly stronger than catching one after the fact.
+`find_text` is excluded as evidence of its own query -- its response echoes the
+search term, so binding to one would be true for any string whatsoever.
+
+**An expected result is about what CHANGED.** `bind._candidates` offers only
+what the event added or altered, plus a transient node that was not there
+before. Without that rule it bound "a file containing the order details is
+downloaded" to `Export the order` -- the label on the button the tester had
+just pressed, two shared words, a clean grounding trail, and the export had in
+fact returned a 500.
 
 **Noise suppression is code, not a prompt line.** An assertion about a
 timestamp or a uuid passes `evidence_retrieved` perfectly and still breaks the
-moment somebody runs the test. `NOISE` in `assertions.py` drops them and records
-why, so a suppressed candidate is visible rather than silently absent.
+moment somebody runs the test. `NOISE` in `bind.py` refuses them and records
+why, so a suppressed claim is visible rather than silently absent. It now
+includes SS9.5's ad/analytics rule, which the spec asked for and the old table
+never had -- on a commercial site that is the one that matters, because
+third-party beacons are where most of the retrievable strings come from.
 
-**`Given` belongs to the opening block only.** Composition can legitimately call
-a later step `setup` -- going to the checkout page is setup for what follows --
-but rendering that as `Given` after a `Then` produces an order no one writes and
-reads as the scenario restarting. `narrative._lay_out` demotes it to `When`;
-`gherkin_style` catches a regression.
+**The deterministic pass declines rather than guesses.** A literal that is one
+bare number ("5 / 5") supports "the basket is full at 5 of 5 items" and would
+equally "support" a claim about something else entirely; no scoring separates
+those. `_Candidate.conclusive` sends that claim to the agent instead. That is
+the line where provenance stops being able to speak for correctness, and
+spending a call there is what makes retrieval effort track difficulty.
 
-**Naming sees one segment; composition sees the whole flow.** That split is the
-point. Anything that needs every step in view — the feature name, the scenario
-name, tags, step roles, folding two segments into one intent — belongs in
-`compose.py`, and asking naming for it produces exactly the output Phase 1 had.
-Composition never touches assertions, so it cannot move the grounding rate; a
-model failure there degrades to a deterministic fallback rather than costing the
-run.
+**The evidence must witness what the claim CHECKS, and `COVERAGE_FLOOR` asks
+the opposite question.** It measures how much of the LITERAL the claim accounts
+for. Nothing measured the reverse, and the reverse is the guarantee: a sentence
+asserting two things while citing evidence for one is half inadmissible, and
+the half nobody looked at is free to be wrong. It shipped on a real run,
+through a green gate:
 
-**Merging happens once, in `_assemble`.** `ir.json` and the rendered feature
-must show the same steps. `apply_merges` folds the groups composition asked for;
-`merge_repeats` is the net for an exact repeat it missed. A merged sentence may
-not drop a redaction placeholder — those are the test's parameters (§7.2), and
-the guard is in `narrative._keeps_parameters`.
+```
+claim:   the hamper is shown as a "Small Wicker Basket" with a capacity of "5 / 5"
+literal: Small Wicker Basket
+```
 
-**Splitting is composition's too, and evidence places the assertions.**
-`segment.py` deliberately does not end a step on a 4xx -- a rejected submit
-usually means a typo being fixed, still one attempt. When the rejection is what
-the test is ABOUT, that rule puts two attempts in one step and the result
-contradicts itself: *"submits with manager approval / Then the order requires
-manager approval"*, every literal true, the test case wrong. Only replay caught
-it. Do not put a model in the segmenter; composition has the objective and can
-`split`. `apply_splits` sends each assertion to the half its `evidence.eventId`
-came from, so nothing guesses. A split step is re-asserted, because it is not
-the step the assert stage was asked about.
+`"5 / 5"` is the whole numeric content of that sentence -- the one part a broken
+capacity counter would break. `conclusive` exists to stop exactly this and
+cannot see it: it declines a claim resting on a BARE number, and a conjunction
+slips past by giving it something else to rest on. Both grounding validators
+passed, because both were asked about the literal.
 
-**A scenario break is deterministic, not a suggestion.** SS6.7 says it overrides
-decomposition. Composition answered differently on two consecutive runs of the
-same recording, once putting the tester's own boundary inside a single case.
-Where the tester pressed the button, `_split_on_declared_breaks` cuts and no
-model is consulted.
+`bind._unwitnessed` is the fix, and its shape matters. **Not** a floor on how
+much of the claim the literal covers -- that rejects "the system displays an
+error message indicating that the order requires approval" against "Orders over
+EUR500 require approval", which is correct and merely verbose. What it requires
+is that every value the claim QUOTES and every NUMBER in it appears in the
+evidence. Both are the drafter's own marks for what matters: the drafting prompt
+asks for quotes on the values that identify the case, and a digit is checkable
+by construction. Prose framing asserts nothing and is untouched. Checked in the
+deterministic pass (which declines to the agent) and again on the agent's own
+answer (which is refused), for the reason `critic._collect` and `repair.targets`
+both enforce the protected-step rule.
+
+**A claim that the interface APPEARED is refused, whatever it quotes.**
+`bind._existence_only`. The drafting prompt forbids these in bold and a real
+recording closed its scenario on one anyway -- *the shopping bag panel opens,
+displaying the item(s) previously added to the cart*, bound to the literal
+"Shopping Bag", the panel's own heading. Perfectly grounded evidence that a
+heading exists. A prompt line is not an enforcement; that lesson is the whole
+reason `NOISE` is code. The rule is narrow on purpose -- a container noun
+reaching a visibility verb, and only when the sentence carries no other
+checkable content -- so "the message ... is shown" and "the payment panel shows
+a total of "615"" are untouched. `run._second_chance` then re-asks when this
+leaves a scenario with no verdict, which is the right outcome: the step
+deserves a real one.
+
+Both rules are pinned in `tests/test_bind.py` against **every** (claim, literal)
+pair the pipeline actually produced across `runs/`, because the value of the
+check is the ratio. A rule that rejects the bad pairs and any of the good ones
+is not a fix, it is a yield cut wearing a fix's name.
+
+**`Given` belongs to the opening block only.** The drafter can legitimately
+call a later step `setup` -- going to the checkout page is setup for what
+follows -- but rendering that as `Given` after a `Then` produces an order no one
+writes and reads as the scenario restarting. `narrative._opening_block` ends the
+block at the first non-setup step AND at the first setup step that carries an
+accepted expected result; `gherkin_style` catches a regression.
+
+**A scenario must end on a `Then`.** `gherkin_style` checks this PER SCENARIO,
+because the file-level "is there a Then anywhere" check passed while a real
+recording shipped a scenario ending on a dangling `When` -- an action with no
+verdict, nothing to pass or fail. The same check counts action/outcome blocks:
+more than `MAX_BEATS` and the scenario is several test cases sharing a heading.
+
+**A scenario left with no verdict gets one second chance.** `run._second_chance`
+re-asks for an expected result when binding deleted every claim in a scenario,
+handing back the REASON it failed. On a session that ended in an error the
+answer is usually that the error is the expected result, and the drafter cannot
+know that until binding has looked.
+
+**One author sees everything.** The feature name, the scenario name, tags,
+roles, keywords, where one step ends and the next begins, which outcome is
+worth checking -- all of it needs the whole session in view, and all of it is
+`draft.py`. It used to be split across three stages that never saw each other's
+work, and the output read like a document written by three people who never
+met, because it was.
+
+**Merging is the drafter's, and `merge_repeats` is the net.** The drafter
+groups events into a step directly, so there is no merge pass to run. What
+survives is the guard against two adjacent steps coming back with identical
+sentences, which is a defect wherever it comes from. A merged sentence may not
+drop a redaction placeholder -- those are the test's parameters (SS7.2), and
+the guard is `narrative._keeps_parameters`.
+
+**Splitting is the drafter's too.** `segment.py` deliberately does not end a
+step on a 4xx -- a rejected submit usually means a typo being fixed, still one
+attempt. When the rejection is what the test is ABOUT, that rule would put two
+attempts in one step and the result contradicts itself: *"submits with manager
+approval / Then the order requires manager approval"*, every literal true, the
+test case wrong. Only replay caught it. The drafter has the objective and the
+whole session, so it decides; the segmenter stays deterministic and advisory.
+
+**A scenario break is deterministic, not a suggestion.** SS6.7 says it
+overrides the model, and override means override. The agentic stage answered
+differently on two consecutive runs of the same recording, once putting the
+tester's own boundary inside a single case. Where the tester pressed the
+button, `run._split_on_declared_breaks` cuts and no model is consulted. It
+splits and never joins, and only where the break opens a STEP -- cutting
+through the middle of one would leave two halves whose sentences describe work
+neither of them does.
+
+**A `scenario_break` carries no `eventId`, and reading one is how that override
+came to never fire.** `export.ts` attaches an annotation to an event only when
+it is a fact ABOUT that event, and a boundary sits between two of them, so a
+break has a timestamp and nothing else. `_split_on_declared_breaks` filtered on
+`a.eventId`, got an empty set and returned on its first line -- on every
+recording, since the split was written. `twoflows` exists to prove two test
+cases come out of one session and had been shipping a single scenario with both
+flows inside it, and the suite agreed with it: every test of this path used the
+factory to set an `eventId` the recorder never sets, so they exercised an input
+that cannot occur. `segment.break_openers` resolves the timestamp FORWARD to
+the event the break opens, and is now the one implementation, shared -- the same
+argument as `supports_narrated`.
+
+**Fixing the resolution was not enough, and the second half is the real one.**
+The index never mentioned the break at all, for the same reason: `_event_block`
+walks `event.annotations`, and a session-level annotation is not in any of them.
+So the ONE author that decides where scenarios begin was never told the tester
+had already decided. On `twoflows` it merged the events either side of the
+boundary into one step, and the deterministic net then correctly declined to cut
+through the middle of a step. Both halves behaved. `digest.py` now prints
+`-- THE TESTER DECLARED A NEW TEST CASE HERE --` in the position the pause hint
+uses, and the drafting prompt says a scenario begins there. The split stays as
+the net behind it.
+
+**Nothing else splits a scenario, and nothing splits on length.** Those two --
+the drafter's judgement and the tester's declared break -- are the whole set,
+and each surviving scenario becomes one `TestCaseIR` and one `Scenario:`. There
+is no event-count trigger. `MAX_BEATS` rejects an over-long scenario at the gate
+and `gherkin_style` has no row in `VALIDATOR_REPAIR`, so that rejection is
+terminal rather than repaired; the critic's `coherence` finding has no row in
+`CRITIC_REPAIR` either. On a long recording with no declared break, a drafter
+that returns one scenario is therefore the last word. The prompt now states
+`MAX_BEATS` as a number, because a gate the author was never told about is a
+gate it cannot aim at.
 
 **`server/runners/` is to correctness what `renderers/` is to readability.** A
 new one is a new file reading a finished `IRDocument`, never a pipeline change.
@@ -232,13 +382,19 @@ model to a closed step vocabulary would buy executability by giving up the
 readable prose that is the product, so replay drives the IR and the recording
 directly. The prose is for humans; `eventIds` and `selectorHints` are what runs.
 
-**The step library recommends; it never substitutes.** `Match.reuse` is advice
-to the naming stage. "adds a widget to the cart" scores 95 against the approved
-"adds a Blue Widget to the cart", and the widget may not have been blue -- only
-something reading the evidence can tell. `libraryRef` is set from an EXACT
-match, or `library_verbatim` could not fail. A step enters the library on human
-approval only (SS12.2), which is what makes it a record of accepted work rather
-than an average of generated work.
+**The step library recommends; it never substitutes.** `Match.reuse` is advice.
+"adds a widget to the cart" scores 95 against the approved "adds a Blue Widget
+to the cart", and the widget may not have been blue -- only something reading
+the evidence can tell. `libraryRef` is set from an EXACT match, or
+`library_verbatim` could not fail. A step enters the library on human approval
+only (SS12.2), which is what makes it a record of accepted work rather than an
+average of generated work.
+
+The per-step search is gone with the naming stage, and that is a fix rather
+than a loss: mandating `search_step_library` on every step lifted calls/step
+1.56 -> 2.17 and collapsed SS3.3's Spread from 1.08 to 0.16. The tool is still
+there for an agent that wants it. Reviving reuse properly wants embeddings
+(SS12.4) and a corpus that does not exist yet.
 
 **The critic reports; it never edits.** A finding is a sentence about what is
 wrong. `repair.py` decides which stage re-runs, and that stage retrieves its own
@@ -271,6 +427,19 @@ gate. They are also gated on `suggestions_enabled` rather than on
 `critic_enabled`: SS3.5 defines A1 vs A2 as differing by "critic, repair loop"
 and nothing else, so attaching coverage to the A2 flag would make the thesis
 comparison measure two changes at once.
+
+**A step's text says what the TESTER did; an expected result says what the
+APPLICATION did.** Only the second is a claim that state changed, and
+`mutation_claimed` now tells them apart with `RESULT_CLAUSE`. This is a
+correctness fix and not a loosening, and the difference is worth being able to
+defend: "the tester submits the payment method" describes pressing a button,
+and reading it as a claim about persistence produced a rejection NO rewrite
+could satisfy -- every honest verb for that action is a mutation word. The
+repair loop spent its whole budget making the sentence worse, hedging it to
+"attempts to save" and then to "clicks Save", which is the mechanics language
+SS11.1 exists to keep out. Every true positive still fires: an expected result
+claiming a change is checked on any mutation word, and a step whose own text
+asserts an outcome ("and it is saved") is checked too.
 
 **Bug detection is code, and its threshold is load-bearing.** Medium signals
 never reach it at any quantity. Four fixtures contain a 4xx on a state-mutating
@@ -441,7 +610,12 @@ catches a regression.
 ## Working with models
 
 `GEMINI_API_KEY` lives in `.env` (gitignored) and is loaded by
-`server/util/env.py`. Nothing before the naming stage needs it.
+`server/util/env.py`. Nothing before the drafting stage needs it: segmentation
+and the session index are code.
+
+`JIRA_SITE`, `JIRA_EMAIL` and `JIRA_API_TOKEN` live there too, and are read
+only by `server.cli jira-push`. Never put them in `config/project.yaml`, which
+is committed.
 
 **Free-tier quotas are the binding constraint, and SPEC.md §9.12 is wrong about
 which one.** It assumes tokens-per-minute; the real limits are requests. As of
@@ -487,52 +661,174 @@ Tests state *why* a behaviour matters, not just that it holds. Keep that: a test
 named after a spec guarantee survives a refactor that a test named after an
 implementation detail does not.
 
+**A factory that can build an input the recorder cannot is a trap.** Every test
+of the scenario-break split passed an `eventId` to `f.annotation`, and a real
+`scenario_break` has none -- so the suite was green on a path that had never run.
+When a builder takes a field, check what actually populates it before relying on
+it in a test.
+
+`tests/test_bind.py` covers the deterministic binding pass, which had no tests
+of its own while `name.py`, `assertions.py` and `compose.py` each had a module.
+That is where the half-proved-claim defect lived. `draft.py` and `digest.py`
+are still only covered end to end through `test_pipeline.py`.
+
 ## Status
 
 Phases 1 and 2 are closed. Phase 3's three "Smart" milestones -- the critic and
 its bounded repair loop, coverage suggestions, and bug mode -- are built and
 verified against `gemini-3.1-flash-lite`.
 
-Seven fixtures, with replay against the demo app:
+**Phase 4 replaced the generator.** `CRITIQUE.md` is the hostile read that
+prompted it, and the finding worth keeping in view is that it was found on a
+REAL recording and hidden by every fixture. On `rec_MT7MXBS9B2VB` -- 34 clicks,
+no annotations, no narration, which is what a tester's first recording actually
+looks like -- the old pipeline produced a scenario with no `Given`, a dangling
+`When` at the end, six unrelated beats, and a confidently wrong number the run's
+own warnings said was ungrounded. All seven fixtures passed. Every one of them
+carried an annotation, a narration track or a scenario break, and SS6.7 says in
+bold that those are optional.
+
+`name.py`, `assertions.py` and `compose.py` are gone. In their place:
+`digest.py` builds a session index (2,064 tokens for those 34 events),
+`draft.py` writes the whole document from it in one investigation, and
+`bind.py` proves every claim or deletes it. That is the architecture, and
+`toolCallsPerStep` on the `checkout` fixture reads `{step_002: 1, step_003: 4,
+step_004: 1}` -- SS3.3's variance arriving on the step that was actually hard
+rather than being spread evenly and subtracted back out. The critic, which
+found nothing three times on this recording, now returns a specific finding.
+
+**The `rec_MT7MXBS9B2VB` scenario this section used to quote was not
+reproducible, and the difference is the honest status of the phase.** What
+`runs/rec_MT7MXBS9B2VB/run_001/` actually contains:
+
+```gherkin
+Scenario: Hamper size upgrades automatically as items are added
+  Given the tester navigates to the "Create Your Own Hamper" page
+  When the tester adds items until the hamper reaches its capacity
+  Then the hamper is shown as a "Small Wicker Basket" with a capacity of "5 / 5"
+
+  When the tester continues adding items to trigger an upgrade to a Medium Wicker Basket
+  Then the hamper is shown as a "Medium Wicker Basket" with a capacity of "13 / 13"
+
+  When the tester continues adding items to trigger an upgrade to a Large Wicker Basket
+  Then the hamper is shown as a "Large Wicker Basket" with a capacity of "18 / 18"
+```
+
+Four things are wrong with it and every one is a finding about the prompts
+rather than about the model. The scenario name describes what the tester did
+rather than what the test proves. Three near-duplicate beats where the drafting
+prompt asks for one behaviour with one verdict, and "two or three expects across
+a whole scenario" became one per test step. `to trigger an upgrade to a Medium
+Wicker Basket` states an outcome inside the step's own text, which the prompt
+forbids. And the refusal at the end -- *no bigger hampers are available*, the
+one thing on that recording worth proving -- was discarded as `omitted:
+abandoned`: the drafter threw away the verdict and kept three copies of the
+setup.
+
+The critic caught it exactly, in one sentence: *"this covers three separate
+upgrade behaviours and reaches three distinct verdicts, making it three test
+cases in one."* Then nothing happened, because `coherence` has no row in
+`CRITIC_REPAIR`. Two of the three assertions were also half-proved in the way
+`_unwitnessed` now refuses.
+
+**Read that beside the fixture runs, because the split is the finding.** The
+demo-app recordings -- `rec_MT8TEM57CRGS`, `rec_MT8TF5SO6S71`,
+`rec_MT8TF0TIMA6U` -- produce clean, correctly shaped scenarios today. The two
+commercial recordings are where the prompt's own bolded prohibitions get
+violated and ship: `rec_MT7VTN7ZRJPO` closed on *the shopping bag panel opens,
+displaying the item(s) previously added to the cart*, which is the navigation
+assertion the drafting prompt forbids in bold, passing thirteen validators. A
+rule that holds on the fixtures and fails on real recordings is the CRITIQUE.md
+finding arriving a second time, one layer up: the fixtures no longer contain the
+thing.
+
+**What the ablation measures changed, and it is worth understanding before
+reading the table.** A0 used to FABRICATE: thirteen assertions, none grounded,
+thirteen fabrications. It cannot any more. The model never supplies a
+`toolCallId`, so with no retrieval there is nothing for a claim to rest on and
+every claim is deleted -- A0's honest output is **no assertions at all**. The
+A0-vs-A1 comparison is therefore about **Yield**, not about grounding rate, and
+`Fabric.` is structurally zero everywhere.
+
+That is a stronger result than the old row and a quieter one, so read it with
+care: a grounding rate of 1.0 is vacuous for a configuration that claims
+nothing. It is the same trap this project has now hit in five columns.
+
+A0 must also make NO retrieval, deterministic or otherwise. The cheap binding
+pass needs no model but still calls a tool and hashes a response; letting it
+run under A0 produced a "no tools" row with 0.33 calls per step. Pinned by
+`test_a0_makes_no_retrieval_of_any_kind`.
+
+The numbers below are from the OLD pipeline and have not been re-measured;
+treat them as history until the ablation is re-run.
+
+Seven fixtures, re-recorded through the real extension after the capture
+changes, run through the rebuilt generator:
 
 ```
 What it claimed
 Config   Assert   Grounded    Yield   Fabric.   Valid1st   ValidFin
 -------------------------------------------------------------------
-    A0       13        0.0      0.0        13     0.8253     0.8253
-    A1       21        1.0   0.6176         0     0.9857     0.9857
-    A2       21        1.0   0.6176         0     0.9857     0.9857
+    A0        0        1.0      0.0         0     0.7143     0.7143
+    A1        9        1.0     0.45         0      0.987      0.987
+    A2        7        1.0     0.35         0      0.987     0.9592
 
 What it did to get there
-Config   Calls/step   Spread   Findings   Converged   Executes   Rechecked    Held
------------------------------------------------------------------------------------
-    A0          0.0      0.0          0         0.0      0.625           6  0.8333
-    A1        2.441    0.601          0         0.0     0.7778          13     1.0
-    A2        2.559    0.787          3      0.6667     0.7778          13     1.0
+Config   Calls/step   Spread   Findings   Converged   PromptTok
+----------------------------------------------------------------
+    A0          0.0      0.0          0         0.0      19227
+    A1          0.8      0.0          0         0.0      60278
+    A2          1.1    0.496          4         1.0      89568
 ```
 
-**Read the A0 row across, not down.** It looks only a little worse on
-`Executes` -- 0.625 against 0.778 -- and that is the vacuous reading. It
-re-checked *six* assertions against thirteen, and one in six of those failed
-where none of A1's and A2's did. A configuration that claims less has less to
-get wrong.
+**That A2 row is a regression, and it is the reason `_keep_provable` exists.**
+Read it before trusting a repair loop. A2 claimed *fewer* expected results than
+A1 (7 against 9) and its final gate score went DOWN (0.987 to 0.959). One
+fixture caused all of it: on `hardpaths`, A1 bound two true claims -- the status
+showing "Payment method saved", and the page showing "Validating with the
+finance system...". The critic said each checked "a status message rather than
+the successful saving" and "a loading state rather than the completion of the
+validation process". Both sentences are plausible. Both ask for something the
+recording does not contain, because the slow validation never finishes inside
+it. Repair obeyed, binding correctly refused the replacements, and A2 shipped a
+scenario with no expected results at all.
 
-**A1 and A2 differ, finally, and not where you might expect.** Their claims are
-identical: same assertions, same grounding, same pass rate first and last. What
-separates them is `Findings` (0 against 3) and `Converged` (2 of 3 resolved
-within budget; the third went to the human with the finding stated, which is
-SS9.9's designed outcome on exhaustion, not a failure). `Spread` moves with it,
-0.601 to 0.787, because repair spends its retrievals on the steps that provoked
-a finding -- which is SS3.4's claim about adaptive effort, showing up in a
-column built for something else.
+**The critic being wrong is not the bug.** It is a second opinion; SS9.9 bounds
+it precisely because it can be wrong. The bug was that repair replaced a proven
+claim before finding out whether the replacement could be proven.
 
-**That the pass rate did not move is the honest result, not a disappointment.**
-The three findings were about meaning -- a vague step name, an expected result
-about the wrong thing -- and no deterministic validator has an opinion on
-either. If repair had moved `Grounded`, that would be the thing to investigate:
-a repair loop that lifts the grounding rate by teaching a model to cite better
-is a finding, and one that lifts it by weakening what counts as grounded is the
-bug this whole architecture exists to prevent.
+Fixed and verified on the fixture that caused it. `hardpaths` alone, after:
+
+```
+Config   Assert   Yield   ValidFin   Calls/step   Spread   Findings   Converged
+--------------------------------------------------------------------------------
+    A1        2  0.6667     0.9091          1.0      0.0          0         0.0
+    A2        2  0.6667     0.9091        5.333      2.5          3      0.6667
+```
+
+A2 keeps both claims and the gate score A1 has, and still raises three
+findings, two resolved within budget and one surfaced to the human -- which is
+SS9.9's designed outcome on exhaustion. `Spread` 2.5 against 0.0 is repair
+spending its retrievals on the steps that provoked a finding.
+
+**The seven-fixture table above predates that fix. Re-run the ablation before
+quoting it.**
+
+**`Fabric.` is structurally zero in every row now, and A0's is the row to
+understand.** A0 used to fabricate thirteen assertions. It emits none at all
+today, because the model never supplies a `toolCallId` and with no retrieval
+there is nothing for a claim to rest on. So `Grounded` reads 1.0 for a
+configuration that said nothing, which is the vacuity trap in its purest form.
+**Read `Grounded` beside `Yield`, always.**
+
+**A1's `Spread` of 0.0 is worth watching and is not yet alarming.** With no
+critic, almost every claim is settled by one deterministic retrieval, so the
+per-step column is flat by arithmetic rather than by inertia. The variance
+shows up where claims are genuinely contested -- on `checkout` alone,
+`toolCallsPerStep` reads `{step_002: 1, step_003: 4, step_004: 1}`, four
+retrievals on the rejected-order step. If that flattens on a recording with
+hard claims in it, the drafter's retrieval has become decoration and the design
+has not delivered what it promised.
 
 Seven fixtures, each built because a fixture that does not contain the thing
 cannot demonstrate it: `checkout`, `hardpaths`, `annotated` (an element the
@@ -540,6 +836,12 @@ tester marked, plus an intent note), `twoflows` (two test cases separated by a
 scenario break), `wander` (a wrong turn, pruned), `narrated` (the tester says
 what they are checking, out loud), and `bugged` (a 500, an uncaught exception,
 and the bug-marker hotkey).
+
+**Containing the thing is not the same as demonstrating it.** `twoflows`
+contains a scenario break and produced one scenario, and no test noticed --
+the whole path was reading a field the recorder never writes. Every fixture
+that carries a feature should have a check on what that feature PRODUCED, not
+only on the recording holding it.
 
 On `wander`, thirteen validators pass and none skip.
 

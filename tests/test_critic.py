@@ -21,7 +21,7 @@ from server.pipeline.repair import CRITIC_REPAIR, VALIDATOR_REPAIR, targets
 from server.pipeline.run import PipelineOptions, run_pipeline
 from server.storage.paths import Storage
 from tests import factories as f
-from tests.test_pipeline import CONFIRMATION, composed, recording, stage_of
+from tests.test_pipeline import CONFIRMATION, recording, stage_of
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -37,10 +37,17 @@ def a2(**overrides) -> PipelineOptions:
     return PipelineOptions.for_config(AblationConfig.A2, **overrides)
 
 
-#: The first line of `name.REPAIR_ADDENDUM`. The stand-in has to notice it the
-#: way a real model would -- from the prompt it was handed, not from a flag the
-#: test set.
-REWRITING = "You are writing it again"
+#: Bug mode is off by default (SS14, and CRITIQUE SS2.6): on a commercial site
+#: the uncaught-exception signal fires on third-party advertising and consent
+#: scripts, and one false report costs more trust than fifty good test cases
+#: earn. Every test below that wants a bug report asks for it, which is the
+#: right amount of friction for a stage that files defects at people.
+
+
+#: The opening of the rewrite prompt. The stand-in has to notice it the way a
+#: real model would -- from the prompt it was handed, not from a flag the test
+#: set.
+REWRITING = "You rewrite one step"
 
 
 def scripted(
@@ -51,36 +58,72 @@ def scripted(
     later_findings: list[dict] | None = None,
     suggestions: list[dict] | None = None,
 ) -> ScriptedModelClient:
-    """A run whose naming can be sent back, and whose critic can be scripted.
+    """A run whose steps can be sent back, and whose critic can be scripted.
 
-    `names` is one per step, in order. `repaired` is what naming answers when it
-    is handed a step back with a finding -- recognised from the prompt, so the
-    stand-in has to notice it was asked something different, exactly as a real
-    model does. `later_findings` is what the critic says on the re-review, an
-    empty list meaning resolved.
+    `names` is one per step, in order. `repaired` is what the rewrite stage
+    answers when a step is handed back with a finding -- recognised from the
+    prompt, so the stand-in has to notice it was asked something different,
+    exactly as a real model does. `later_findings` is what the critic says on
+    the re-review, an empty list meaning resolved.
     """
-    state = {"critiques": 0, "named": 0}
+    state = {"critiques": 0}
 
     def behave(request: CompletionRequest):
         stage = stage_of(request)
-        if stage == "compose":
-            return answer(composed())
         if stage == "critic":
             state["critiques"] += 1
             raised = findings if state["critiques"] == 1 else (later_findings or [])
             return answer(json.dumps({"findings": raised or []}))
         if stage == "coverage":
             return answer(json.dumps({"suggestions": suggestions or []}))
-        if stage == "name":
-            if REWRITING in (request.messages[1].content or ""):
-                text = repaired
-            else:
-                text = names[min(state["named"], len(names) - 1)]
-                state["named"] += 1
+        if stage == "rewrite":
+            return answer(json.dumps({"text": repaired, "reason": "less vague"}))
+        if stage == "reexpect":
             return answer(
-                json.dumps({"role": "test_step", "text": text, "confidence": "high"})
+                json.dumps(
+                    {
+                        "expect": [
+                            {"text": "the confirmation banner appears", "eventId": "evt_002"}
+                        ],
+                        "reason": "this is the outcome under test",
+                    }
+                )
+            )
+        if stage == "draft":
+            # One step per supplied name, over the two-event fixture. The last
+            # step carries the expected result, so the scenario has a verdict.
+            events = ["evt_001", "evt_002"]
+            steps = []
+            for i, text in enumerate(names):
+                step = {
+                    "keyword": "Given" if i == 0 and len(names) > 1 else "When",
+                    "role": "setup" if i == 0 and len(names) > 1 else "test_step",
+                    "text": text,
+                    "eventIds": [events[i]] if i < len(events) else [],
+                }
+                steps.append(step)
+            # Anything the names did not cover still has to be accounted for.
+            covered = {e for s in steps for e in s["eventIds"]}
+            leftover = [e for e in events if e not in covered]
+            if leftover and steps:
+                steps[-1]["eventIds"] = list(steps[-1]["eventIds"]) + leftover
+            steps[-1]["expect"] = [
+                {"text": "the confirmation banner appears", "eventId": "evt_002"}
+            ]
+            return answer(
+                json.dumps(
+                    {
+                        "title": "Order checkout",
+                        "description": "",
+                        "tags": ["checkout"],
+                        "scenarios": [
+                            {"name": "Submitting a valid order confirms it", "steps": steps}
+                        ],
+                    }
+                )
             )
 
+        # bind
         tool_results = [m for m in request.messages if m.role == "tool"]
         if not tool_results:
             from server.llm import calls
@@ -89,20 +132,15 @@ def scripted(
         payload = json.loads(tool_results[-1].content or "{}")
         matches = (payload.get("result") or {}).get("matches") or []
         if not matches:
-            return answer(json.dumps({"candidates": []}))
+            return answer(json.dumps({"verdict": "unsupported", "reason": "nothing shows this"}))
         return answer(
             json.dumps(
                 {
-                    "candidates": [
-                        {
-                            "text": "the confirmation banner appears",
-                            "provenance": "inferred",
-                            "literal": CONFIRMATION,
-                            "toolCallId": payload.get("toolCallId"),
-                            "eventId": matches[0]["eventId"],
-                            "kind": "semantic_node",
-                        }
-                    ]
+                    "verdict": "bind",
+                    "literal": CONFIRMATION,
+                    "eventId": matches[0]["eventId"],
+                    "kind": "semantic_node",
+                    "reason": "the banner says so",
                 }
             )
         )
@@ -371,16 +409,24 @@ def test_the_superseded_draft_is_kept_beside_the_one_that_replaced_it(storage: S
     )
     result = run_pipeline(recording(), model, storage=storage, run_id="run_keep", options=a2())
 
-    assert (result.run.root / "naming.attempt1.json").exists()
+    assert (result.run.root / "draft.attempt1.json").exists()
     assert (result.run.root / "ir.attempt1.json").exists()
-    superseded = json.loads((result.run.root / "naming.attempt1.json").read_text(encoding="utf-8"))
-    assert superseded["steps"][0]["text"] == "the tester clicks the button"
+    superseded = json.loads((result.run.root / "draft.attempt1.json").read_text(encoding="utf-8"))
+    assert superseded["scenarios"][0]["steps"][0]["text"] == "the tester clicks the button"
 
 
 def test_repair_effort_still_counts_against_the_step_that_needed_it(storage: Storage):
     # SS3.4's column has to reflect what the run actually spent on a step.
     # Under-reporting the step that took two passes would hide exactly the step
     # the correlation exists to find -- the hard one.
+    #
+    # What is per-step changed with draft-then-bind and the change is an
+    # improvement: the initial pass writes the whole document in ONE
+    # investigation, which carries no step id because it is not about any one
+    # step. Per-step effort is now what was spent settling that step
+    # specifically -- binding its contested claim, and repairing it -- which is
+    # a cleaner reading of "how hard was this step" than a per-segment naming
+    # loop that ran whether or not anything was unclear.
     model = scripted(
         names=["the tester clicks the button", "the tester places the order"],
         findings=[
@@ -390,8 +436,15 @@ def test_repair_effort_still_counts_against_the_step_that_needed_it(storage: Sto
     )
     result = run_pipeline(recording(), model, storage=storage, run_id="run_effort", options=a2())
 
-    stages = [i.stage for i in result.trace.investigations if i.stepId == "step_001"]
-    assert stages.count(PipelineStage.name) == 2, "both naming passes must be in the trace"
+    per_step = [i for i in result.trace.investigations if i.stepId == "step_001"]
+    assert any(i.stage == PipelineStage.name for i in per_step), (
+        "the repair pass over this step must be in the trace"
+    )
+    # And the document-level pass is recorded too, against no step.
+    assert any(
+        i.stage == PipelineStage.decompose and not i.stepId
+        for i in result.trace.investigations
+    ), "the drafting investigation must be recorded, and must not be charged to one step"
 
 
 # --------------------------------------------------------------------------
@@ -578,19 +631,36 @@ def bug_model(*, literal: str | None) -> ScriptedModelClient:
 
     def behave(request: CompletionRequest):
         stage = stage_of(request)
-        if stage == "compose":
-            return answer(composed())
         if stage == "critic":
             return answer(json.dumps({"findings": []}))
         if stage == "coverage":
             return answer(json.dumps({"suggestions": []}))
-        if stage == "name":
+        if stage == "draft":
             return answer(
                 json.dumps(
                     {
-                        "role": "test_step",
-                        "text": "the tester exports the order",
-                        "confidence": "high",
+                        "title": "Order export",
+                        "description": "",
+                        "tags": ["export"],
+                        "scenarios": [
+                            {
+                                "name": "Exporting an order",
+                                "steps": [
+                                    {
+                                        "keyword": "When",
+                                        "role": "test_step",
+                                        "text": "the tester exports the order",
+                                        "eventIds": ["evt_001"],
+                                        "expect": [
+                                            {
+                                                "text": "the export completes",
+                                                "eventId": "evt_001",
+                                            }
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
                     }
                 )
             )
@@ -603,7 +673,9 @@ def bug_model(*, literal: str | None) -> ScriptedModelClient:
         payload = json.loads(tool_results[-1].content or "{}")
         matches = (payload.get("result") or {}).get("matches") or []
         if not is_bug:
-            return answer(json.dumps({"candidates": []}))
+            return answer(
+                json.dumps({"verdict": "unsupported", "reason": "nothing shows the export worked"})
+            )
         if literal is None or not matches:
             return answer(
                 json.dumps({"expected": "the export succeeds", "actual": "it did not, somehow"})
@@ -690,7 +762,7 @@ def test_a_bug_reports_actual_must_quote_a_retrieval(storage: Storage):
         bug_model(literal=SERVER_ERROR),
         storage=storage,
         run_id="run_bug",
-        options=a2(),
+        options=a2(bug_mode_enabled=True),
     )
 
     bug = next((c for c in result.ir.testCases if c.kind == "bug_report"), None)
@@ -719,7 +791,7 @@ def test_a_retrieval_made_after_the_trace_was_built_still_resolves(storage: Stor
         bug_model(literal=SERVER_ERROR),
         storage=storage,
         run_id="run_sync",
-        options=a2(),
+        options=a2(bug_mode_enabled=True),
     )
 
     bug = next(c for c in result.ir.testCases if c.kind == "bug_report")
@@ -745,7 +817,7 @@ def test_a_bug_report_that_cannot_cite_anything_is_not_written(storage: Storage)
         bug_model(literal=None),
         storage=storage,
         run_id="run_nobug",
-        options=a2(),
+        options=a2(bug_mode_enabled=True),
     )
 
     assert all(c.kind != "bug_report" for c in result.ir.testCases)
@@ -761,7 +833,7 @@ def test_a_bug_report_is_written_beside_the_test_case_not_instead_of_it(storage:
         bug_model(literal=SERVER_ERROR),
         storage=storage,
         run_id="run_both",
-        options=a2(),
+        options=a2(bug_mode_enabled=True),
     )
 
     kinds = {c.kind.value for c in result.ir.testCases}
@@ -846,3 +918,482 @@ def test_a_bug_report_is_never_rendered_as_gherkin():
     ir = f.ir_document()
     ir.testCases[0].kind = "bug_report"
     assert render_document(ir) == {}
+
+
+# --------------------------------------------------------------------------
+# whose JavaScript threw it
+# --------------------------------------------------------------------------
+
+
+def _console(text: str, stack: str | None = None):
+    from server.models import ConsoleEntry
+
+    return ConsoleEntry(
+        id="con_1",
+        level="error",
+        text=text,
+        timestamp=0.0,
+        uncaught=True,
+        **({"stack": stack} if stack else {}),
+    )
+
+
+def _on(url: str, entries):
+    # `recording` takes startUrl from the first event, so recording the event
+    # on the app's own URL is what makes it the app's own host.
+    return f.recording(events=[f.event("evt_001", 0, at=0.0, url=url, console=entries)])
+
+
+def test_an_opaque_exception_is_not_a_bug_report():
+    # The first bug report this tool ever wrote on a real recording was
+    # grounded in `Uncaught [object Object]` from a commercial home page. A
+    # developer spends ninety minutes, finds nothing, and the tool is dead in
+    # that org -- one false report costs more trust than fifty good test cases
+    # earn.
+    #
+    # This holds whoever threw it. Code that throws a non-Error gives a
+    # developer nothing to go on even when it is the application's own.
+    from server.pipeline.bugmode import detect
+
+    signals = detect(_on("https://shop.example.com/", [_console("Uncaught [object Object]")]))
+    assert not signals.detected, signals.summary
+    # Recorded, not discarded: "why is this NOT a bug" gets the arithmetic.
+    assert any(s.kind == "opaque_exception" for s in signals.signals)
+
+
+def test_an_exception_from_a_third_party_script_is_not_a_bug_report():
+    # Ad tags, consent managers and analytics throw constantly on any
+    # commercial site, and nobody who works on that site can do anything about
+    # it. The stack says whose code it was.
+    from server.pipeline.bugmode import detect
+
+    stack = (
+        "TypeError: undefined is not a function\n"
+        "    at https://cdn.doubleclick.net/tag/js/gpt.js:12:9"
+    )
+    signals = detect(
+        _on("https://shop.example.com/", [_console("Uncaught TypeError: boom", stack)])
+    )
+    assert not signals.detected, signals.summary
+
+
+def test_an_exception_from_the_application_itself_is_a_bug_report():
+    # The other half, and the one that matters: this is SS14.1's STRONG signal
+    # and it has to keep firing, or the first-party check has bought silence
+    # rather than accuracy.
+    from server.pipeline.bugmode import detect
+
+    stack = (
+        "Error: Export failed: order state is inconsistent\n"
+        "    at https://shop.example.com/static/checkout.js:245:29"
+    )
+    signals = detect(
+        _on("https://shop.example.com/", [_console("Uncaught Error: Export failed", stack)])
+    )
+    assert signals.detected, signals.summary
+    assert any(s.kind == "uncaught_exception" for s in signals.signals)
+
+
+def test_a_stack_with_a_port_still_matches_its_own_host():
+    # A stack frame ends in `:line:column`, so a pattern that stops at the
+    # first colon to avoid those also stops before the PORT. That read
+    # `http://localhost:5173/...` as host `localhost`, which matches no app
+    # host -- and the demo app's own exception looked third-party.
+    from server.pipeline.bugmode import detect
+
+    stack = "Error: boom\n    at http://localhost:5173/src/pages/Checkout.tsx:245:29"
+    signals = detect(
+        _on("http://localhost:5173/", [_console("Uncaught Error: boom", stack)])
+    )
+    assert signals.detected, signals.summary
+
+
+def test_the_same_exception_thirty_times_is_one_signal():
+    # A noisy console repeats the same throw on every interaction. Counting it
+    # once per event makes one defect look like a catastrophe and puts thirty
+    # identical lines in the repro report.
+    from server.pipeline.bugmode import detect
+
+    stack = "Error: boom\n    at https://shop.example.com/app.js:1:1"
+    rec = f.recording(
+        events=[
+            f.event(
+                f"evt_{i:03d}",
+                i - 1,
+                at=float(i) * 1000.0,
+                url="https://shop.example.com/",
+                console=[_console("Uncaught Error: boom", stack)],
+            )
+            for i in range(1, 6)
+        ]
+    )
+    signals = detect(rec)
+    assert len([s for s in signals.signals if s.kind == "uncaught_exception"]) == 1
+
+
+def test_a_500_from_an_analytics_collector_is_not_a_bug_report():
+    # The loudest signal in the table, fired by something that says nothing
+    # about the application under test.
+    from server.pipeline.bugmode import detect
+
+    rec = f.recording(
+        events=[
+            f.event(
+                "evt_001",
+                0,
+                at=0.0,
+                url="https://shop.example.com/",
+                network=[
+                    f.network_call(
+                        method="POST", url="https://collect.analytics.io/v1/t", status=500
+                    )
+                ],
+            )
+        ]
+    )
+    assert not detect(rec).detected
+
+
+def test_a_mutation_claim_can_be_repaired_from_either_side():
+    # `mutation_claimed` reads the step text AND its expected results, because
+    # either can claim the application changed something: "the tester SAVES the
+    # payment method" asserts persistence just as loudly as "the payment method
+    # is saved" does.
+    #
+    # Routed only to the assert stage, a re-proposed expected result cannot fix
+    # a rejection caused by the verb in the step NAME -- and on a real fixture
+    # the finding came back unresolved on every attempt because of it.
+    from server.models import PipelineStage, ValidatorName
+    from server.pipeline.repair import targets
+
+    row = f.validator_result(
+        ValidatorName.mutation_claimed,
+        reject=True,
+        step_id="step_002",
+        message="step claims a change but no successful mutating request",
+    )
+    out = targets(
+        f.validation_report(results=[row]),
+        [],
+        protected=set(),
+        known_steps={"step_002"},
+    )
+
+    assert {t.stage for t in out} == {PipelineStage.assert_, PipelineStage.name}
+    assert all(t.step_id == "step_002" for t in out)
+
+
+def test_a_protected_step_is_still_not_renamed_by_a_mutation_finding():
+    # The second stage must not become a way round SS6.7. A step the tester
+    # named word for word keeps its wording whatever a validator says about it;
+    # what remains available is the expected result.
+    from server.models import PipelineStage, ValidatorName
+    from server.pipeline.repair import targets
+
+    row = f.validator_result(
+        ValidatorName.mutation_claimed,
+        reject=True,
+        step_id="step_002",
+        message="step claims a change but no successful mutating request",
+    )
+    out = targets(
+        f.validation_report(results=[row]),
+        [],
+        protected={"step_002"},
+        known_steps={"step_002"},
+    )
+
+    assert [t.stage for t in out] == [PipelineStage.assert_]
+
+
+# --------------------------------------------------------------------------
+# what a repair may not do to a step
+# --------------------------------------------------------------------------
+
+
+def _one_step_draft(text: str):
+    from server.models import SegmentRole
+    from server.pipeline.draft import DraftedScenario, DraftedStep, DraftResult
+
+    return DraftResult(
+        title="t",
+        description="",
+        tags=[],
+        scenarios=[
+            DraftedScenario(
+                name="s",
+                steps=[
+                    DraftedStep("step_001", "When", SegmentRole.test_step, text, ["evt_001"]),
+                    DraftedStep(
+                        "step_002", "When", SegmentRole.test_step, "the tester waits", ["evt_002"]
+                    ),
+                ],
+            )
+        ],
+    )
+
+
+def _rewriter(answer_text: str, tmp_path: Path):
+    """A model that answers every rewrite with one sentence."""
+    from server.evidence.store import EvidenceStore
+    from server.evidence.tools import ToolRunner
+    from server.llm.scripted import ScriptedModelClient, answer
+    from server.pipeline.segment import segment_recording
+    from server.storage.paths import Storage
+
+    rec = f.recording(
+        events=[f.event("evt_001", 0, at=0.0), f.event("evt_002", 1, at=1000.0)]
+    )
+    store = EvidenceStore(recording=rec, segments=segment_recording(rec, run_id="r"))
+    storage = Storage(recordings_dir=tmp_path / "rec", runs_dir=tmp_path / "runs")
+    runner = ToolRunner(store=store, storage=storage, run=storage.run(rec.id, "r"))
+    model = ScriptedModelClient(
+        lambda _r: answer(json.dumps({"text": answer_text, "reason": "because"}))
+    )
+    return store, runner, model
+
+
+def test_a_rewrite_that_drops_a_parameter_is_refused(tmp_path: Path):
+    # A redaction placeholder IS a test parameter (SS7.2) -- the one thing
+    # telling whoever runs this what to supply. A tidier sentence that drops one
+    # is worse than the sentence it replaced, and this is the only path that
+    # rewrites a step's text after the placeholders were put into it.
+    from server.config import ProjectConfig
+    from server.pipeline.draft import rewrite_steps
+
+    store, runner, model = _rewriter("the tester signs in", tmp_path)
+    drafted = _one_step_draft('the tester signs in as "<<user_email_1>>"')
+
+    changed = rewrite_steps(
+        store,
+        runner,
+        model,
+        drafted,
+        findings={"step_001": "too long"},
+        model_name="test",
+        budget=0,
+        tools_enabled=False,
+        temperature=0.0,
+        config=ProjectConfig(),
+        attempt=2,
+    )
+
+    assert changed == set(), "a rewrite that loses a parameter must not be applied"
+    assert drafted.steps[0].text == 'the tester signs in as "<<user_email_1>>"'
+
+
+def test_a_rewrite_that_keeps_the_parameter_is_applied(tmp_path: Path):
+    # The other half: the guard must not block an honest improvement.
+    from server.config import ProjectConfig
+    from server.pipeline.draft import rewrite_steps
+
+    better = 'the tester signs in as "<<user_email_1>>" and reaches the catalogue'
+    store, runner, model = _rewriter(better, tmp_path)
+    drafted = _one_step_draft('the tester signs in as "<<user_email_1>>"')
+
+    changed = rewrite_steps(
+        store,
+        runner,
+        model,
+        drafted,
+        findings={"step_001": "too vague"},
+        model_name="test",
+        budget=0,
+        tools_enabled=False,
+        temperature=0.0,
+        config=ProjectConfig(),
+        attempt=2,
+    )
+
+    assert changed == {"step_001"}
+    assert drafted.steps[0].text == better
+
+
+def test_a_rewrite_that_would_collapse_two_steps_is_refused(tmp_path: Path):
+    # `merge_repeats` folds adjacent steps whose text matches exactly, so a
+    # repair prompted with "this name is too vague" can produce a name
+    # identical to its neighbour and DELETE a step -- changing the step count
+    # mid-run, which SS3.6 promises does not happen, and moving Yield's
+    # denominator, which is worse because the metric then improves.
+    from server.config import ProjectConfig
+    from server.pipeline.draft import rewrite_steps
+
+    store, runner, model = _rewriter("the tester waits", tmp_path)
+    drafted = _one_step_draft("the tester does something specific")
+
+    changed = rewrite_steps(
+        store,
+        runner,
+        model,
+        drafted,
+        findings={"step_001": "too specific"},
+        model_name="test",
+        budget=0,
+        tools_enabled=False,
+        temperature=0.0,
+        config=ProjectConfig(),
+        attempt=2,
+    )
+
+    assert changed == set()
+    assert drafted.steps[0].text == "the tester does something specific"
+
+
+# --------------------------------------------------------------------------
+# a repair may not make the output worse
+# --------------------------------------------------------------------------
+
+
+def test_a_repair_that_loses_a_provable_claim_is_reverted():
+    # Found in an ablation, and it cost real output. On `hardpaths`, A1 bound
+    # two true expected results -- the status showing "Payment method saved"
+    # and the page showing "Validating with the finance system...". The critic
+    # said each checked "a status message rather than the successful saving"
+    # and "a loading state rather than the completion of the validation
+    # process": plausible sentences, both asking for something the recording
+    # does not contain, because the slow validation never finishes inside it.
+    #
+    # Repair obeyed. Binding correctly refused the replacements. A2 shipped a
+    # scenario with NO expected results where A1 had two, and its gate score
+    # went DOWN.
+    #
+    # The critic being wrong is not the bug -- it is a second opinion and SS9.9
+    # bounds it precisely because it can be wrong. The bug was replacing a
+    # proven claim before finding out whether the replacement could be proven.
+    from server.models import SegmentRole
+    from server.pipeline.bind import BindResult, BoundClaim
+    from server.pipeline.draft import (
+        DraftedExpectation,
+        DraftedScenario,
+        DraftedStep,
+        DraftResult,
+    )
+    from server.pipeline.run import _keep_provable
+
+    original = DraftedExpectation("the status shows 'Payment method saved'", "evt_002")
+    replacement = DraftedExpectation("the payment method is confirmed as saved", "evt_002")
+
+    drafted = DraftResult(
+        title="t",
+        description="",
+        tags=[],
+        scenarios=[
+            DraftedScenario(
+                name="s",
+                steps=[
+                    DraftedStep(
+                        "step_002",
+                        "When",
+                        SegmentRole.test_step,
+                        "the tester saves the payment method",
+                        ["evt_002"],
+                        expects=[replacement],
+                    )
+                ],
+            )
+        ],
+    )
+
+    before = BindResult(
+        claims=[
+            BoundClaim(
+                step_id="step_002",
+                text=original.text,
+                verdict="bind",
+                assertion=f.assertion("a1", original.text),
+            )
+        ]
+    )
+    after = BindResult(
+        claims=[
+            BoundClaim(
+                step_id="step_002",
+                text=replacement.text,
+                verdict="unsupported",
+                reason="the recording never says the save completed",
+            )
+        ]
+    )
+
+    merged, reverted = _keep_provable(drafted, {"step_002": [original]}, before, after)
+
+    assert reverted == {"step_002"}
+    assert [a.text for a in merged.for_step("step_002")] == [original.text]
+    # The draft goes back too, so `draft.json` and the IR agree about what this
+    # step expects.
+    assert drafted.steps[0].expects == [original]
+    # And the attempt that failed is still in the record: the run really did
+    # spend those retrievals, and a reviewer asking why the wording did not
+    # change deserves the answer.
+    assert any(c.verdict == "unsupported" for c in merged.claims)
+
+
+def test_a_repair_that_finds_something_better_still_stands():
+    # The guard must not freeze the output. A replacement that BINDS is exactly
+    # what the repair loop is for, and it wins.
+    from server.models import SegmentRole
+    from server.pipeline.bind import BindResult, BoundClaim
+    from server.pipeline.draft import (
+        DraftedExpectation,
+        DraftedScenario,
+        DraftedStep,
+        DraftResult,
+    )
+    from server.pipeline.run import _keep_provable
+
+    original = DraftedExpectation("something happens", "evt_002")
+    better = DraftedExpectation("the order total updates to EUR615", "evt_002")
+
+    drafted = DraftResult(
+        title="t",
+        description="",
+        tags=[],
+        scenarios=[
+            DraftedScenario(
+                name="s",
+                steps=[
+                    DraftedStep(
+                        "step_002",
+                        "When",
+                        SegmentRole.test_step,
+                        "the tester sets the total",
+                        ["evt_002"],
+                        expects=[better],
+                    )
+                ],
+            )
+        ],
+    )
+
+    before = BindResult(
+        claims=[
+            BoundClaim("step_002", original.text, "bind", assertion=f.assertion("a1", original.text))
+        ]
+    )
+    after = BindResult(
+        claims=[
+            BoundClaim("step_002", better.text, "bind", assertion=f.assertion("a2", better.text))
+        ]
+    )
+
+    merged, reverted = _keep_provable(drafted, {"step_002": [original]}, before, after)
+
+    assert reverted == set()
+    assert [a.text for a in merged.for_step("step_002")] == [better.text]
+    assert drafted.steps[0].expects == [better]
+
+
+def test_a_step_that_never_had_a_claim_is_not_reverted():
+    # Nothing was lost, so there is nothing to restore -- and re-proposing for
+    # a step that had no expected result is a normal, useful repair.
+    from server.pipeline.bind import BindResult, BoundClaim
+    from server.pipeline.draft import DraftResult
+    from server.pipeline.run import _keep_provable
+
+    drafted = DraftResult(title="t", description="", tags=[], scenarios=[])
+    before = BindResult(claims=[])
+    after = BindResult(claims=[BoundClaim("step_002", "nope", "unsupported", reason="no")])
+
+    merged, reverted = _keep_provable(drafted, {"step_002": []}, before, after)
+    assert reverted == set()
+    assert merged is after

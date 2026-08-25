@@ -38,9 +38,9 @@ test.beforeAll(async () => {
     args: [
       `--disable-extensions-except=${EXTENSION}`,
       `--load-extension=${EXTENSION}`,
-      // SS6.6. PLAN.md said narration "cannot be verified the way everything
-      // else here has been -- Playwright needs a fake audio file, not a
-      // microphone." This is the fake audio file: Windows' own synthesiser
+      // SS6.6. Narration cannot be verified the way everything else here has
+      // been -- Playwright needs a fake audio file, not a microphone. This is
+      // that fake audio file: Windows' own synthesiser
       // wrote it (scripts/make_narration_wav.ps1) and it is committed, so the
       // spoken half of the pipeline is as reproducible as the clicked half.
       '--use-fake-device-for-media-stream',
@@ -288,7 +288,18 @@ test('captures the hard paths: iframe, shadow roots, canvas, slow endpoint', asy
 
   // A control with no text, no aria-label and no title: it must be reported
   // as unnameable rather than described.
-  await page.locator('form button.secondary >> nth=1').click();
+  //
+  // Selected by what MAKES it unnameable -- its only content is hidden from
+  // the accessibility tree -- rather than by position. It used to be
+  // `button.secondary >> nth=1`, and when bug mode's "Export the order" button
+  // landed between the two this started clicking that instead. The test went
+  // on passing against a fixture recorded before the change, and only failed
+  // once the fixtures were re-recorded: a positional selector in a test about
+  // accessible names is the wrong tool twice over.
+  await page
+    .locator('form button.secondary')
+    .filter({ has: page.locator('[aria-hidden="true"]') })
+    .click();
   await pause(page);
 
   // Canvas -- only coordinates are knowable.

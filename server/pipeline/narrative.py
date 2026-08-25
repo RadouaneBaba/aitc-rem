@@ -1,21 +1,25 @@
 """Gherkin narrative layout. Deterministic, code only, no model.
 
-Given/When/Then is a property of a *scenario*, not of a step. The naming stage
-sees one segment at a time (SS9.4) and so cannot know whether the step it is
-looking at is arrival at the state under test or the thing being tested -- ask
-it for a keyword anyway and it answers `When` every time, which is exactly what
-the Phase 1 output did for seven steps running.
+This module used to DERIVE Given/When/Then from each step's role plus its
+position, and that was right for as long as the stage writing steps was shown
+one segment at a time: asked for a keyword with no view of the flow, a model
+answers `When` every time, which is how Phase 1 shipped seven `When`s in a row.
 
-So the model supplies the role (SS9.3: setup / test_step / teardown) and this
-module supplies the keyword. Roles are a judgment about the flow; keywords are
-a mechanical consequence of the roles plus where the assertions fall. Only the
-first of those needs a model.
+The drafting stage sees the whole session, so it chooses the keyword and this
+module lays out what it chose -- collapsing runs into `And`, placing expected
+results after the steps that produced them, and breaking the scenario into
+beats. Where a scenario's shape is illegal, `gherkin_style` says so rather than
+this module silently rewriting it: a keyword quietly mutated in the renderer is
+how every `Given` disappeared from both real recordings without anything
+failing.
 
-Determinism note: `segments.json` is untouched here and stays reproducible for
-the same recording. What this module rewrites is downstream of naming, and the
-one structural change it makes -- merging two adjacent steps that say the same
-sentence -- unions their `eventIds`, so `event_coverage` still accounts for
-every event.
+The one rule still enforced here is positional and cannot be a matter of
+opinion: `Given` belongs to the opening block. See `_opening_block`.
+
+Determinism note: `segments.json` is untouched and stays reproducible for the
+same recording. The one structural change this module makes -- merging two
+adjacent steps that say the same sentence -- unions their `eventIds`, so
+`event_coverage` still accounts for every event.
 """
 
 from __future__ import annotations
@@ -108,145 +112,6 @@ def build_narrative(steps: list[Step], *, lift_background: bool = False) -> Narr
     )
 
 
-def apply_merges(
-    steps: list[Step],
-    groups: list[list[str]],
-    *,
-    texts: dict[str, str] | None = None,
-) -> list[Step]:
-    """Fold together the steps composition judged to be one intent.
-
-    The segmenter cuts on evidence of a boundary; a boundary is not a change of
-    intent. Typing a password and pressing Sign in are two segments and one
-    thing the tester was doing, and named in isolation they come back as two
-    sentences about signing in -- which is the tool visibly stuttering.
-
-    No rule separates that from a tester who genuinely did the same thing twice,
-    so the judgment is composition's (it sees the whole flow) and the mechanics
-    are here. Only adjacent steps merge: reordering a test case is not a
-    phrasing decision.
-    """
-    if not groups:
-        return list(steps)
-
-    texts = texts or {}
-    position = {step.id: index for index, step in enumerate(steps)}
-    absorbed_by: dict[str, str] = {}
-    #: keeper id -> the sentence the merged step should carry.
-    rename: dict[str, str] = {}
-
-    for group in groups:
-        known = [sid for sid in group if sid in position]
-        if len(known) < 2:
-            continue
-        known.sort(key=position.__getitem__)
-        if position[known[-1]] - position[known[0]] != len(known) - 1:
-            # Not contiguous. Merging across a gap would silently delete the
-            # step in between.
-            continue
-        for sid in known[1:]:
-            absorbed_by[sid] = known[0]
-        replacement = next((texts[sid] for sid in known if texts.get(sid)), "")
-        originals = [position[sid] for sid in known]
-        if replacement and _keeps_parameters(replacement, [steps[i].text for i in originals]):
-            rename[known[0]] = replacement
-        elif replacement:
-            # The merged sentence dropped a redaction placeholder. SS7.2 makes
-            # those the test's parameters -- the one thing telling whoever runs
-            # it what to supply -- so the more specific original wins over a
-            # tidier summary.
-            rename[known[0]] = max(
-                (steps[i].text for i in originals), key=lambda t: len(PLACEHOLDER.findall(t))
-            )
-
-    out: list[Step] = []
-    by_id: dict[str, int] = {}
-    for step in steps:
-        keeper_id = absorbed_by.get(step.id)
-        if keeper_id is not None and keeper_id in by_id:
-            out[by_id[keeper_id]] = _absorb(out[by_id[keeper_id]], step)
-            continue
-        by_id[step.id] = len(out)
-        out.append(step)
-
-    for step in out:
-        if step.id in rename:
-            step.text = rename[step.id]
-    return out
-
-
-def apply_splits(steps: list[Step], splits: list) -> list[Step]:
-    """Cut a step the segmenter joined but that holds two attempts (SS9.3).
-
-    The counterpart to `apply_merges`, and needed for a reason the merge side
-    cannot cover: `segment.py` deliberately does not end a step on a rejected
-    request, because a rejection usually means a typo being corrected rather
-    than a second attempt. When the rejection is what the test is ABOUT, that
-    rule produces a step which contradicts its own expected result -- granting
-    approval and then expecting to be told approval is required. Every literal
-    in it is true; the test case is still wrong, and only a replay caught it.
-
-    Assertions are not reassigned by hand: each follows its own
-    `evidence.eventId` into whichever half actually produced it. That is the
-    whole trick. The claim about the rejection stays with the attempt that was
-    rejected, because that is where its evidence is, and nothing has to guess.
-    """
-    if not splits:
-        return list(steps)
-
-    by_step = {getattr(sp, "step_id", ""): sp for sp in splits}
-    out: list[Step] = []
-
-    for step in steps:
-        split = by_step.get(step.id)
-        after = getattr(split, "after_event_id", None)
-        # `.index()` would raise on an event this step does not have. The
-        # compose parser filters those out, but this is a public function and a
-        # caller with a stale step id should get "no split", not a crash that
-        # loses the run.
-        cut = step.eventIds.index(after) + 1 if after in step.eventIds else 0
-        if split is None or not (0 < cut < len(step.eventIds)):
-            out.append(step)
-            continue
-
-        head_ids = step.eventIds[:cut]
-        tail_ids = step.eventIds[cut:]
-
-        head = step.model_copy(deep=True)
-        head.eventIds = head_ids
-        tail = step.model_copy(deep=True)
-        tail.id = f"{step.id}b"
-        tail.eventIds = tail_ids
-
-        first, second = getattr(split, "texts", ("", ""))
-        if first:
-            head.text = first
-        if second:
-            tail.text = second
-
-        head.assertions, tail.assertions = _partition_assertions(step, head_ids, tail_ids)
-        out.extend([head, tail])
-
-    return out
-
-
-def _partition_assertions(
-    step: Step, head_ids: list[str], tail_ids: list[str]
-) -> tuple[list[Assertion], list[Assertion]]:
-    """Send each assertion to the half its evidence came from.
-
-    An assertion whose `eventId` is in neither half -- which should not happen,
-    but a model can write anything -- stays with the first, where it was before.
-    Losing a grounded claim to a bookkeeping edge case would be the worse error.
-    """
-    head: list[Assertion] = []
-    tail: list[Assertion] = []
-    for assertion in step.assertions:
-        event_id = assertion.evidence.eventId
-        (tail if event_id in tail_ids and event_id not in head_ids else head).append(assertion)
-    return head, tail
-
-
 def merge_repeats(steps: list[Step]) -> list[Step]:
     """Collapse adjacent steps that say the same thing.
 
@@ -278,28 +143,38 @@ def _lay_out(steps: list[Step]) -> list[Line]:
     lines: list[Line] = []
     beat = 0
     previous: str | None = None
-    #: True once the scenario has moved past its preconditions.
-    acting = False
 
-    for step in steps:
+    # Where the opening block ends, decided once, up front.
+    #
+    # Two rules live here, and they were one running flag until a `Given`
+    # stopped appearing in real output at all:
+    #
+    #   * `Given` states the world before the test begins, so it belongs to the
+    #     opening block. Rendered after a `Then` it reads as the scenario
+    #     restarting, so a `setup` step appearing later becomes `When`.
+    #   * A step that produced something worth checking is not a precondition.
+    #     `Given ... / Then ...` asserts before the scenario has done anything.
+    #
+    # Worth being exact about what the flag cost, because the obvious reading
+    # is wrong. It latched on the first accepted assertion and never cleared,
+    # so a legitimate later precondition could not be `Given` -- but a later
+    # precondition is demoted by the first rule anyway, so on the recording
+    # where this was found the two agree. What made every `Given` disappear
+    # there was the assert stage putting an expected result on a navigation
+    # step ("the category page is loaded" -- a claim that the browser works).
+    # That is fixed where it was caused: the drafting prompt says not to, and
+    # `bind.py` deletes it if it cannot be proved.
+    #
+    # The flag was still worth removing. A rule about the shape of a scenario
+    # that reaches through the whole scenario from one step's assertion is a
+    # rule nobody can reason about locally, and this one was invisible for
+    # months because every fixture opened with a sign-in nobody asserted on.
+    opening = _opening_block(steps)
+
+    for index, step in enumerate(steps):
         keyword = _base_keyword(step)
-
-        # `Given` states the world before the test begins, so it belongs to the
-        # opening block and nowhere else. Composition can legitimately call a
-        # later step `setup` -- going to the checkout page is setup for what
-        # follows it -- but rendering that as `Given` after a `Then` produces
-        # Given/When/Then in an order no one writes, and reads as the scenario
-        # restarting mid-way.
-        #
-        # The second clause is the same rule seen from the other side: a step
-        # that produced something worth checking is not a precondition. A real
-        # run rendered `Given the tester signs in ...` immediately followed by
-        # `Then the user is redirected ...`, which asserts during the setup and
-        # before any `When`. If it is worth a `Then`, it is a `When`.
-        if keyword == GIVEN and (acting or _asserts(step)):
+        if keyword == GIVEN and index >= opening:
             keyword = WHEN
-        elif keyword != GIVEN:
-            acting = True
 
         # A new action after an expected result opens a new beat, so it reads
         # as a fresh "and then the tester did this" rather than as more of the
@@ -330,12 +205,38 @@ def _lay_out(steps: list[Step]) -> list[Line]:
                 )
             )
             previous = THEN
-            # An expected result ends the preconditions even when the step that
-            # produced it was setup: once the scenario has checked something,
-            # nothing after it is describing the world beforehand.
-            acting = True
 
     return lines
+
+
+def _opening_block(steps: list[Step]) -> int:
+    """How many steps at the head of the scenario are still preconditions.
+
+    The leading run of `setup` steps that check nothing. It stops at the first
+    step that is not setup -- a `setup` step appearing later is real, going to
+    the checkout page IS setup for what follows, but it is not a precondition
+    of the scenario -- and at the first setup step that carries an accepted
+    expected result, because a step worth checking is the test rather than the
+    ground it stands on.
+
+    Returning a count rather than setting a flag is the whole fix. The rule
+    applies to the step that broke it and to nothing downstream of that step.
+    """
+    count = 0
+    for step in steps:
+        if _base_keyword(step) != GIVEN or _asserts(step):
+            break
+        count += 1
+    return count
+
+
+def _asserts(step: Step) -> bool:
+    """Does this step carry an expected result the reader will actually see?
+
+    Rejected candidates do not count: an assertion nobody accepted renders
+    nothing, so it cannot make the step read as the thing under test.
+    """
+    return any(a.accepted for a in step.assertions)
 
 
 def sync_keywords(steps: list[Step]) -> None:
@@ -362,22 +263,26 @@ def keyword_for_role(role: SegmentRole | None) -> str:
     return GIVEN if role == SegmentRole.setup else WHEN
 
 
-def _asserts(step: Step) -> bool:
-    """Does this step carry an expected result the reader will actually see?
-
-    Rejected candidates do not count: an assertion nobody accepted renders
-    nothing, so it cannot make the step read as the thing under test.
-    """
-    return any(a.accepted for a in step.assertions)
-
-
 def _base_keyword(step: Step) -> str:
-    """Role decides the keyword. The model's own guess is the fallback."""
+    """Role decides, and the stored keyword is only the fallback.
+
+    The drafting stage chooses BOTH -- it knows where the scenario turns from
+    arranging to acting -- but they are two spellings of one decision, and only
+    one of them can be authoritative or a reviewer's edit has no defined
+    meaning. `draft._reconcile` makes the drafter's `Given` mean `setup` at
+    parse time, so honouring the role here honours what the drafter wrote.
+
+    Role wins because it is the one that survives re-layout. Deleting a step
+    changes which steps are still preconditions, and a keyword denormalised
+    onto the step by `sync_keywords` cannot know that -- it is already `And`
+    half the time. That is why `resync_keywords` exists at all, and reading the
+    stale keyword back would make it a no-op.
+    """
     if step.role is not None:
         return keyword_for_role(step.role)
 
     keyword = step.keyword.value if isinstance(step.keyword, StepKeyword) else str(step.keyword)
-    return keyword if keyword in {GIVEN, WHEN, THEN} else WHEN
+    return keyword if keyword in {GIVEN, WHEN} else WHEN
 
 
 def _leading_setup_count(steps: list[Step]) -> int:
@@ -453,8 +358,15 @@ def dedupe_assertions(assertions: list) -> list:
     return out
 
 
-def _keeps_parameters(replacement: str, originals: list[str]) -> bool:
-    """Does the merged sentence still name every parameter it replaces?"""
+def keeps_parameters(replacement: str, originals: list[str]) -> bool:
+    """Does a rewritten sentence still name every parameter it replaces?
+
+    A redaction placeholder is a test PARAMETER (SS7.2) -- the one thing
+    telling whoever runs the test what to supply -- so a tidier sentence that
+    drops one is worse than the sentence it replaced. Public because the
+    drafting stage groups events into steps itself now, and any future path
+    that rewrites a step over several events has to answer this question.
+    """
     wanted = {name for text in originals for name in PLACEHOLDER.findall(text)}
     return wanted <= set(PLACEHOLDER.findall(replacement))
 
@@ -500,8 +412,7 @@ __all__ = [
     "WHEN",
     "Line",
     "Narrative",
-    "apply_merges",
-    "apply_splits",
+    "keeps_parameters",
     "build_narrative",
     "keyword_for_role",
     "sync_keywords",

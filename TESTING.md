@@ -229,3 +229,41 @@ fired and the threshold it did not reach.
 The comparison worth reading in the ablation table is `Findings` beside
 `Converged`. A convergence rate on its own is 100% when the critic found
 nothing, in the same way a grounding rate is 100% when the tool claims nothing.
+
+## What Phase 4 changed, and what to look at
+
+The generator was rebuilt. Nothing about how you run it changed; what changed
+is what comes out, and the reason is worth reading before you judge a run.
+
+Against the seven fixtures the old output was good. Against a recording made on
+a real commercial site — 34 clicks, no annotations, no narration, which is what
+a tester's first recording actually looks like — it produced a scenario with no
+`Given`, a dangling `When` at the end, six unrelated checks in a row, and a
+confidently wrong number that the same run's own warnings said was ungrounded.
+Every fixture passed throughout, because every one of them carries an
+annotation, a narration track or a scenario break, and §6.7 says in bold that
+those are optional.
+
+**So look at these first when you read a run:**
+
+- **`draft.json`** — the whole document as one author wrote it, before anything
+  was proved. This is the model's actual contribution to the run; if a test
+  case is shaped wrongly, it is shaped wrongly here.
+- **`assertions.json`** — what happened to each proposed expected result:
+  `bind`, `revise` or `unsupported`, with the reason. **A deleted claim is a
+  normal outcome**, not a failure. The drafter proposes what it believes the
+  test should check; anything the recording will not support is removed rather
+  than softened, so a scenario with fewer expected results than you expected is
+  usually the tool declining to guess.
+- **`toolCallsPerStep`** in `trace.json`. It should VARY. On `checkout` it
+  reads `{step_002: 1, step_003: 4, step_004: 1}` — four retrievals on the
+  rejected-order step and one each on the others. A flat column would mean
+  retrieval had gone back to being a toll paid per step rather than effort
+  spent where the work was hard.
+
+**A0 now emits nothing at all.** It used to fabricate: thirteen assertions,
+none grounded. It cannot any more, because the model never supplies a
+`toolCallId` and there is nothing for a claim to rest on without retrieval. So
+A0 vs A1 is a comparison about **Yield**, not about grounding rate, and
+`Fabric.` is structurally zero in every row. Read `Grounded` beside `Yield`:
+a rate of 1.0 means nothing for a configuration that claims nothing.

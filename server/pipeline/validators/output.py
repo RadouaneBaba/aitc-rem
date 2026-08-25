@@ -117,7 +117,19 @@ def suggestions_quarantined(ctx: ValidationContext) -> Iterable[ValidatorResult]
         )
         return
 
-    known = {e.id for e in ctx.recording.events} | {c.id for c in ctx.trace.toolCalls}
+    # What counts as "an observation somebody made". Events and retrievals are
+    # the obvious two. A STEP id is the third and belongs here for the same
+    # reason: a step is a group of events this run actually recorded, so a
+    # suggestion resting on one rests on something observed -- and the coverage
+    # stage is handed the finished test case, where steps are what it can see
+    # and events are not. Rejecting a suggestion for citing the thing it was
+    # shown would be the gate disagreeing with its own pipeline about what
+    # evidence looks like.
+    known = (
+        {e.id for e in ctx.recording.events}
+        | {c.id for c in ctx.trace.toolCalls}
+        | {s.id for c in ctx.ir.testCases for s in c.steps}
+    )
     offences = 0
 
     for case, suggestion in suggestions:
