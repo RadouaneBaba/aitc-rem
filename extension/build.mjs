@@ -52,6 +52,8 @@ if (watch) {
 }
 
 await cp(resolve(HERE, 'manifest.json'), `${OUT}/manifest.json`);
+// One palette for all four surfaces. `dist` is flat, so the pages link it by bare name.
+await cp(resolve(HERE, 'src/styles/tokens.css'), `${OUT}/tokens.css`);
 await cp(resolve(HERE, 'src/popup/popup.html'), `${OUT}/popup.html`);
 await cp(resolve(HERE, 'src/export/export.html'), `${OUT}/export.html`);
 await cp(resolve(HERE, 'src/offscreen/offscreen.html'), `${OUT}/offscreen.html`);

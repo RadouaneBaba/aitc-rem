@@ -1,0 +1,789 @@
+<title>The Admissibility Rule</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300&family=Public+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
+
+<style>
+  :root {
+    --paper: #f6f7f5;
+    --panel: #ffffff;
+    --ink: #12171b;
+    --muted: #5c665f;
+    --rule: #d9ded8;
+    --admitted: #2f6f4f;
+    --admitted-wash: #ecf3ee;
+    --refused: #b3261e;
+    --refused-wash: #fbeceb;
+    --caution: #9a6700;
+    --caution-wash: #fdf6e6;
+
+    --display: "Newsreader", Georgia, "Times New Roman", serif;
+    --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+    --measure: 66ch;
+    --gap: clamp(1rem, 2.5vw, 2rem);
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0e1214;
+      --panel: #161c1f;
+      --ink: #e6eae6;
+      --muted: #94a09a;
+      --rule: #29322f;
+      --admitted: #6cc79a;
+      --admitted-wash: #14231b;
+      --refused: #f2837c;
+      --refused-wash: #2a1614;
+      --caution: #e0b050;
+      --caution-wash: #262013;
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0e1214;
+    --panel: #161c1f;
+    --ink: #e6eae6;
+    --muted: #94a09a;
+    --rule: #29322f;
+    --admitted: #6cc79a;
+    --admitted-wash: #14231b;
+    --refused: #f2837c;
+    --refused-wash: #2a1614;
+    --caution: #e0b050;
+    --caution-wash: #262013;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 var(--gap); }
+  .col { max-width: var(--measure); }
+
+  h1, h2, h3 { font-family: var(--display); font-weight: 400; text-wrap: balance; }
+
+  /* ---- masthead ---- */
+  .masthead { border-bottom: 1px solid var(--rule); padding: clamp(3rem, 8vw, 6rem) 0 2.5rem; }
+  .docket {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+    margin-bottom: 2rem;
+  }
+  h1 {
+    font-size: clamp(2.4rem, 6.5vw, 4.2rem);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    margin: 0 0 1.4rem;
+    max-width: 18ch;
+  }
+  h1 em { font-style: italic; color: var(--admitted); }
+  .standfirst { font-size: clamp(1.05rem, 2vw, 1.28rem); color: var(--muted); max-width: 54ch; margin: 0; }
+
+  /* ---- the rule, stated once ---- */
+  .rule-card {
+    margin: 3rem 0 0;
+    padding: 1.6rem 1.8rem;
+    background: var(--admitted-wash);
+    border-left: 3px solid var(--admitted);
+    border-radius: 0 6px 6px 0;
+    max-width: 62ch;
+  }
+  .rule-card p { margin: 0; font-family: var(--display); font-size: 1.35rem; line-height: 1.4; }
+  .rule-card .qualifier {
+    font-family: var(--body);
+    font-size: 0.95rem;
+    color: var(--muted);
+    margin-top: 0.9rem;
+  }
+
+  /* ---- sections ---- */
+  section { padding: clamp(3rem, 7vw, 5rem) 0; border-bottom: 1px solid var(--rule); }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--admitted);
+    margin: 0 0 0.7rem;
+  }
+  h2 { font-size: clamp(1.7rem, 3.6vw, 2.4rem); line-height: 1.15; margin: 0 0 1.4rem; max-width: 24ch; }
+  h3 { font-size: 1.22rem; margin: 2.4rem 0 0.7rem; }
+  p { margin: 0 0 1.1rem; }
+  .col > p:last-child { margin-bottom: 0; }
+  strong { font-weight: 700; }
+  code { font-family: var(--mono); font-size: 0.86em; }
+
+  /* ---- the evidence pair: the page's signature device ---- */
+  .exhibit { margin: 2rem 0; }
+  .pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .pair .claim, .pair .literal { padding: 1rem 1.15rem; }
+  .pair .claim { font-family: var(--display); font-size: 1.12rem; line-height: 1.4; }
+  .pair .literal {
+    border-top: 1px dashed var(--rule);
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: baseline;
+  }
+  .pair .literal .quote { color: var(--ink); }
+  .pair .literal .tc { color: var(--muted); }
+  .pair.admitted { border-left: 3px solid var(--admitted); }
+  .pair.refused { border-left: 3px solid var(--refused); }
+  .verdict {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .verdict.admitted { background: var(--admitted-wash); color: var(--admitted); }
+  .verdict.refused { background: var(--refused-wash); color: var(--refused); }
+  .pair-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.55rem 1.15rem;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .why { font-size: 0.92rem; color: var(--muted); margin: 0.7rem 0 0; max-width: 60ch; }
+
+  /* ---- figures ---- */
+  figure { margin: 2.5rem 0; }
+  figure svg { width: 100%; max-width: 100%; height: auto; display: block; }
+  figcaption { font-size: 0.9rem; color: var(--muted); margin-top: 0.9rem; max-width: 62ch; }
+  .figure-wide { max-width: 980px; }
+
+  /* ---- the fold-out technical panels ---- */
+  details {
+    margin: 1.4rem 0;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--panel);
+  }
+  details[open] { border-color: var(--admitted); }
+  summary {
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--admitted);
+    list-style: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+  .details-body { padding: 0 1.15rem 1.1rem; font-size: 0.95rem; }
+  .details-body p:last-child { margin-bottom: 0; }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+  }
+  pre .kw { color: var(--admitted); font-weight: 500; }
+  pre .cut { color: var(--refused); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin: 1.4rem 0; }
+  .scroller { overflow-x: auto; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; }
+
+  ul.plain { margin: 0 0 1.1rem; padding-left: 1.2rem; }
+  ul.plain li { margin-bottom: 0.5rem; }
+
+  .aside {
+    border-left: 2px solid var(--caution);
+    background: var(--caution-wash);
+    padding: 0.9rem 1.15rem;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.95rem;
+    margin: 1.6rem 0;
+    max-width: 62ch;
+  }
+  .aside p:last-child { margin-bottom: 0; }
+  .aside .label {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--caution);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  footer { padding: 3rem 0 5rem; color: var(--muted); font-size: 0.9rem; }
+
+  a { color: var(--admitted); }
+  :where(a, summary, details):focus-visible { outline: 2px solid var(--admitted); outline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div class="docket">
+      <span>Recorded session → formal test case</span>
+      <span>Chrome MV3 · Python · 14 validators</span>
+    </div>
+    <h1>Every claim has to point at the <em>evidence</em> that produced it.</h1>
+    <p class="standfirst">
+      A QA tester records themselves using a web app. Out comes a test case written in prose —
+      and not one sentence of it survives unless the tool can show you the retrieval it came from.
+    </p>
+  </header>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">The problem</p>
+      <h2>A language model will write you a beautiful test case that is wrong.</h2>
+      <p>
+        Ask one to watch a checkout flow and describe what it saw, and you get fluent,
+        well-formed Gherkin. Some of it is true. You cannot tell which parts, because a
+        sentence that was inferred looks exactly like a sentence that was observed.
+      </p>
+      <p>
+        That is fatal for test cases specifically. A test case is a claim about how software
+        behaves, and a regression suite full of plausible-sounding claims is worse than no
+        suite — it passes while the product breaks, and people trust it.
+      </p>
+      <p>
+        So the architecture here exists to serve one rule, and everything else falls out of it.
+      </p>
+    </div>
+
+    <div class="rule-card">
+      <p>A claim is admissible only if it can point at the retrieval that produced it, <em>in this run</em>.</p>
+      <p class="qualifier">
+        Not “the string exists somewhere in the recording” — that is a weaker, separate check.
+        The claim names a piece of text; the system resolves which tool call fetched it,
+        re-hashes the stored response, and confirms the text is still in it.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">Exhibit</p>
+      <h2>What that looks like, twice.</h2>
+      <p>
+        Every expected result in the output is a pair: a sentence, and the literal text it rests
+        on. Here is one the system admitted and one it refused, both from real recordings.
+      </p>
+    </div>
+
+    <div class="exhibit col">
+      <div class="pair admitted">
+        <div class="pair-head">
+          <span class="verdict admitted">Admitted</span>
+          <span>order approval, checkout fixture</span>
+        </div>
+        <div class="claim">an alert states that orders over EUR500 require approval</div>
+        <div class="literal">
+          <span class="quote">“Orders over EUR500 require approval”</span>
+          <span class="tc">semantic_node · tc_0001 · evt_007</span>
+        </div>
+      </div>
+      <p class="why">
+        The sentence quotes a value; the value is in the page snapshot taken after that click;
+        the snapshot is on disk and its hash still matches. Break the approval rule in the
+        application and this step fails, which is the whole point of writing it down.
+      </p>
+    </div>
+
+    <div class="exhibit col">
+      <div class="pair refused">
+        <div class="pair-head">
+          <span class="verdict refused">Refused</span>
+          <span>a French storefront, sort controls</span>
+        </div>
+        <div class="claim">the product list updates to show lower-priced items first</div>
+        <div class="literal">
+          <span class="quote">“Prix bas à haut”</span>
+          <span class="tc">the option the tester selected</span>
+        </div>
+      </div>
+      <p class="why">
+        Perfectly grounded: that text really was on the page, really was retrieved. It is also
+        worthless. Reverse the sort order in the application and the dropdown still says what
+        the tester set it to, so the step passes on a broken build. The system now refuses a
+        claim whose evidence is the tester’s own input.
+      </p>
+    </div>
+
+    <div class="col">
+      <div class="aside">
+        <span class="label">The lesson that shaped the project</span>
+        <p>
+          Provenance is not correctness. A claim can be traceable, true, and still prove
+          nothing. Most of the hard engineering here is in that gap.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">Capture</p>
+      <h2>It records the accessibility tree, not the screen.</h2>
+      <p>
+        A browser extension watches the tester work. The question is what to write down, and the
+        three available answers produce very different tools.
+      </p>
+    </div>
+
+    <figure class="figure-wide">
+      <svg viewBox="0 0 900 300" role="img" aria-label="One click, recorded three ways: session replay stores pixels and DOM, test recorders store a CSS selector, and this tool stores the element's role and accessible name plus the page state before and after.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+          </marker>
+        </defs>
+
+        <rect x="20" y="118" width="150" height="62" rx="6" fill="none" stroke="currentColor" stroke-width="1.5" />
+        <text x="95" y="143" text-anchor="middle" font-size="13" fill="currentColor" font-weight="600">One click</text>
+        <text x="95" y="162" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.7">“Place order”</text>
+
+        <line x1="172" y1="149" x2="248" y2="60" stroke="currentColor" stroke-width="1.2" opacity="0.55" marker-end="url(#ar)" />
+        <line x1="172" y1="149" x2="248" y2="149" stroke="currentColor" stroke-width="1.2" opacity="0.55" marker-end="url(#ar)" />
+        <line x1="172" y1="149" x2="248" y2="238" stroke="currentColor" stroke-width="1.2" opacity="0.55" marker-end="url(#ar)" />
+
+        <rect x="255" y="30" width="300" height="62" rx="6" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55" />
+        <text x="270" y="53" font-size="12" fill="currentColor" opacity="0.75">Session replay (rrweb)</text>
+        <text x="270" y="74" font-size="11" fill="currentColor" opacity="0.55" font-family="monospace">div.btn-x9f mutated</text>
+        <text x="575" y="66" font-size="11" fill="currentColor" opacity="0.6">a human can watch it</text>
+
+        <rect x="255" y="118" width="300" height="62" rx="6" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55" />
+        <text x="270" y="141" font-size="12" fill="currentColor" opacity="0.75">Test recorders</text>
+        <text x="270" y="162" font-size="11" fill="currentColor" opacity="0.55" font-family="monospace">#checkout &gt; button:nth-child(3)</text>
+        <text x="575" y="154" font-size="11" fill="currentColor" opacity="0.6">breaks when the markup moves</text>
+
+        <rect x="255" y="206" width="300" height="72" rx="6" fill="none" stroke="currentColor" stroke-width="2" />
+        <text x="270" y="229" font-size="12" fill="currentColor" font-weight="600">This tool</text>
+        <text x="270" y="250" font-size="11" fill="currentColor" font-family="monospace">button “Place order”</text>
+        <text x="270" y="268" font-size="11" fill="currentColor" opacity="0.75">+ page state before / after · network · console</text>
+        <text x="575" y="246" font-size="11" fill="currentColor" font-weight="600">a claim can be checked against it</text>
+      </svg>
+      <figcaption>
+        The same click, written down three ways. Only the third records something a later sentence
+        can be tested against — a role and the name a human would read, plus what changed on the page.
+      </figcaption>
+    </figure>
+
+    <div class="col">
+      <p>
+        The accessibility tree is what a screen reader sees: <code>button "Place order"</code>
+        rather than <code>div.btn-x9f</code>. It survives a redesign, it needs no cooperation
+        from the application under test, and — the part that matters — it is already in the
+        vocabulary a test case is written in.
+      </p>
+
+      <details>
+        <summary>The technical detail</summary>
+        <div class="details-body">
+          <p>
+            <strong>Redaction happens in the browser, before anything is written to disk.</strong>
+            A password never reaches the server in the first place; the recording carries
+            <code>&lt;&lt;password&gt;&gt;</code>, and those placeholders become the test’s
+            parameters. There is exactly one exception, and it is stated plainly to the tester:
+            spoken narration cannot be redacted before it is understood, and understanding it is
+            what transcription is — so the audio reaches disk raw, never leaves the machine, and
+            the transcript gets a best-effort pass afterwards.
+          </p>
+          <p>
+            <strong>Attribution happens at assembly, not in the moment.</strong> A frame does not
+            know when the next action begins, so a network request that lands late would be
+            attributed to the wrong step — or, if it outlived its settle window, never recorded at
+            all. Frames report observations; a later pass decides which step owns them.
+          </p>
+          <p>
+            <strong>Three clocks, and they disagree.</strong> <code>performance.now()</code> is
+            per-document, the service worker has wall-clock time, and the offscreen document
+            holding the microphone is a third. Mixing them silently flattens every timestamp —
+            which kills the idle-gap heuristic, or shifts every spoken sentence onto the
+            neighbouring step and produces a plausible, grounded, wrong expected result.
+          </p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">The pipeline</p>
+      <h2>Draft first. Prove second. Delete what will not prove.</h2>
+      <p>
+        This ordering is the load-bearing decision, and it is the reverse of the obvious one.
+      </p>
+      <p>
+        The obvious design lets the author claim only what it has already retrieved. That
+        produces a document about whatever was easy to retrieve — an earlier version of this
+        system emitted <em>“the hampers category page is loaded”</em>, which is an assertion that
+        the browser works.
+      </p>
+      <p>
+        So the author writes freely, with the whole session in front of it and no obligation to
+        have looked anything up. Then a separate stage takes each claim and tries to prove it.
+        What cannot be proved is <strong>deleted</strong>, not softened.
+      </p>
+    </div>
+
+    <figure class="figure-wide">
+      <svg viewBox="0 0 900 340" role="img" aria-label="The pipeline: deterministic code builds a session index, one agentic call drafts the whole document, a binding stage proves or deletes each claim, then deterministic rendering and a fourteen-validator gate. A critic and repair loop feeds back into the draft.">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+          </marker>
+        </defs>
+
+        <text x="20" y="28" font-size="11" fill="currentColor" opacity="0.6" font-family="monospace">DETERMINISTIC</text>
+        <text x="330" y="28" font-size="11" fill="currentColor" opacity="0.6" font-family="monospace">AGENTIC</text>
+        <text x="700" y="28" font-size="11" fill="currentColor" opacity="0.6" font-family="monospace">DETERMINISTIC</text>
+
+        <line x1="315" y1="12" x2="315" y2="250" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" opacity="0.35" />
+        <line x1="672" y1="12" x2="672" y2="250" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" opacity="0.35" />
+
+        <rect x="20" y="52" width="126" height="54" rx="6" fill="none" stroke="currentColor" stroke-width="1.5" />
+        <text x="83" y="75" text-anchor="middle" font-size="12" fill="currentColor">segment</text>
+        <text x="83" y="92" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">hints only</text>
+
+        <rect x="166" y="52" width="126" height="54" rx="6" fill="none" stroke="currentColor" stroke-width="1.5" />
+        <text x="229" y="75" text-anchor="middle" font-size="12" fill="currentColor">digest</text>
+        <text x="229" y="92" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">session index</text>
+
+        <rect x="336" y="52" width="140" height="54" rx="6" fill="none" stroke="currentColor" stroke-width="2" />
+        <text x="406" y="75" text-anchor="middle" font-size="12" fill="currentColor" font-weight="600">draft</text>
+        <text x="406" y="92" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.7">writes everything</text>
+
+        <rect x="496" y="52" width="156" height="54" rx="6" fill="none" stroke="currentColor" stroke-width="2" />
+        <text x="574" y="75" text-anchor="middle" font-size="12" fill="currentColor" font-weight="600">bind</text>
+        <text x="574" y="92" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.7">proves or deletes</text>
+
+        <rect x="692" y="52" width="88" height="54" rx="6" fill="none" stroke="currentColor" stroke-width="1.5" />
+        <text x="736" y="83" text-anchor="middle" font-size="12" fill="currentColor">render</text>
+
+        <rect x="796" y="52" width="84" height="54" rx="6" fill="none" stroke="currentColor" stroke-width="1.5" />
+        <text x="838" y="76" text-anchor="middle" font-size="12" fill="currentColor">gate</text>
+        <text x="838" y="93" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.65">14 checks</text>
+
+        <line x1="148" y1="79" x2="162" y2="79" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar2)" />
+        <line x1="294" y1="79" x2="332" y2="79" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar2)" />
+        <line x1="478" y1="79" x2="492" y2="79" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar2)" />
+        <line x1="654" y1="79" x2="688" y2="79" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar2)" />
+        <line x1="782" y1="79" x2="792" y2="79" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar2)" />
+
+        <text x="230" y="128" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.7">what changed at</text>
+        <text x="230" y="142" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.7">each event, as text</text>
+
+        <line x1="574" y1="112" x2="574" y2="152" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar2)" />
+        <text x="586" y="140" font-size="11" fill="currentColor">unprovable claim</text>
+        <rect x="496" y="156" width="156" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3" />
+        <text x="574" y="178" text-anchor="middle" font-size="11" fill="currentColor">deleted, with a reason</text>
+
+        <path d="M 838 112 L 838 232 L 406 232 L 406 114" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.75" marker-end="url(#ar2)" />
+        <text x="622" y="248" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.8">critic → repair, bounded: text and claims only, never step boundaries</text>
+
+        <text x="20" y="300" font-size="11" fill="currentColor" opacity="0.75">The model never supplies a retrieval id. It names a literal; the system finds which call fetched it.</text>
+        <text x="20" y="320" font-size="11" fill="currentColor" opacity="0.75">A fabricated citation is therefore not something the model can express.</text>
+      </svg>
+      <figcaption>
+        Deterministic wherever the answer must be identical every time; agentic only where the work
+        is genuinely judgement. The one arrow that matters is the short one going down: a claim that
+        cannot be proved leaves the document.
+      </figcaption>
+    </figure>
+
+    <div class="col">
+      <h3>Why the model is never allowed to cite</h3>
+      <p>
+        The drafter writes a sentence and names the text it believes it saw. It does not — cannot —
+        supply the id of the tool call that fetched it. The binding stage searches the retrievals
+        actually made for a response containing that text.
+      </p>
+      <p>
+        This is stronger than catching a fabricated citation after the fact: there is no field for
+        one. An early version, before this constraint, invented <code>find_text_0</code> against an
+        otherwise true claim.
+      </p>
+
+      <details>
+        <summary>What binding refuses, and why each rule exists</summary>
+        <div class="details-body">
+          <p>
+            Every one of these was added after a real recording shipped past the gate with the
+            defect in it.
+          </p>
+          <ul class="plain">
+            <li><strong>The tester’s own input.</strong> The <em>“Prix bas à haut”</em> case above.</li>
+            <li>
+              <strong>Anything the claim quotes must appear in the evidence.</strong> A sentence
+              asserting two things while citing evidence for one is half inadmissible, and the
+              unchecked half is free to be wrong: <em>a “Small Wicker Basket” with a capacity of
+              “5 / 5”</em>, bound only to the basket’s name.
+            </li>
+            <li>
+              <strong>“The interface appeared.”</strong> <em>The shopping bag panel opens</em>,
+              bound to the panel’s own heading. Grounded evidence that a heading exists.
+            </li>
+            <li>
+              <strong>Timestamps, uuids, ad and analytics strings.</strong> They pass every check
+              and break the moment someone runs the test.
+            </li>
+            <li>
+              <strong>One literal cannot be the whole evidence for two different claims.</strong>
+              An aria-live region announcing <em>“Results updated.”</em> supports any claim of its
+              shape whatsoever.
+            </li>
+          </ul>
+          <p>
+            Each rule is calibrated against <em>every</em> claim-and-literal pair the pipeline has
+            ever produced, not against the case that motivated it. A rule that rejects the bad
+            pairs and a few good ones is not a fix; it is a yield cut wearing a fix’s name.
+          </p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">The output</p>
+      <h2>What a tester actually gets.</h2>
+      <p>
+        Prose, and nothing else. No ids, no confidence scores, no traceability comments — those
+        live in a sidecar file and in the machine-readable trace. The feature file is the artifact
+        the tool is judged by, and a provenance line under every step made it unreadable.
+      </p>
+    </div>
+
+    <div class="col">
+<pre><span class="kw">Feature:</span> Order approval
+
+  Orders exceeding a specific monetary threshold require manager approval
+  before they can be placed
+
+  <span class="kw">Scenario:</span> An order over EUR500 requires manager approval
+    <span class="kw">Given</span> the tester signs in to the application
+    <span class="kw">When</span> the tester adds an item to the cart and proceeds to checkout
+    <span class="kw">And</span> the tester sets the order total to "615"
+    <span class="kw">Then</span> an alert states that orders over EUR500 require approval
+
+    <span class="kw">When</span> the tester tries to place the order without approval
+    <span class="kw">Then</span> the order is rejected with a conflict error
+
+    <span class="kw">When</span> the tester confirms manager approval and places the order
+    <span class="kw">Then</span> the order is confirmed</pre>
+
+      <p>
+        Fourteen validators run before this file is written. They check that every claim resolves
+        to a retrieval, that the literal is still in the stored response, that no redaction
+        placeholder leaked, that every recorded event is accounted for exactly once, that the
+        scenario ends on an outcome rather than an action, and that the prose reads like a
+        specification rather than a transcript.
+      </p>
+
+      <div class="aside">
+        <span class="label">Read these two numbers together, always</span>
+        <p>
+          A grounding rate of 100% is <em>vacuous</em> for a configuration that claimed nothing.
+          With no retrieval tools at all, this system emits no expected results — so it scores a
+          perfect grounding rate on an empty document. Every rate here is reported beside the
+          count it was computed over. That trap has appeared in five different columns of this
+          project’s own metrics.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">The evidence</p>
+      <h2>Does the agency earn its cost?</h2>
+      <p>
+        Three configurations of the same pipeline, over seven recordings made through the real
+        extension. <strong>A0</strong> has no retrieval tools. <strong>A1</strong> retrieves.
+        <strong>A2</strong> adds a critic and a bounded repair loop.
+      </p>
+    </div>
+
+    <div class="col scroller">
+      <table>
+        <thead>
+          <tr>
+            <th>Config</th>
+            <th>Expected results kept</th>
+            <th>Grounded</th>
+            <th>Yield</th>
+            <th>Fabricated</th>
+            <th>Gate, final</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>A0 — no tools</td><td class="num">0</td><td class="num">1.00</td><td class="num">0.00</td><td class="num">0</td><td class="num">0.674</td></tr>
+          <tr><td>A1 — retrieval</td><td class="num">14</td><td class="num">1.00</td><td class="num">0.61</td><td class="num">0</td><td class="num">0.973</td></tr>
+          <tr><td>A2 — + critic</td><td class="num">12</td><td class="num">1.00</td><td class="num">0.52</td><td class="num">0</td><td class="num">1.000</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="col">
+      <p>
+        A0’s row is the honest one to sit with. It fabricates nothing — but only because it can
+        claim nothing. With no retrieval there is nothing for a sentence to rest on, so every
+        sentence is deleted. Its perfect grounding rate describes an empty document.
+      </p>
+      <p>
+        A2 keeps <em>fewer</em> expected results than A1 and ends with a cleaner gate. That is the
+        trade a critic is supposed to make, and it took a specific fix to get there: repair used to
+        replace a proven claim before finding out whether the replacement could be proven.
+      </p>
+
+      <details>
+        <summary>Retrieval effort tracks difficulty, which is the interesting result</summary>
+        <div class="details-body">
+          <p>
+            A chain that retrieves the same amount for every step is not an agent; it is a
+            pipeline with a model in it. What you want to see is effort concentrating on the steps
+            that were genuinely hard.
+          </p>
+          <p>
+            On one recording, retrievals per step read
+            <code>{step_003: 5, step_004: 7, step_006: 10, step_007: 10}</code> — nothing on the
+            steps whose outcome was obvious, ten calls each on the two contested ones. An earlier
+            version mandated a lookup on every step; that lifted the average and collapsed the
+            variance to near zero, making an agent that had stopped adapting look identical to one
+            that never had.
+          </p>
+          <p>
+            Across nine full runs, 18 of 18 assertions resolve to a retrieval whose stored response
+            still contains the literal.
+          </p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">Prior art</p>
+      <h2>Why not just use the tools that already exist?</h2>
+      <p>The obvious question, and it has a real answer for each.</p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Tool</th><th>Why it does not replace this</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Playwright Agents</strong></td>
+              <td>
+                Their planner explores the app itself, which needs credentials and permission to
+                click. Nothing in it observes a human using their own browser, so there is no
+                recording — and no access to intent. An agent exploring a checkout page cannot know
+                which rule on it the business cares about.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Playwright MCP, Chrome DevTools MCP</strong></td>
+              <td>
+                Both drive a browser <em>they</em> control. Their network and console tools are
+                scoped to the last navigation — debugging queries, not a durable session log — so a
+                multi-page recording cannot be reconstructed from them.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>rrweb</strong></td>
+              <td>
+                Serialises the DOM so a human can watch a session back. It records that
+                <code>div.btn-x9f</code> mutated; it cannot tell you the node was
+                <code>button "Save invoice"</code>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The gap all three leave is the same one: nothing in the prior art records a browser session
+        into an accessibility-semantic structured format. Session replay records pixels. Test
+        recorders record selectors. Recording role, accessible name, and the evidence behind each
+        change is the actual novelty.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <p class="eyebrow">Where it stands</p>
+      <h2>What is true, and what is still weak.</h2>
+      <p>
+        The provenance architecture holds. Nothing reaches a feature file without a retrieval
+        behind it, and that is measured rather than asserted.
+      </p>
+      <p>
+        The open weakness is <em>which</em> true thing gets asserted. In one run the page snapshot
+        contained both <code>"Medium Wicker Basket"</code> and <code>"13 / 13"</code>; the author
+        asserted the basket’s name. Nothing refused it, because nothing was wrong with it — and a
+        broken capacity counter would not have failed that test.
+      </p>
+      <p>
+        Choosing what is worth checking is judgement, not provenance, and no validator can reach
+        it. That is the honest edge of the current design.
+      </p>
+    </div>
+  </section>
+
+  <footer class="col">
+    <p>
+      Built as a recorded-session-to-test-case pipeline: a Chrome MV3 extension reading the
+      accessibility tree, a Python evidence store and agentic pipeline, fourteen deterministic
+      validators, and a review interface where a human accepts or rejects every claim.
+    </p>
+  </footer>
+</div>

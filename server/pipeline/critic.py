@@ -100,6 +100,17 @@ Then judge the steps, on these:
 * `step_name` -- is the step describing an intent, or is it "clicks the button"?
   A useful step names what the tester was trying to DO and uses the
   application's own words. A useless one describes a mouse.
+
+  **Read each step's sentence back against the "did:" lines under it.** A step
+  is one intent and often many events, so the sentence should cover all of them
+  and nothing beyond them. Two failures to watch for, both of which read
+  perfectly in isolation and are only visible here:
+      - the sentence does not mention work that happened. "adds an item to the
+        cart and proceeds to checkout" over four events, two of which opened a
+        reports page and came back, describes neither of those two.
+      - the sentence credits the APPLICATION with something the tester did.
+        "until the hamper upgrades automatically" over an event that is a click
+        on a button labelled "Upgrade" is the tester upgrading it.
 * `vocabulary` -- does it match this project's house style, stated below?
 * `state_jump` -- does the flow move between steps in a way the steps do not
   explain? A step that ends on the catalogue page followed by one that submits
@@ -263,7 +274,7 @@ def critique(
             runner,
             model,
             system_prompt=system_prompt(config),
-            user_prompt=_prompt(case, rendered.get(case.id, ""), protected, only),
+            user_prompt=_prompt(case, rendered.get(case.id, ""), protected, only, runner.store),
             model_name=model_name,
             stage=PipelineStage.critic,
             label=f"critic_{case.id}_{attempt}",
@@ -337,17 +348,70 @@ def _collect(
         )
 
 
+#: How many events to spell out under one step before summarising the rest. A
+#: step is one INTENT and often many events -- five clicks on the same stepper
+#: are one step -- so an unbounded list would put the whole session back in a
+#: prompt the digest exists to compress.
+MAX_EVENTS_SHOWN = 8
+
+
+def _did(step, store) -> list[str]:
+    """What actually happened in this step, in the words the step is judged in.
+
+    Role and accessible name, never a selector: the question being asked is
+    whether the SENTENCE covers these actions, and a critic comparing prose to
+    a CSS path is comparing the wrong two things.
+    """
+    if store is None:
+        return []
+    out: list[str] = []
+    ids = list(step.eventIds or [])
+    for event_id in ids[:MAX_EVENTS_SHOWN]:
+        if not store.has_event(event_id):
+            continue
+        event = store.event(event_id)
+        target = getattr(event, "target", None)
+        role = getattr(target, "role", "") or ""
+        name = getattr(target, "name", "") or ""
+        what = f'{role} "{name}"'.strip() if (role or name) else "(nothing named)"
+        out.append(f"{event_id}  {event.type}  {what}")
+    if len(ids) > MAX_EVENTS_SHOWN:
+        out.append(f"... and {len(ids) - MAX_EVENTS_SHOWN} more")
+    return out
+
+
 def _prompt(
     case: TestCaseIR,
     feature: str,
     protected: set[str],
     only: set[str] | None,
+    store=None,
 ) -> str:
-    """The rendered test case, plus the step ids the prose deliberately omits.
+    """The rendered test case, the step ids the prose omits, and the EVENTS.
 
     The `.feature` body is prose and nothing else -- no ids, no markers (SS11.1)
     -- which is right for a reader and useless for a critic that has to say
     WHICH step is wrong. So the ids come alongside rather than in the file.
+
+    **The events come alongside for a stronger reason, and they were missing.**
+    This is the system's only judgement layer, and it was shown one side of the
+    relationship it exists to judge. Three of the largest defect classes found
+    in the first quality baseline -- a sentence that does not cover the events
+    it claims, an expected result asserting a label rather than the value the
+    feature computes, a step quoting a value the tester never typed -- are all
+    defects BETWEEN the artifact and the recording. None of them are visible in
+    the artifact alone, and every one of them reads perfectly in isolation.
+
+    `split._prompt` had been printing `[{events}]` for its own agent twenty
+    lines away in a sibling file the whole time.
+
+    Reproduction that named it: `rec_MT7MXBS9B2VB` `step_003` reads *"the tester
+    increases the quantity of items until the hamper upgrades"* over an event
+    that is a click on a button labelled "Upgrade" -- the sentence hands the
+    application an action the tester performed. Four of ten recordings carried
+    a defect of that class, dev and held-out alike. `event_coverage` counts
+    events into steps and cannot read a sentence; the drafting prompt already
+    argues against it with a worked example and it happens anyway.
     """
     lines: list[str] = []
     if case.objective:
@@ -358,10 +422,13 @@ def _prompt(
     lines.append("")
     lines.append(feature.strip() or "(the renderer produced nothing)")
     lines.append("")
-    lines.append("The same steps, with the ids you must use to refer to them:")
+    lines.append("The same steps, with the ids you must use to refer to them,")
+    lines.append("and WHAT THE TESTER ACTUALLY DID in each one:")
     for step in case.steps:
         mark = "  PROTECTED" if step.id in protected else ""
         lines.append(f"  {step.id}  {step.keyword} {step.text}{mark}")
+        for line in _did(step, store):
+            lines.append(f"      did: {line}")
         for assertion in step.assertions:
             if assertion.accepted:
                 lines.append(

@@ -43,6 +43,7 @@ export function StepDetail({
 }) {
   const [draft, setDraft] = useState(step.text);
   useEffect(() => setDraft(step.text), [step.id, step.text]);
+  const dirty = draft !== step.text;
 
   return (
     <section className="detail">
@@ -51,22 +52,64 @@ export function StepDetail({
         {step.role && <span className="role">{step.role}</span>}
         <span className={`confidence ${step.confidence}`}>{step.confidence} confidence</span>
         <div className="spacer" />
-        <button className="danger" disabled={busy} onClick={onDelete}>
+        {/* Confirmed, because deleting a step is not undoable from here and the
+            button sat one click away from the text you were editing. */}
+        <button
+          className="danger"
+          disabled={busy}
+          onClick={() => {
+            if (window.confirm(`Delete this step?\n\n${step.text}\n\nThis cannot be undone here.`))
+              onDelete();
+          }}
+        >
           Delete step
         </button>
       </div>
 
+      {/* Save is explicit, and this is a data-loss fix rather than a style
+          preference. It used to commit on blur, with no dirty state and no
+          undo -- and `onEdit` only fired when the text had changed AND was
+          non-empty, so clearing the field to retype it discarded the edit
+          silently, looking exactly like a save. A reviewer's wording is the one
+          thing here no re-run can reproduce. */}
       <textarea
         className="steptext"
+        id="step-text"
         value={draft}
         rows={2}
         disabled={busy}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => draft.trim() && draft !== step.text && onEdit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            setDraft(step.text);
+          }
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && dirty && draft.trim()) {
+            onEdit(draft);
+          }
+        }}
       />
-      <p className="muted hint">
-        The wording is yours to change. Click away to save.
-      </p>
+      <div className="editbar">
+        {dirty ? (
+          <>
+            <button
+              className="primary"
+              disabled={busy || !draft.trim()}
+              onClick={() => onEdit(draft)}
+            >
+              Save
+            </button>
+            <button disabled={busy} onClick={() => setDraft(step.text)}>
+              Cancel
+            </button>
+            <span className="muted hint">
+              {draft.trim() ? 'Unsaved — ⌘↵ to save, Esc to revert.' : 'A step cannot be empty.'}
+            </span>
+          </>
+        ) : (
+          <span className="muted hint">The wording is yours to change.</span>
+        )}
+      </div>
 
       <Screenshot recordingId={recordingId} eventIds={step.eventIds} screens={screens} />
 

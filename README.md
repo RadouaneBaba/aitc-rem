@@ -6,11 +6,15 @@ Every claim the system makes is licensed by evidence it went and retrieved.
 
 | If you are | Read |
 |---|---|
-| a QA tester recording a session | **[docs/RECORDING.md](docs/RECORDING.md)** -- no terminal needed |
+| new to the project entirely | **[docs/explainer.html](docs/explainer.html)** -- the whole thing in one page, with diagrams |
+| a QA tester recording a session | **[docs/TESTER_ONEPAGER.md](docs/TESTER_ONEPAGER.md)** -- one printable page; [docs/RECORDING.md](docs/RECORDING.md) is the long version |
 | running the pipeline yourself | this file |
 | recording a real public site | [TESTING.md](TESTING.md) |
 | changing the code | [CLAUDE.md](CLAUDE.md), then [SPEC.md](SPEC.md) |
+| wanting to know *why* a rule exists | [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md) -- the defect behind each one, and the measurements |
 | wondering what is broken or what is next | [STATUS.md](STATUS.md) |
+| asking whether the Gherkin is any *good* | [evals/LEDGER.md](evals/LEDGER.md), judged against [evals/RUBRIC.md](evals/RUBRIC.md) |
+| driving this with Claude Code | [docs/CLAUDE_WORKFLOW.md](docs/CLAUDE_WORKFLOW.md), and [docs/DECISIONS.md](docs/DECISIONS.md) for why things are the way they are |
 | asking whether the output actually got better | [docs/GHERKIN_BEFORE_AFTER.md](docs/GHERKIN_BEFORE_AFTER.md) -- the same recordings, before and after |
 
 Phases 1 to 3 are implemented: the recorder, the evidence store, the validation
@@ -28,7 +32,7 @@ whole session, one **drafting** call writes the document from it, and a
 
 The guarantee got stronger in the process, not weaker: the model never supplies
 a `toolCallId` at all, so a fabricated citation is not something it can
-express. See [CRITIQUE.md](CRITIQUE.md) for the read that prompted the rebuild.
+express. See [docs/archive/CRITIQUE.md](docs/archive/CRITIQUE.md) for the read that prompted the rebuild.
 
 ---
 

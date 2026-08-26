@@ -273,8 +273,26 @@ def _event_block(
     if console:
         out.append(f"      console: {console}")
 
-    if include_narration and previous is not None:
-        spoken = _narration(store, previous.timestamp, event.timestamp)
+    if include_narration:
+        # From the START of the session for the first event, not from the
+        # previous one -- there is no previous one, and the window that does not
+        # exist is the one the tester says the most useful thing in.
+        #
+        # `previous is not None` dropped everything spoken before the first
+        # click. On `rec_MT7VTN7ZRJPO` the events begin at 15.6s and four of the
+        # five segments fall in 0.9s-14.9s, so the ONLY sentence the drafter
+        # ever saw was the least informative of them -- "And I will add to bag
+        # a...". Thrown away: "I will test if I can add the coffee products
+        # correctly to the cart", which is the objective, said out loud.
+        #
+        # This is the `scenario_break` bug in a second costume: a session-level
+        # fact that no per-event block can carry, silently absent rather than
+        # wrong, and invisible because the fixture built to prove narration
+        # works has the tester speaking *during* the session rather than before
+        # it. SS6.7 says the tester's own words outrank the model; a window that
+        # cannot contain them is not a ladder.
+        spoken = _narration(store, previous.timestamp if previous is not None else 0.0,
+                            event.timestamp)
         if spoken:
             out.append(f"      said: {spoken}")
 

@@ -1,0 +1,133 @@
+/* The design tokens, and the only place a colour is chosen.
+ *
+ * Four surfaces render this tool -- the review UI, the recorder popup, the mic
+ * permission page and the export page -- and until now each re-typed the same
+ * hex values in its own stylesheet. Nine more colours in the review UI bypassed
+ * even its own tokens, which is why dark mode could not work: a theme can only
+ * swap what it can see, and a literal `#eef3f7` in a rule is invisible to it.
+ *
+ * `extension/src/styles/tokens.css` is a copy of this file, because an
+ * extension page cannot import across the package boundary. They are asserted
+ * identical by `tests/test_design_tokens.py` -- two palettes drifting apart is
+ * exactly the failure this file exists to end.
+ *
+ * SS13.4's rule still governs the palette: it is deliberately quiet, so that
+ * the few things which ARE coloured mean something.
+ */
+
+:root {
+  /* Surfaces and text */
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --subtle-bg: #f1f3f5;
+  --selected-bg: #eef3f7;
+  --ink: #1c1f23;
+  --muted: #5b6470;
+  --line: #e3e7ec;
+
+  /* The three meanings. Each has a fill and a border, so a badge and a banner
+     never invent their own tint. */
+  --accent: #2f6f4f;
+  --accent-bg: #e7f2ec;
+  --accent-line: #bcd7c7;
+  --warn: #9a6700;
+  --warn-bg: #fff8e6;
+  --warn-line: #f0dfae;
+  --danger: #b3261e;
+  --danger-bg: #fdeceb;
+  --danger-line: #f3c9c6;
+
+  /* Text on a filled accent or ink background. Not `white`: it inverts in
+     dark mode, where the accent is light. */
+  --on-accent: #ffffff;
+
+  /* Kept as an alias: SS9.8's "needs a look" highlight is the warn fill. */
+  --attention: var(--warn-bg);
+
+  /* 4px spacing scale. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+
+  /* Three radii, down from five. 3px and 8px were noise. */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+
+  /* Five sizes, down from eight -- 11.5, 12.5 and 14.5px were accidents. */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-base: 14px;
+  --fs-lg: 15px;
+
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --shadow: 0 4px 16px rgba(15, 20, 28, 0.12);
+
+  /* A visible focus ring, because there was none at all and the review loop is
+     about to become keyboard-first. */
+  --focus: 2px solid var(--accent);
+  --focus-offset: 2px;
+
+  color-scheme: light;
+}
+
+/* Dark mode follows the system by default, and `data-theme` on <html> wins in
+   both directions so an explicit choice is possible later. Every token above
+   is redefined here -- a token defined only in light is a hole in the theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171a;
+    --panel: #1b1f24;
+    --subtle-bg: #22272e;
+    --selected-bg: #232c33;
+    --ink: #e6e9ed;
+    --muted: #9aa4b0;
+    --line: #2b3138;
+
+    --accent: #6cc79a;
+    --accent-bg: #17291f;
+    --accent-line: #2f5a42;
+    --warn: #e0b050;
+    --warn-bg: #2a2413;
+    --warn-line: #5c4a1c;
+    --danger: #f2837c;
+    --danger-bg: #2c1715;
+    --danger-line: #5e2a26;
+
+    /* Inverted: the dark accent is light, so filled text must be dark. */
+    --on-accent: #0f1713;
+
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #14171a;
+  --panel: #1b1f24;
+  --subtle-bg: #22272e;
+  --selected-bg: #232c33;
+  --ink: #e6e9ed;
+  --muted: #9aa4b0;
+  --line: #2b3138;
+
+  --accent: #6cc79a;
+  --accent-bg: #17291f;
+  --accent-line: #2f5a42;
+  --warn: #e0b050;
+  --warn-bg: #2a2413;
+  --warn-line: #5c4a1c;
+  --danger: #f2837c;
+  --danger-bg: #2c1715;
+  --danger-line: #5e2a26;
+
+  --on-accent: #0f1713;
+
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}

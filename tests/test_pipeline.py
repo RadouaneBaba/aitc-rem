@@ -924,6 +924,44 @@ def test_a_break_at_the_very_start_is_not_a_split():
     assert len(drafted.scenarios) == 1
 
 
+def test_a_cut_invalidates_the_original_name_as_well_as_creating_a_new_one():
+    # The drafter wrote that name for the WHOLE session. Once a declared break
+    # cuts the scenario, the first group no longer has the body the name
+    # describes -- so keeping it produces a heading that promises something the
+    # steps under it never reach.
+    #
+    # `twoflows` shipped exactly that: "An order exceeding the threshold
+    # requires approval" over a body that signs in, adds one item, and asserts a
+    # cart badge. Every step true, every claim grounded, and nothing re-reads a
+    # name once binding has decided what the scenario actually proves.
+    #
+    # Both groups are left unnamed for the same reason and named the same way,
+    # by `_scenario_from`, after what they VERIFY.
+    from server.pipeline.run import _split_on_declared_breaks
+
+    store = _store_with([f.annotation("ann_1", "scenario_break", at=3000.0, event_id="evt_003")])
+    drafted = _drafted_over(["evt_001", "evt_002", "evt_003", "evt_004"])
+    _split_on_declared_breaks(store, drafted)
+
+    assert len(drafted.scenarios) == 2
+    assert [sc.name for sc in drafted.scenarios] == ["", ""]
+
+
+def test_a_scenario_that_was_not_cut_keeps_the_name_it_was_given():
+    # The negative case, and the one that keeps the rule honest: renaming is a
+    # consequence of the body changing. Where no break falls inside a scenario,
+    # nothing about it changed and the drafter's name is still the best one
+    # there is -- it saw the whole session to write it.
+    from server.pipeline.run import _split_on_declared_breaks
+
+    store = _store_with([f.annotation("ann_1", "scenario_break", at=9000.0)])
+    drafted = _drafted_over(["evt_001", "evt_002"])
+    _split_on_declared_breaks(store, drafted)
+
+    assert len(drafted.scenarios) == 1
+    assert drafted.scenarios[0].name == "one scenario"
+
+
 def test_a_declared_break_carries_no_event_id_and_still_splits():
     # The shape the RECORDER actually writes, and the reason this whole path was
     # dead. `export.ts` attaches an annotation to an event only when it is a

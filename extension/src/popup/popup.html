@@ -3,35 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <title>AITC-REM Recorder</title>
+    <link rel="stylesheet" href="tokens.css" />
     <style>
-      body { font: 13px system-ui, sans-serif; width: 320px; margin: 0; padding: 14px; color: #1c1f23; }
+      body { font: 13px system-ui, sans-serif; width: 320px; margin: 0; padding: 14px; color: var(--ink); }
       h1 { font-size: 14px; margin: 0 0 10px; }
       label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 12px; }
-      textarea { width: 100%; box-sizing: border-box; border: 1px solid #dfe3e8; border-radius: 6px; padding: 7px; font: inherit; resize: vertical; }
+      textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; padding: 7px; font: inherit; resize: vertical; }
       button { border: 0; border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer; }
-      button.primary { background: #2f6f4f; color: #fff; }
-      button.stop { background: #b3261e; color: #fff; }
-      button.ghost { background: #f1f3f5; color: #1c1f23; }
+      button.primary { background: var(--accent); color: var(--on-accent); }
+      button.stop { background: var(--danger); color: var(--on-accent); }
+      button.ghost { background: var(--subtle-bg); color: var(--ink); }
       .row { display: flex; gap: 8px; margin-top: 12px; }
-      .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f3f5; }
-      .muted { color: #5b6470; }
-      .hint { font-size: 11px; color: #5b6470; margin-top: 10px; line-height: 1.45; }
+      .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--subtle-bg); }
+      .muted { color: var(--muted); }
+      .hint { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
       .ann { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
       .ann button { font-size: 12px; padding: 6px 8px; }
       button.wide { width: 100%; }
-      .help { margin: 8px 0 0; font-size: 11px; color: #5b6470; line-height: 1.4; }
-      .help dt { font-weight: 600; color: #1c1f23; margin-top: 5px; }
+      .help { margin: 8px 0 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
+      .help dt { font-weight: 600; color: var(--ink); margin-top: 5px; }
       .help dd { margin: 0; }
       .toggle { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; }
       .toggle input { margin: 2px 0 0; flex: none; }
       .toggle label { margin: 0; font-weight: 600; font-size: 12px; }
       .mic { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-      .mic .dot { width: 8px; height: 8px; border-radius: 50%; background: #b3261e; flex: none; }
-      .mic .dot.quiet { background: #c8ced6; }
-      .meter { flex: 1; height: 5px; border-radius: 3px; background: #f1f3f5; overflow: hidden; }
-      .meter i { display: block; height: 100%; width: 0; background: #2f6f4f; transition: width 120ms linear; }
+      .mic .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; }
+      .mic .dot.quiet { background: var(--line); }
+      .meter { flex: 1; height: 5px; border-radius: 3px; background: var(--subtle-bg); overflow: hidden; }
+      .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 120ms linear; }
       .mic button { font-size: 11px; padding: 3px 8px; }
-      .warn { font-size: 11px; color: #b3261e; margin: 6px 0 0; line-height: 1.4; }
+      .warn { font-size: 11px; color: var(--danger); margin: 6px 0 0; line-height: 1.4; }
+      .coach { margin: 6px 0 0; font-size: var(--fs-sm); line-height: 1.45;
+        color: var(--ink); background: var(--warn-bg); border: 1px solid var(--warn-line);
+        border-radius: var(--r-sm); padding: 8px 10px; }
+      #objective[data-verdict="sharp"] { border-color: var(--accent-line); }
+      #noteform { margin-top: 8px; }
+      #noteform textarea { width: 100%; box-sizing: border-box; font: inherit;
+        border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 8px;
+        background: var(--panel); color: var(--ink); }
     </style>
   </head>
   <body>
@@ -41,6 +50,7 @@
       <label for="objective">What are you checking?</label>
       <textarea id="objective" rows="3" placeholder="Check that an order over EUR500 triggers the approval flow."></textarea>
       <p class="hint">Optional, and the strongest single signal there is &mdash; it is the one thing the recorder cannot observe for itself.</p>
+      <p class="coach" id="objective-advice" hidden></p>
 
       <div class="toggle">
         <input type="checkbox" id="narrate" />
@@ -78,6 +88,13 @@
         <button class="ghost" data-kind="scenario_break" title="Alt+Shift+S">New scenario</button>
         <button class="ghost" data-kind="bug_marker" title="Alt+Shift+B">Mark a bug</button>
         <button class="ghost" data-kind="intent_note">Note&hellip;</button>
+      </div>
+
+      <div id="noteform" hidden>
+        <label for="notetext">Name this step, in your words</label>
+        <textarea id="notetext" rows="2" placeholder="tries to place the order without approval"></textarea>
+        <p class="hint">Used <strong>word for word</strong> and never rewritten. Start with the verb.</p>
+        <div class="row"><button class="primary" id="notesave">Save note</button><button class="ghost" id="notecancel">Cancel</button></div>
       </div>
       <dl class="help">
         <dt>Checkpoint</dt><dd>Ends the current step here, when the tool would have run two together.</dd>

@@ -19,7 +19,13 @@ in the index looks exactly like a model that wrote a bad document.
 from __future__ import annotations
 
 from server.evidence.store import EvidenceStore
-from server.models import ConsoleEntry, DiffNode, RedactionParameter, SnapshotDiff
+from server.models import (
+    ConsoleEntry,
+    DiffNode,
+    NarrationSegment,
+    RedactionParameter,
+    SnapshotDiff,
+)
 from server.pipeline.digest import (
     IDLE_HINT_MS,
     _recurring_labels,
@@ -273,3 +279,83 @@ def test_the_digest_reports_its_own_size_and_the_events_it_covers():
     assert digest.event_count == 3
     assert digest.event_ids == ["evt_001", "evt_002", "evt_003"]
     assert digest.approx_tokens == len(digest.text) // 4
+
+
+def _narrated(segments):
+    from server.pipeline.segment import segment_recording
+
+    rec = f.recording(
+        events=[
+            f.event("evt_001", 0, at=15600.0),
+            f.event("evt_002", 1, at=17000.0),
+        ],
+        narration=segments,
+    )
+    return EvidenceStore(recording=rec, segments=segment_recording(rec, run_id="run_001"))
+
+
+def _said(digest) -> list[str]:
+    return [
+        line.strip().removeprefix("said: ")
+        for line in digest.text.splitlines()
+        if line.strip().startswith("said:")
+    ]
+
+
+def test_what_the_tester_says_before_their_first_click_reaches_the_index():
+    """The window that did not exist is the one holding the objective.
+
+    `_event_block` emitted `said:` only `if previous is not None`, so nothing
+    spoken before the first recorded event was ever indexed -- and a tester
+    states what they are about to check BEFORE they start clicking, not during.
+
+    On `rec_MT7VTN7ZRJPO` the events begin at 15.6s and four of five segments
+    fall in 0.9s-14.9s. The only sentence the drafter ever saw was "And I will
+    add to bag a...", and the run went on to write a document about a quantity
+    limit the tester never mentioned.
+
+    The same shape as the `scenario_break` defect: a session-level fact that no
+    per-event block can carry, silently absent rather than wrong.
+    """
+    store = _narrated(
+        [
+            NarrationSegment(
+                id="nar_001",
+                startMs=900.0,
+                endMs=6000.0,
+                text="I will test if I can add the coffee products correctly to the cart",
+                confidence=0.9,
+            ),
+            NarrationSegment(
+                id="nar_002",
+                startMs=16000.0,
+                endMs=16800.0,
+                text="And I will add to bag a flat white",
+                confidence=0.9,
+            ),
+        ]
+    )
+
+    said = _said(build_digest(store))
+    assert any("coffee products correctly" in line for line in said), (
+        "the objective the tester spoke before their first click is missing from the index"
+    )
+    # The later sentence still lands where it always did.
+    assert any("flat white" in line for line in said)
+
+
+def test_narration_can_still_be_withheld_from_the_index():
+    """The negative case. `include_narration=False` is A0's, and the flag has to
+    keep meaning what it says now that the first event has a window too."""
+    store = _narrated(
+        [
+            NarrationSegment(
+                id="nar_001",
+                startMs=900.0,
+                endMs=6000.0,
+                text="I will test if I can add the coffee products correctly to the cart",
+                confidence=0.9,
+            )
+        ]
+    )
+    assert _said(build_digest(store, include_narration=False)) == []

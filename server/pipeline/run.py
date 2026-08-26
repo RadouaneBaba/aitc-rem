@@ -1405,18 +1405,34 @@ def _split_on_declared_breaks(store: EvidenceStore, drafted: DraftResult) -> Non
 
     out = []
     for scenario in drafted.scenarios:
+        groups = []
         current = type(scenario)(name=scenario.name, steps=[])
         for step in scenario.steps:
             opens_break = bool(set(step.event_ids[:1]) & breaks)
             if opens_break and current.steps:
-                out.append(current)
+                groups.append(current)
                 # Left unnamed on purpose: `_scenario_from` names it after what
                 # it verifies. Inventing a name here would be a guess wearing
                 # the authority of a deterministic rule.
                 current = type(scenario)(name="", steps=[])
             current.steps.append(step)
         if current.steps:
-            out.append(current)
+            groups.append(current)
+
+        # The cut invalidates the ORIGINAL name too, and this is the half that
+        # was missing. The drafter wrote that name for the whole session; after
+        # a break splits it, the first group no longer has the body the name
+        # describes, and keeping it produces a scenario whose heading promises
+        # something its steps never reach.
+        #
+        # `twoflows` shipped exactly that: *"An order exceeding the threshold
+        # requires approval"* over a body that signs in, adds one item, and
+        # asserts a cart badge. Every step true, every claim grounded, and the
+        # only thing wrong was the name -- which nothing re-reads once binding
+        # has decided what the scenario actually proves.
+        if len(groups) > 1:
+            groups[0].name = ""
+        out.extend(groups)
 
     if len(out) > len(drafted.scenarios):
         drafted.scenarios = out

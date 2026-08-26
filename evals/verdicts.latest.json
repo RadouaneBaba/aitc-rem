@@ -1,0 +1,403 @@
+[
+  {
+    "recordingId": "rec_MT7MXBS9B2VB",
+    "runPath": "runs/rec_MT7MXBS9B2VB/run_001",
+    "set": "held-out",
+    "verdict": "bad",
+    "checks": {
+      "verdict_fails_on_broken_build": "fail",
+      "sentence_covers_its_events": "fail",
+      "one_scenario_one_behaviour": "weak",
+      "name_matches_verdict": "fail",
+      "tester_intent_kept": "pass"
+    },
+    "findings": [
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "fail",
+        "scenario": "both",
+        "what": "Both verdicts assert the basket's NAME. Break the capacity computation - the thing the upgrade feature does - and both still pass.",
+        "layer": "drafting-prompt",
+        "why": "I opened the two snapshots the claims are bound to. tc_0001 (evt_024) contains \"Medium Wicker Basket\" AND \"13 / 13\"; tc_0002 (evt_029) contains \"Large Wicker Basket\", \"18 / 18\" AND \"You have successfully upgraded to Large Wicker Basket\". The discriminating evidence was retrieved, in the same response, and the drafter asserted the label instead. Nothing refused it - section 4 is empty - so this is not a retrieval or a binding failure, it is what the author chose to check.",
+        "fix": "The drafting prompt asks for an outcome; it does not ask which value the feature COMPUTES. Note the structural pressure behind it: one assertion binds to exactly one literal, so _unwitnessed forbids a single sentence quoting both the basket name and the counter. The correct shape is a SECOND expected result for the computed value, and the prompt never asks for one."
+      },
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "fail",
+        "scenario": "both",
+        "what": "The Background sentence swallows seven events including a country selection; two When steps each swallow a click on a button literally labelled \"Upgrade\" while claiming the upgrade came from adding items.",
+        "layer": "drafting-prompt",
+        "why": "step_001 'navigates to the \"Create Your Own Hamper\" page' covers evt_001-evt_007, which include clicking through a country picker to option \"Morocco\" and two \"Continue\" buttons. step_003 'increases the quantity of items until the hamper upgrades' covers evt_017 = click button \"Upgrade\"; step_004 does the same with evt_028. The sentence attributes to the application an action the tester performed.",
+        "fix": "This is the wander shape the prompt already shows side by side - a step whose sentence covers neither of two events - arriving on a step nobody would call a detour."
+      },
+      {
+        "check": "one_scenario_one_behaviour",
+        "severity": "weak",
+        "scenario": "A hamper automatically upgrades to a Large Wicker Basket when capacity is reached",
+        "what": "Scenario 2 cannot stand alone. All of its preconditions - filling a Small basket, upgrading to Medium - are in scenario 1, and the lifted Background carries only the page navigation.",
+        "layer": "split",
+        "why": "The splitter put step_001/002/003 in group 1 and step_004 alone in group 2. Run scenario 2 from the Background and the hamper is empty; 'increases the item quantity until the Large Wicker Basket upgrade is triggered' can never fire.",
+        "fix": "A split that leaves a group's preconditions in a sibling group produces a scenario that is not a test case. Either the split needs a precondition carry-forward, or accept needs a fourth refusal for a group whose first step depends on state built in an earlier group."
+      },
+      {
+        "check": "name_matches_verdict",
+        "severity": "fail",
+        "scenario": "both",
+        "what": "Both names claim the hamper upgrades AUTOMATICALLY WHEN CAPACITY IS REACHED. The body shows a manual click on \"Upgrade\", and the verdict checks neither automation nor capacity.",
+        "layer": "split",
+        "why": "Both names were written by split.py's groups, before binding. The name promises a conditional behaviour; the surviving claim is 'the hamper is shown as a \"Medium Wicker Basket\"'. Nothing re-reads the name after binding decided what the scenario could actually prove.",
+        "fix": "The splitter names groups from the draft it is regrouping, and it runs before bind.py deletes claims. Either name after binding, or constrain group names to what the group's accepted results say."
+      }
+    ],
+    "notes": "The rubric's own worked example, reproduced exactly, on the recording it was drawn from. All three critic findings print with an empty message in the packet - worth fixing, the judge cannot read what the critic said."
+  },
+  {
+    "recordingId": "rec_MT7VTN7ZRJPO",
+    "runPath": "runs/rec_MT7VTN7ZRJPO/run_001",
+    "set": "held-out",
+    "verdict": "bad",
+    "checks": {
+      "verdict_fails_on_broken_build": "fail",
+      "sentence_covers_its_events": "fail",
+      "one_scenario_one_behaviour": "weak",
+      "name_matches_verdict": "weak",
+      "tester_intent_kept": "weak"
+    },
+    "findings": [
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "fail",
+        "scenario": "bug report - A user cannot add more than the maximum allowed quantity of a product",
+        "what": "The bug report's actual reads 'the page failed to load due to an uncaught JavaScript error'. The page did not fail to load - the tester clicked 'Add to Bag' on it at that very event and used it for five more.",
+        "layer": "architecture",
+        "why": "bug.json: score 50, threshold 50, one signal - an uncaught exception 'No options detected. Please consult documentation.' at evt_001, a jQuery-plugin init error sitting among seven JQMIGRATE deprecation warnings. That is third-party noise on a commercial site. NOISE in bind.py suppresses exactly this class of string for assertions; the bug detector has no equivalent, and nothing checks an actual against what the session shows happening next.",
+        "fix": "The sentence is perfectly grounded and false, which is the failure mode this whole architecture exists to prevent - and it is the one sentence a developer reads before deciding to go and reproduce something. Either NOISE applies to bug signals too, or an uncaught exception at the first event of a session that then proceeds normally is not a bug."
+      },
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "weak",
+        "scenario": "A user cannot add more than the maximum allowed quantity of a product",
+        "what": "'the system prevents the addition of the item AND displays an error message' - the evidence 'Maximum Quantity allowed is 3' witnesses the message only. The prevention half is unchecked.",
+        "layer": "drafting-prompt",
+        "why": "Nothing refused it. This is the half-proved-claim shape _unwitnessed was written for, arriving through the door that rule cannot close: the claim quotes no value and contains no digit, so the rule has nothing to test and the conjunction passes.",
+        "fix": "Worth calibrating whether _unwitnessed should also fire on a claim with two coordinated verb clauses. Calibrate over every (claim, literal) pair on disk first."
+      },
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "fail",
+        "scenario": "A user cannot add more than the maximum allowed quantity of a product",
+        "what": "'Given the tester is on the coffee capsules page' claims evt_001, which is a click on button 'Add to Bag'.",
+        "layer": "drafting-prompt",
+        "why": "The setup sentence describes a location and hides an action - and not any action: the first of the three adds that make the limit test reach its limit. Replay this test case from the sentence and you add two items, not three, and the error never appears.",
+        "fix": "A setup step that absorbs a state-changing click is worse than a detour swallowed mid-scenario, because the swallowed action is load-bearing for the verdict."
+      },
+      {
+        "check": "one_scenario_one_behaviour",
+        "severity": "weak",
+        "scenario": "A user cannot add more than the maximum allowed quantity of a product",
+        "what": "The scenario reaches its verdict at step_003 and then adds a fourth step, 'the tester opens the shopping bag', which reaches nothing.",
+        "layer": "drafting-prompt",
+        "why": "bind refused the only claim proposed for it - 'the shopping bag dialog displays Your Selection...' - by _existence_only, and that refusal is correct. The defect is upstream: opening the bag afterwards is a coda with no bearing on the quantity limit and belongs in an omitted entry, not in the test case.",
+        "fix": "Judged as a dangling-verdict case this is the designed outcome and scores weak. Judged as authorship it is a step that should not have been drafted into this scenario at all."
+      },
+      {
+        "check": "name_matches_verdict",
+        "severity": "weak",
+        "scenario": "bug report",
+        "what": "The bug report carries the test case's scenario name verbatim, and its markdown title is the feature name 'Shopping cart quantity limits -- fails' - neither has anything to do with a page-load error.",
+        "layer": "architecture",
+        "why": "Nothing gives a bug report a name derived from the defect it is reporting.",
+        "fix": "Secondary to the finding above - if the report should not exist, its name does not matter."
+      },
+      {
+        "check": "tester_intent_kept",
+        "severity": "weak",
+        "scenario": "all",
+        "what": "No objective, no intent notes, no marked elements, no narration.",
+        "layer": "tester",
+        "why": "Section 1 is empty in every field. Everything in this feature file - 'coffee capsules', 'quantity limits', the tags - is the model's inference from five clicks.",
+        "fix": "No code change fixes it. Worth noting that this is the second of three held-out recordings where the tester supplied nothing but clicks."
+      }
+    ],
+    "notes": "Five events. The test case's own verdict is reasonable; the bug report attached to it is grounded, confident and wrong, and that asymmetry is the story of this packet."
+  },
+  {
+    "recordingId": "rec_MTA7A2XHHH22",
+    "runPath": "runs/rec_MTA7A2XHHH22/run_002",
+    "set": "held-out",
+    "verdict": "bad",
+    "checks": {
+      "verdict_fails_on_broken_build": "fail",
+      "sentence_covers_its_events": "weak",
+      "one_scenario_one_behaviour": "fail",
+      "name_matches_verdict": "weak",
+      "tester_intent_kept": "weak"
+    },
+    "findings": [
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "fail",
+        "scenario": "Filtering products by stock status and processor model",
+        "what": "Two of the three verdicts are decoration. 'the product list is filtered to show only available items' rests on a URL containing _stock_status:instock; 'the product list updates to show items matching the selected processors' rests on 'Results updated.'",
+        "layer": "bind",
+        "why": "The URL is the tester's own filter re-rendered as a route - _own_input in a costume the rule cannot see, and the packet proves the rule EXISTS and works, because it refused the same substance on step_003 when it arrived as a dropdown label. 'Results updated.' is an aria-live region announcing that SOMETHING changed - _Candidate.conclusive declines a bare number for exactly this reason and does not decline a bare status phrase. Break either filter server-side: the URL still carries the query the tester built, the live region still announces, both steps still pass. The third verdict, '9 produits affiches' bound to the product count, is genuine and would catch the regression.",
+        "fix": "Two narrow extensions, both language-independent: _own_input should refuse a literal that is a URL encoding the value of the control operated at that event; conclusive should decline a literal that carries no value from the claim at all. Calibrate both over every (claim, literal) pair on disk - the good pair in this same run must survive."
+      },
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "weak",
+        "scenario": "Filtering products by stock status and processor model",
+        "what": "'the tester filters by \"In stock\" products' claims evt_006 and evt_007, two clicks on the combobox \"Sort filter\".",
+        "layer": "drafting-prompt",
+        "why": "Two events about sorting sit inside a step about stock filtering, in a scenario the drafter separated from the sorting scenario on purpose.",
+        "fix": "Minor beside the rest, but it is the same swallowing shape."
+      },
+      {
+        "check": "one_scenario_one_behaviour",
+        "severity": "fail",
+        "scenario": "Filtering products by stock status and processor model",
+        "what": "Three distinct verdicts under one heading: the stock filter narrows, the processor filter narrows, clearing restores all nine products. Three test cases sharing a name.",
+        "layer": "split",
+        "why": "The trigger did not fire. That scenario is 10 events (SPLIT_EVENT_FLOOR = 12) and 3 beats (MAX_BEATS = 4) - under both, disjunctively. The splitter's decision list is empty. This is the same class of miss the floor was raised to catch on rec_MT7MXBS9B2VB, arriving one size down.",
+        "fix": "The floor was set so that no fixture reaches it (the largest is 10 events) - and this recording is 10 events in the offending scenario. The trigger is calibrated to cost nothing on the fixtures rather than to catch the thing. Consider a third disjunct: more than one accepted expected result attached to different steps."
+      },
+      {
+        "check": "name_matches_verdict",
+        "severity": "weak",
+        "scenario": "both",
+        "what": "'Sorting products by price' is a topic label over a body with no Then at all. 'Filtering products by stock status and processor model' is a list of controls touched, not a verdict reached.",
+        "layer": "drafting-prompt",
+        "why": "Neither name states an outcome, so neither can disagree with one - but neither tells a reader what passing means. The prompt's worked examples name verdicts ('A hamper automatically upgrades...'); these are gerund topics.",
+        "fix": "Distinct from the rec_MT7MXBS9B2VB name defect: there the name over-claimed, here it claims nothing."
+      },
+      {
+        "check": "tester_intent_kept",
+        "severity": "weak",
+        "scenario": "all",
+        "what": "The objective was 'check if filters are working correctly'. The run ships one filtering verdict that would not detect a broken filter, and no sorting verdict at all.",
+        "layer": "bind",
+        "why": "Sorting has no Then because both attempts were refused by _own_input, correctly - 'Prix bas a haut' is what the tester chose. But the discriminating evidence was in the session and is visible in this very packet: the URL at evt_009 carries sort/orderby:price;order:ASC. It was offered to the filtering step and never to the sorting step it actually describes.",
+        "fix": "Check whether _candidates offers the post-event URL at evt_003/evt_005. An honest gap is the right outcome when the recording has no verdict; here it has one."
+      }
+    ],
+    "notes": "The critic never ran on this run - CassetteMiss, read_only - so the A2 loop's absence is why nothing was raised, not the output being clean. Also worth a look: the section 4 refusal on step_007 gives an ACCEPTANCE rationale as its refusal reason, and the identical sentence was then accepted."
+  },
+  {
+    "recordingId": "rec_MTA1O0I78SKF",
+    "runPath": "runs/rec_MTA1O0I78SKF/run_001",
+    "set": "dev",
+    "verdict": "good",
+    "checks": {
+      "verdict_fails_on_broken_build": "pass",
+      "sentence_covers_its_events": "pass",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "pass",
+      "tester_intent_kept": "pass"
+    },
+    "findings": [],
+    "notes": "The best output in the set and the only one I would sign unedited. Three verdicts, each of which moves if the approval gate breaks - and one of them is bound to the 409 response BODY, which is the strongest evidence any claim in these ten packets reaches. The critic's unresolved coherence finding is wrong here: reject-then-approve-then-confirm is one behaviour told once, not three test cases."
+  },
+  {
+    "recordingId": "rec_MTA1O4R3SSR5",
+    "runPath": "runs/rec_MTA1O4R3SSR5/run_001",
+    "set": "dev",
+    "verdict": "bad",
+    "checks": {
+      "verdict_fails_on_broken_build": "weak",
+      "sentence_covers_its_events": "fail",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "fail",
+      "tester_intent_kept": "weak"
+    },
+    "findings": [
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "weak",
+        "scenario": "Complete the checkout process with express shipping and payment saving",
+        "what": "'the payment method is displayed as saved OR selected' has two passing states; 'the status \"Validating with the finance system...\" is displayed' asserts a spinner.",
+        "layer": "drafting-prompt",
+        "why": "The disjunction means a reader can pass the step on the weaker half - gherkin_style saw it and warned. The loading-state assertion is the scenario's FINAL verdict, and it is present whether or not the validation ever succeeds; break the finance integration completely and the step still passes. Scored weak, not fail, because the recording genuinely never contains the completion (settle_timeout at evt_010) - there is no better claim available in this session.",
+        "fix": "Asserting a transient loading state as a scenario's closing verdict is worse than closing on an action, because it looks like a verdict. This is the _unwitnessed/_existence_only deadlock DISPLAY_CLAIM was written to break, and what came out the other side is a hedge."
+      },
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "fail",
+        "scenario": "Complete the checkout process with express shipping and payment saving",
+        "what": "step_003 swallows a promo-widget click; step_004 'submits the order for validation' swallows an unnamed button and a canvas click.",
+        "layer": "drafting-prompt",
+        "why": "evt_006 (promo-widget, closed shadow root), evt_008 (button with no accessible name) and evt_009 (canvas interaction) are absorbed silently. These are the exact hard capture paths this fixture exists to contain, and the prose hides all three - event_coverage counts them into a step and is satisfied.",
+        "fix": "An event the recorder could barely name is one the drafter should either name explicitly or omit explicitly. Absorbing it into a neighbouring sentence is the one option that leaves no trace."
+      },
+      {
+        "check": "name_matches_verdict",
+        "severity": "fail",
+        "scenario": "Complete the checkout process with express shipping and payment saving",
+        "what": "The scenario never completes the checkout - the validation never returns inside the recording - and never asserts the express shipping selection. The name claims both.",
+        "layer": "architecture",
+        "why": "The name was written before binding knew what would survive. Nothing reads a name against the claims a scenario ended up with.",
+        "fix": "Same root as the rec_MT7MXBS9B2VB name defect, reached without a splitter."
+      },
+      {
+        "check": "tester_intent_kept",
+        "severity": "weak",
+        "scenario": "all",
+        "what": "'Exercise the awkward parts of the checkout page' is an objective with no verdict in it, and the tester marked nothing.",
+        "layer": "tester",
+        "why": "An objective that names no expected behaviour cannot anchor a scenario name or a verdict, which is visible downstream in both fails above.",
+        "fix": "No code change fixes it."
+      }
+    ],
+    "notes": "Repair ran twice and the gate went DOWN: validator pass first 0.917, final 0.900. Also: the rendered feature carries @needs-review and the IR's tag list does not, so section 2 and section 3 of the packet disagree about this scenario's tags."
+  },
+  {
+    "recordingId": "rec_MTA1OCGA8CPJ",
+    "runPath": "runs/rec_MTA1OCGA8CPJ/run_001",
+    "set": "dev",
+    "verdict": "good",
+    "checks": {
+      "verdict_fails_on_broken_build": "pass",
+      "sentence_covers_its_events": "pass",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "pass",
+      "tester_intent_kept": "pass"
+    },
+    "findings": [],
+    "notes": "Clean, and the tester's intent note survives verbatim - 'adds a widget', not the library's 'adds a Blue Widget', which is right under S6.7. Caveat on how much this proves: four events, one assertion, and the assertion is the tester's own marked element. It demonstrates that annotations are honoured, not that the generator is good."
+  },
+  {
+    "recordingId": "rec_MTA1OF3ND0YN",
+    "runPath": "runs/rec_MTA1OF3ND0YN/run_001",
+    "set": "dev",
+    "verdict": "bad",
+    "checks": {
+      "verdict_fails_on_broken_build": "fail",
+      "sentence_covers_its_events": "weak",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "fail",
+      "tester_intent_kept": "pass"
+    },
+    "findings": [
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "fail",
+        "scenario": "Order requires approval",
+        "what": "Then Order requires approval - a title-cased restatement of the scenario's own name. It asserts nothing, and it is the scenario's closing verdict.",
+        "layer": "validator",
+        "why": "This is the rubric's first fail example arriving verbatim. What makes it a validator finding rather than a prompt one is that the gate FOUND it and shipped it anyway: gherkin_style said 'says the same thing as the scenario's own name, so it adds no verdict', and evidence_discriminates said the two expected results rest on the same literal 'Orders over EUR500 require approval'. Both are warnings. Six critic findings, one resolved, three repair attempts, and the tautology survives all of it.",
+        "fix": "Detection already exists and is exact. The question is whether gherkin_style's name-restatement finding earns a rejection or a VALIDATOR_REPAIR row - not whether the pipeline can see it."
+      },
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "weak",
+        "scenario": "An order exceeding the threshold requires approval",
+        "what": "Test case 1's verdict is bound to evt_005 - an event that belongs to test case 2.",
+        "layer": "bind",
+        "why": "Section 4 says it outright: 'The cart badge update is visible at evt_005, not evt_004.' bind knew, and bound across the tester's own declared scenario break anyway. Test case 1's steps claim evt_001-004; its evidence comes from the first event of test case 2.",
+        "fix": "Binding should not offer a candidate from an event outside the scenario the step belongs to. Underneath it is a settle-window question - the badge had not rendered when evt_004's snapshot closed."
+      },
+      {
+        "check": "name_matches_verdict",
+        "severity": "fail",
+        "scenario": "An order exceeding the threshold requires approval",
+        "what": "Named 'An order exceeding the threshold requires approval' over a body that signs in, adds an item, and asserts a cart badge.",
+        "layer": "split",
+        "why": "The rubric's check-4 fail example, verbatim, and the mechanism is now visible: the drafter wrote ONE scenario for the whole session with that name, run._split_on_declared_breaks cut it at the tester's break, and the first group inherited the whole-session name while the second got a fresh one. splitter decisions are empty, so this was the deterministic break split, not split.py.",
+        "fix": "A deterministic split that renames neither group produces a name describing work that is now in the other test case. Naming the first group is the missing half."
+      }
+    ],
+    "notes": "The scenario break itself works - two test cases came out of one session, which is what this fixture exists to prove. Everything downstream of the cut is wrong: the first half keeps a name about the second half's subject, and the second half closes on its own title."
+  },
+  {
+    "recordingId": "rec_MTA1OK3S1NX1",
+    "runPath": "runs/rec_MTA1OK3S1NX1/run_001",
+    "set": "dev",
+    "verdict": "needs-work",
+    "checks": {
+      "verdict_fails_on_broken_build": "pass",
+      "sentence_covers_its_events": "weak",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "pass",
+      "tester_intent_kept": "weak"
+    },
+    "findings": [
+      {
+        "check": "tester_intent_kept",
+        "severity": "weak",
+        "scenario": "An order over EUR500 requires manager approval",
+        "what": "The assertion ships provenance: narrated and this recording contains NO narration. The narration array in tests/fixtures/narrated.recording.json is empty, and the packet's section 1 correctly reports 'Narration: none.'",
+        "layer": "validator",
+        "why": "I checked the fixture and the IR directly. ir.json: {\"provenance\": \"narrated\", \"evidence\": {\"literal\": \"Orders over EUR500 require approval\", ...}}. The recording has zero narration segments. provenance_supported passed it, and this is the only run in runs/ that reaches the narrated rank - so tests/test_fixture_outcomes.py's 'an assertion ranked narrated' check is currently being satisfied by this bug rather than by the feature it was written to protect. A rank naming a source the session does not contain is the mirror image of what check 5 asks: not something the tester said being lost, but something they never said being invented.",
+        "fix": "Two things, and they are separate: supports_narrated / provenance_supported should refuse the narrated rank when no narration segment covers the step, and the narrated fixture has stopped containing narration - most likely a Playwright re-record dropped the audio track."
+      },
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "weak",
+        "scenario": "An order over EUR500 requires manager approval",
+        "what": "'attempts to place an order with a total over \"500\"' quotes 500. The tester entered 750.",
+        "layer": "drafting-prompt",
+        "why": "The quoted value is the threshold lifted from the objective, not the value recorded at evt_005. Quotation marks in this project's house style mean 'this is a literal from the session'; here they mean 'this is a number from the brief'. Replay is unaffected (eventIds carry the real value), a human reading it is not.",
+        "fix": "Same pattern on rec_MTA1OX1AWLOC, which also entered 750 and also wrote 'over \"500\"'. One prompt line about quoting only what the session contains covers both."
+      }
+    ],
+    "notes": "The verdict itself is good and would catch a broken approval gate. Everything wrong here is metadata - and the provenance defect is the sharpest independent finding in this pass, because a false provenance rank is precisely the thing the fourteen validators exist to make impossible."
+  },
+  {
+    "recordingId": "rec_MTA1OT9OVUZ5",
+    "runPath": "runs/rec_MTA1OT9OVUZ5/run_001",
+    "set": "dev",
+    "verdict": "needs-work",
+    "checks": {
+      "verdict_fails_on_broken_build": "weak",
+      "sentence_covers_its_events": "pass",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "pass",
+      "tester_intent_kept": "weak"
+    },
+    "findings": [
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "weak",
+        "scenario": "An order fails to export when the order state is inconsistent",
+        "what": "The test case asserts Then the export fails with an \"Internal server error\". Put that in the regression suite and it passes while the bug is present and FAILS the day the bug is fixed.",
+        "layer": "architecture",
+        "why": "The rubric's question inverts here: the shipped test case is green on a broken build by construction. And the same run's own bug report states the opposite - '## Expected: the order is exported successfully after approval'. Two artefacts from one run disagree about what should happen, and only the .bug.md has it right.",
+        "fix": "When bug mode fires, nothing reconciles the test case's verdict with the bug report's expected. The test case should describe the intended behaviour the bug report already names, marked as failing - not encode the defect as the expectation."
+      },
+      {
+        "check": "tester_intent_kept",
+        "severity": "weak",
+        "scenario": "An order fails to export when the order state is inconsistent",
+        "what": "The objective was 'Check that an order can be exported after approval'. No scenario states that behaviour; the feature file asserts its negation.",
+        "layer": "architecture",
+        "why": "Same root as above. The objective survives into the bug report's Expected line and is inverted in the .feature - the artefact that gets judged.",
+        "fix": "See above; one fix closes both."
+      }
+    ],
+    "notes": "The .bug.md itself is the best artefact in these ten packets - steps to reproduce with the failure point marked, a real Expected/Actual pair, the actual grounded in the uncaught exception, environment and redacted parameters listed. Note also that the packet renders the bug report as a duplicate scenario of the test case, which it is not - that is a packet artefact and it hides the good half."
+  },
+  {
+    "recordingId": "rec_MTA1OX1AWLOC",
+    "runPath": "runs/rec_MTA1OX1AWLOC/run_001",
+    "set": "dev",
+    "verdict": "good",
+    "checks": {
+      "verdict_fails_on_broken_build": "pass",
+      "sentence_covers_its_events": "weak",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "pass",
+      "tester_intent_kept": "pass"
+    },
+    "findings": [
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "weak",
+        "scenario": "An order over EUR500 requires approval",
+        "what": "'sets the order total to over \"500\"' quotes 500; the tester entered 750.",
+        "layer": "drafting-prompt",
+        "why": "Identical to rec_MTA1OK3S1NX1 - the quoted number is the objective's threshold, not the recorded input.",
+        "fix": "One prompt line covers both recordings."
+      }
+    ],
+    "notes": "The pruning works and reads well: two exploratory events omitted with a sentence a human can check ('navigated to the reports page and back to the catalogue'). This is the one fixture whose hard thing both survives and is visible in the artifact."
+  }
+]

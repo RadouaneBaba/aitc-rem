@@ -1,0 +1,91 @@
+[
+  {
+    "recordingId": "rec_MTA1OK3S1NX1",
+    "runPath": "runs/rec_MTA1OK3S1NX1/run_001",
+    "set": "dev",
+    "verdict": "good",
+    "previousVerdict": "needs-work",
+    "changed": true,
+    "checks": {
+      "verdict_fails_on_broken_build": "pass",
+      "sentence_covers_its_events": "pass",
+      "one_scenario_one_behaviour": "pass",
+      "name_matches_verdict": "pass",
+      "tester_intent_kept": "pass"
+    },
+    "findings": [],
+    "notes": "Re-judged with the transcript visible. The tester said 'Now I'm checking that an order this size needs manager approval' at 5.9s; the digest lands it on evt_005/evt_006, which is step_003, which is the step carrying the only Then, and that Then asserts the alert plus a 409 refusal. The spoken sentence and the verdict reached are the same sentence. provenance: narrated is correct and the earlier pass's 'gate hole' finding is void. Break the approval gate and this step fails. The one wording nit -- the tester typed 750 and the step reads 'a total over 500' -- is not a defect: 500 is the threshold the case is about, it is a session literal (it appears in the alert 'Orders over EUR500 require approval'), and the sentence covers both of its events. Not manufacturing a weak out of it."
+  },
+  {
+    "recordingId": "rec_MT7VTN7ZRJPO",
+    "runPath": "runs/rec_MT7VTN7ZRJPO/run_001",
+    "set": "held-out",
+    "verdict": "bad",
+    "previousVerdict": "bad",
+    "changed": false,
+    "checks": {
+      "verdict_fails_on_broken_build": "fail",
+      "sentence_covers_its_events": "fail",
+      "one_scenario_one_behaviour": "weak",
+      "name_matches_verdict": "weak",
+      "tester_intent_kept": "fail"
+    },
+    "findings": [
+      {
+        "check": "tester_intent_kept",
+        "severity": "fail",
+        "scenario": "A user cannot add more than the maximum allowed quantity of a product",
+        "what": "The tester stated their objective out loud -- 'I will test if I can add the coffee products correctly to the cart' -- and the run shipped a negative-path test about a quantity limit. Four of the five spoken segments never reached the drafter at all.",
+        "layer": "digest",
+        "why": "digest._event_block emits its 'said:' line only under `if include_narration and previous is not None`, so the window before the FIRST recorded event does not exist and nothing spoken in it can be indexed. Here the events start at 15.6s and nar_001..nar_004 span 0.9s-14.9s, so the objective, 'So first I navigate to the coffee page', 'Wait a moment' and 'I choose the coffee I want' are all dropped. I rebuilt the digest to confirm: the only narration the drafter ever saw is nar_005, 'And I will add to bag a...', the least informative of the five. This is the scenario_break bug in a second costume -- a session-level fact that no per-event block can carry.",
+        "fix": "Narration before the first event needs a home in the index, and a spoken objective on a recording whose `objective` field is empty should reach the 'objective' line rather than a 'said:' line -- it is a statement about the session, not about an event."
+      },
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "fail",
+        "scenario": "bug report - A user cannot add more than the maximum allowed quantity of a product",
+        "what": "The bug report's actual reads 'the page failed to load due to an uncaught JavaScript error'. The page did not fail to load -- the tester clicked 'Add to Bag' on it at that very event, added two products through it, and narrated calmly over the whole thing.",
+        "layer": "architecture",
+        "why": "bug.json: score 50, threshold 50, one signal -- 'Uncaught Error: No options detected. Please consult documentation.' at evt_001, a jQuery-plugin init error sitting among seven JQMIGRATE deprecation warnings on a commercial site. NOISE in bind.py suppresses exactly this class of string for assertions; the bug detector has no equivalent, and nothing checks an actual against what the session shows happening next. The narration makes it worse rather than better: the tester is audibly working through a normal flow at that moment and marks nothing wrong.",
+        "fix": "Either NOISE applies to bug signals too, or an uncaught exception at the first event of a session that then proceeds normally is not a bug. This is the one sentence a developer reads before deciding whether to go and reproduce something."
+      },
+      {
+        "check": "verdict_fails_on_broken_build",
+        "severity": "fail",
+        "scenario": "A user cannot add more than the maximum allowed quantity of a product",
+        "what": "'the system prevents the addition of the item AND displays an error message' -- the evidence 'Maximum Quantity allowed is 3' witnesses the message only, and the same event's diff shows the opposite of prevention: '+3 -18 | Added (button) | Added (text) | Maximum Quantity allowed is 3 (text)' on a POST that returned 200.",
+        "layer": "drafting-prompt",
+        "why": "Nothing refused it. This is the half-proved-claim shape _unwitnessed was written for, arriving through the door that rule cannot close: the claim quotes no value and contains no digit, so the rule has nothing to test and the conjunction passes. Raised from weak to fail on this pass because the unwitnessed half is not merely unchecked, it is contradicted by the retrieval the claim itself cites -- 'Added' appeared in the same diff and the add returned 200. The message is plausibly an informational cap notice, not a rejection.",
+        "fix": "Calibrate whether _unwitnessed should also fire on a claim with two coordinated verb clauses where only one is witnessed. Calibrate over every (claim, literal) pair on disk first."
+      },
+      {
+        "check": "sentence_covers_its_events",
+        "severity": "fail",
+        "scenario": "A user cannot add more than the maximum allowed quantity of a product",
+        "what": "'Given the tester is on the coffee capsules page' claims evt_001, which is a click on button 'Add to Bag'.",
+        "layer": "drafting-prompt",
+        "why": "The setup sentence describes a location and hides an action -- and not any action: the first of the adds that make the limit test reach its limit. Replay this case from the sentence and you add fewer items than the tester did, and the message never appears. The narration confirms the misread: 'So first I navigate to the coffee page' describes a navigation that is NOT in the recording at all, which is what evt_001 was mistaken for.",
+        "fix": "A setup step that absorbs a state-changing click is worse than a detour swallowed mid-scenario, because the swallowed action is load-bearing for the verdict."
+      },
+      {
+        "check": "one_scenario_one_behaviour",
+        "severity": "weak",
+        "scenario": "A user cannot add more than the maximum allowed quantity of a product",
+        "what": "The scenario reaches its verdict at step_003 and then adds step_004, 'the tester opens the shopping bag', which reaches nothing.",
+        "layer": "drafting-prompt",
+        "why": "bind refused the only claim proposed for it -- 'the shopping bag dialog displays Your Selection and lists the items currently in the bag' -- by _existence_only, and that refusal is correct. But with the narration visible this step is not a coda: opening the bag is the tester CHECKING their stated objective, that the coffee landed in the cart correctly. The link's own name at evt_005 is 'Shopping Bag 3 1 items' and 'Your Selection' was in the diff, so a checkable count was sitting in the candidate set while an existence claim was drafted over it. The step deserved a real verdict and got a refusal.",
+        "fix": "Either this step is the second behaviour and belongs in its own scenario with a count assertion, or it is out of scope and belongs in an omitted entry. It is currently neither."
+      },
+      {
+        "check": "name_matches_verdict",
+        "severity": "weak",
+        "scenario": "bug report",
+        "what": "The bug report carries the test case's scenario name verbatim, and its markdown title is the feature name 'Shopping cart quantity limits -- fails' -- neither has anything to do with a page-load error.",
+        "layer": "architecture",
+        "why": "Nothing gives a bug report a name derived from the defect it is reporting.",
+        "fix": "Secondary to the bug-report finding above -- if the report should not exist, its name does not matter."
+      }
+    ],
+    "notes": "Verdict unchanged at bad, but the diagnosis changed completely. The earlier pass recorded 'no objective, no annotations, no narration' as a `tester` finding, meaning no code change fixes it. That was wrong twice over: the tester DID state an objective, out loud, in the first second of the recording, and the pipeline dropped it because the index has no window before the first event. The document is about a limit the tester never mentioned; the one step covering what they actually said they were checking shipped with no verdict."
+  }
+]

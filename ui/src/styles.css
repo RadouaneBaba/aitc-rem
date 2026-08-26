@@ -5,18 +5,7 @@
  * came from. The palette is deliberately quiet so that the few things which
  * are coloured mean something. */
 
-:root {
-  --bg: #f7f8fa;
-  --panel: #ffffff;
-  --ink: #1c1f23;
-  --muted: #5b6470;
-  --line: #e3e7ec;
-  --accent: #2f6f4f;
-  --warn: #9a6700;
-  --danger: #b3261e;
-  --attention: #fff8e6;
-  color-scheme: light;
-}
+@import './tokens.css';
 
 * { box-sizing: border-box; }
 
@@ -43,7 +32,7 @@ button {
 }
 button:hover:not(:disabled) { border-color: var(--muted); }
 button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 button.danger { color: var(--danger); }
 button.link { border: 0; background: none; padding: 0; color: var(--muted); text-align: left; }
 button.link:hover { color: var(--ink); text-decoration: underline; }
@@ -113,8 +102,8 @@ header {
 
 .banner {
   padding: 8px 14px;
-  background: #fdeceb;
-  border-bottom: 1px solid #f3c9c6;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--danger-line);
   display: flex;
   gap: 12px;
   align-items: center;
@@ -129,6 +118,33 @@ main {
 }
 main > * { overflow-y: auto; padding: 14px; }
 
+/* Below ~1100px the three panes cannot each hold their minimum, so the grid
+ * silently overflows the viewport and the evidence pane goes off-screen -- on
+ * a laptop, and on any projector. There were no media queries at all.
+ *
+ * The evidence pane drops under the other two first, because it is the one a
+ * reviewer consults rather than works in. Below 760px everything stacks and
+ * `.app` stops pinning to 100vh, because a stacked column that still claims
+ * exactly one viewport height is a column you cannot scroll. */
+@media (max-width: 1100px) {
+  main {
+    grid-template-columns: minmax(220px, 30%) minmax(320px, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, auto);
+  }
+  main > :nth-child(3) {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    max-height: 45vh;
+  }
+}
+
+@media (max-width: 760px) {
+  .app { height: auto; min-height: 100vh; }
+  main { grid-template-columns: 1fr; }
+  main > * { max-height: none; }
+  main > :nth-child(3) { max-height: none; }
+}
+
 /* -- left: test cases and steps ---------------------------------------- */
 
 .steplist { background: var(--panel); border-right: 1px solid var(--line); }
@@ -138,7 +154,7 @@ main > * { overflow-y: auto; padding: 14px; }
 .steplist ol { list-style: none; margin: 0; padding: 0; }
 .steplist li { display: flex; gap: 6px; align-items: flex-start; border-radius: 6px; padding: 2px; }
 .steplist li button { border: 0; background: none; text-align: left; padding: 4px 6px; flex: 1; }
-.steplist li.selected { background: #eef3f7; }
+.steplist li.selected { background: var(--selected-bg); }
 .steplist li.attention { background: var(--attention); }
 .keyword { color: var(--muted); font-weight: 600; margin-right: 4px; }
 .keyword.big { font-size: 15px; color: var(--ink); }
@@ -165,7 +181,7 @@ button.merge { margin-top: 8px; width: 100%; }
 
 .escalation {
   background: var(--attention);
-  border: 1px solid #f0dfae;
+  border: 1px solid var(--warn-line);
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 6px;
@@ -176,16 +192,16 @@ button.merge { margin-top: 8px; width: 100%; }
 
 .assertions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .assertions li { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
-.assertions li.accepted { border-color: #bcd7c7; }
+.assertions li.accepted { border-color: var(--accent-line); }
 .assertions label { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
 .assertions .text { font-size: 14.5px; }
 .assertions .meta { display: flex; gap: 10px; align-items: center; margin: 6px 0 0 24px; }
-.literal { background: #f1f3f5; padding: 1px 6px; border-radius: 4px; }
+.literal { background: var(--subtle-bg); padding: 1px 6px; border-radius: 4px; }
 
 .provenance { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 10px; padding: 1px 8px; border: 1px solid var(--line); }
-.provenance.annotated, .provenance.narrated { background: #e7f2ec; color: var(--accent); border-color: #bcd7c7; }
-.provenance.confirmed { background: var(--accent); color: #fff; border-color: var(--accent); }
-.provenance.objective { background: #eef3f7; }
+.provenance.annotated, .provenance.narrated { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
+.provenance.confirmed { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.provenance.objective { background: var(--selected-bg); }
 .provenance.inferred { color: var(--muted); }
 
 .fidelity { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
@@ -194,13 +210,13 @@ button.merge { margin-top: 8px; width: 100%; }
 
 .evidence { background: var(--panel); border-left: 1px solid var(--line); }
 .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
-.tabs .on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.tabs .on { background: var(--ink); color: var(--on-accent); border-color: var(--ink); }
 .evidence h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 18px 0 6px; }
 .evidence h4 { font-size: 13px; margin: 10px 0 4px; }
 .grounding { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .grounding > li { border-left: 2px solid var(--accent); padding-left: 9px; }
 .retrieval pre, .feature {
-  background: #f1f3f5;
+  background: var(--subtle-bg);
   border-radius: 6px;
   padding: 9px;
   overflow-x: auto;
@@ -234,9 +250,9 @@ button.merge { margin-top: 8px; width: 100%; }
   flex-wrap: wrap;
   padding: 8px 14px;
   background: var(--attention);
-  border-bottom: 1px solid #f0e0b8;
+  border-bottom: 1px solid var(--warn-line);
 }
-.job-failed { background: #fdeceb; border-bottom-color: #f3c9c6; }
+.job-failed { background: var(--danger-bg); border-bottom-color: var(--danger-line); }
 .job-state { font-weight: 600; color: var(--warn); }
 .job-failed .job-state { color: var(--danger); }
 .job-note { font-size: 12.5px; }
@@ -311,7 +327,7 @@ button.merge { margin-top: 8px; width: 100%; }
 .shot img {
   display: block; max-width: 100%; max-height: 220px;
   border: 1px solid var(--line); border-radius: 6px; cursor: zoom-in;
-  background: #fff;
+  background: var(--panel);
 }
 .shot.zoomed img { max-height: none; cursor: zoom-out; }
 .shot-hint { display: block; font-size: 12px; margin-top: 4px; }
@@ -340,3 +356,91 @@ textarea.feature {
 .telemetry summary { cursor: pointer; }
 .grounding-sentence { margin: 0 0 4px; line-height: 1.5; }
 .grounding details summary { cursor: pointer; font-size: 12px; }
+
+/* -- the trust strip, the keyboard sheet, and safe editing --------------- */
+
+/* SS13.3 -- `trace.metrics` and `trace.validatorResults` were in every run body
+ * and rendered nowhere. A grounding rate never appears without the count of
+ * expected results beside it. */
+.trust {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  padding: var(--s-2) var(--s-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: var(--fs-md);
+}
+.trust.ok { border-left: 3px solid var(--accent); }
+.trust.warn { border-left: 3px solid var(--warn); background: var(--warn-bg); }
+.trust.bad { border-left: 3px solid var(--danger); background: var(--danger-bg); }
+.trust-gates { display: flex; align-items: center; gap: var(--s-2); }
+.badge.ok { background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-line); }
+.badge.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); }
+.badge.bad { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-line); }
+.trust-detail { flex-basis: 100%; margin: var(--s-2) 0 0; padding-left: var(--s-4); }
+.trust-detail li { margin-bottom: var(--s-1); }
+.trust-detail li.fail { color: var(--danger); }
+.linkish {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Explicit save. It used to commit on blur with no dirty state and no undo. */
+.editbar { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); }
+.editbar .hint { margin: 0; }
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 18, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 20;
+}
+.sheet {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  padding: var(--s-5);
+  max-width: 620px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.sheet header { display: flex; align-items: center; gap: var(--s-3); }
+.sheet header h2 { margin: 0; font-size: var(--fs-lg); flex: 1; }
+.sheet h3 { font-size: var(--fs-md); margin: var(--s-5) 0 var(--s-2); }
+.keys { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-2) var(--s-4); margin: 0; }
+.keys dt { text-align: right; white-space: nowrap; }
+.keys dd { margin: 0; }
+kbd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  background: var(--subtle-bg);
+}
+.mark {
+  display: inline-block;
+  width: 1.4em;
+  text-align: center;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--subtle-bg);
+}
+
+/* There was no focus ring anywhere, and the loop is now keyboard-first. */
+:where(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: var(--focus);
+  outline-offset: var(--focus-offset);
+}

@@ -1484,3 +1484,63 @@ def test_a_bug_report_quoting_something_never_retrieved_is_not_written(storage: 
     )
 
     assert not [c for c in result.ir.testCases if c.kind == "bug_report"]
+
+
+def test_the_critic_is_shown_what_the_tester_actually_did():
+    """The only judgement layer was looking at one side of what it judges.
+
+    `_prompt` printed the step id, keyword, text and accepted assertions, and
+    never the events the step claims. But three of the largest defect classes
+    the first quality baseline found -- a sentence that does not cover its
+    events, a verdict asserting a label rather than the computed value, a step
+    quoting a value the tester never typed -- are defects BETWEEN the artifact
+    and the recording. Every one of them reads perfectly in the artifact alone.
+
+    `split._prompt` had been printing `[{events}]` for its own agent the whole
+    time, twenty lines away in a sibling file.
+    """
+    from server.evidence.store import EvidenceStore
+    from server.pipeline.critic import _prompt
+    from server.pipeline.segment import segment_recording
+
+    rec = f.recording(
+        events=[
+            f.event("evt_001", 0, at=1000.0, tgt=f.target(name="Upgrade")),
+            f.event("evt_002", 1, at=2000.0, tgt=f.target(name="Add item")),
+        ]
+    )
+    store = EvidenceStore(recording=rec, segments=segment_recording(rec, run_id="run_001"))
+
+    case = f.test_case(
+        steps=[
+            f.step(
+                "step_001",
+                text="the tester adds items until the hamper upgrades automatically",
+                event_ids=["evt_001", "evt_002"],
+            )
+        ]
+    )
+
+    prompt = _prompt(case, "Feature: x", protected=set(), only=None, store=store)
+
+    # The sentence credits the application with an upgrade the tester clicked.
+    # That is only visible beside the event, so the event has to be in here.
+    assert "evt_001" in prompt
+    assert "Upgrade" in prompt
+    assert "did:" in prompt
+
+
+def test_the_critic_prompt_still_builds_without_a_store():
+    """A missing store must degrade to the old prompt, not crash the stage.
+
+    The critic is the only thing standing between a plausible document and a
+    human, and a stage that raises is a stage that reports nothing -- which is
+    indistinguishable from a stage that approved the output.
+    """
+    from server.pipeline.critic import _prompt
+
+    case = f.test_case(steps=[f.step("step_001", text="the tester signs in")])
+    prompt = _prompt(case, "Feature: x", protected=set(), only=None, store=None)
+
+    assert "step_001" in prompt
+    assert "did:" not in prompt

@@ -1,5 +1,6 @@
 import type { AnnotationKind } from '../types/recording';
 import type { NarrationStatus, RecorderState, WorkerInbound } from '../shared/messages';
+import { coachObjective } from './objective';
 
 function send<T>(message: WorkerInbound | { type: string }): Promise<T> {
   return new Promise((resolve) => chrome.runtime.sendMessage(message, resolve));
@@ -58,8 +59,28 @@ function render(state: RecorderState): void {
   }
 }
 
+/**
+ * The objective coach (SS6.7), live as they type.
+ *
+ * Deterministic, so there is no spinner and nothing to wait for, and it NEVER
+ * blocks Start -- a tester who disagrees is very often right, and a coach that
+ * argues gets switched off. It shows one sentence and no more.
+ */
+const objectiveField = $('objective') as HTMLTextAreaElement;
+const objectiveAdvice = $('objective-advice');
+
+function coach(): void {
+  const advice = coachObjective(objectiveField.value);
+  objectiveAdvice.textContent = advice.message;
+  objectiveAdvice.hidden = !advice.message;
+  objectiveField.setAttribute('data-verdict', advice.verdict);
+}
+
+objectiveField.addEventListener('input', coach);
+coach();
+
 $('start').addEventListener('click', async () => {
-  const objective = ($('objective') as HTMLTextAreaElement).value.trim();
+  const objective = objectiveField.value.trim();
   render(await send<RecorderState>({ type: 'start', objective: objective || undefined }));
 });
 
@@ -86,30 +107,54 @@ $('mute').addEventListener('click', async () => {
   render(await send<RecorderState>({ type: 'toggle-mute' }));
 });
 
+async function annotate(kind: AnnotationKind, text?: string): Promise<void> {
+  const state = await send<RecorderState>({ type: 'query-state' });
+  await send({
+    type: 'annotation',
+    annotation: {
+      id: `ann_${state.annotationCount + 1}`,
+      kind,
+      timestamp: state.startedAt ? Date.now() - state.startedAt : 0,
+      ...(text ? { text } : {}),
+    },
+  });
+  render(await send<RecorderState>({ type: 'query-state' }));
+}
+
+/**
+ * An intent note names the step VERBATIM -- nothing downstream rewrites it
+ * (SS6.7) -- and it was being collected in a `window.prompt`: no example, no
+ * room to see what you typed, and no way to correct it after the fact. The one
+ * input the tester is asked to write carefully had the worst field in the tool.
+ */
+const noteForm = $('noteform');
+const noteText = $('notetext') as HTMLTextAreaElement;
+
+function showNote(open: boolean): void {
+  noteForm.hidden = !open;
+  if (open) noteText.focus();
+  else noteText.value = '';
+}
+
 for (const button of document.querySelectorAll<HTMLButtonElement>('.ann button')) {
   button.addEventListener('click', async () => {
     const kind = button.dataset.kind as AnnotationKind;
-    const text =
-      kind === 'intent_note'
-        ? // An intent note becomes the step name verbatim; the model does not
-          // rewrite it, so it is worth typing carefully (SS6.7).
-          window.prompt('Describe this step. It will be used word for word.') ?? undefined
-        : undefined;
-    if (kind === 'intent_note' && !text) return;
-
-    const state = await send<RecorderState>({ type: 'query-state' });
-    await send({
-      type: 'annotation',
-      annotation: {
-        id: `ann_${state.annotationCount + 1}`,
-        kind,
-        timestamp: state.startedAt ? Date.now() - state.startedAt : 0,
-        ...(text ? { text } : {}),
-      },
-    });
-    render(await send<RecorderState>({ type: 'query-state' }));
+    if (kind === 'intent_note') {
+      showNote(true);
+      return;
+    }
+    await annotate(kind);
   });
 }
+
+$('notesave').addEventListener('click', async () => {
+  const text = noteText.value.trim();
+  if (!text) return;
+  showNote(false);
+  await annotate('intent_note', text);
+});
+
+$('notecancel').addEventListener('click', () => showNote(false));
 
 $('pick').addEventListener('click', async () => {
   // The popup has to close: the tester is about to click something on the page,

@@ -17,6 +17,8 @@ import { StepDetail } from './components/StepDetail';
 import { EvidencePanel } from './components/EvidencePanel';
 import { RunPicker } from './components/RunPicker';
 import { JobBanner } from './components/JobBanner';
+import { TrustStrip } from './components/TrustStrip';
+import { ShortcutSheet } from './components/ShortcutSheet';
 
 export function App() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -68,11 +70,105 @@ export function App() {
     [selected],
   );
 
-  const testCase: TestCase | undefined = body?.ir.testCases[0];
+  /** Confirmed, because there is no way back from here: approval is SS13.5's
+   *  record of who signed this off, and nothing in the API withdraws one. */
+  const approve = useCallback(() => {
+    if (
+      window.confirm(
+        'Approve this run?\n\nThis records that you signed it off, and it cannot be undone here.',
+      )
+    ) {
+      act((rec, run) => api.approve(rec, run));
+    }
+  }, [act]);
+
   const step: Step | undefined = useMemo(
     () => body?.ir.testCases.flatMap((c) => c.steps).find((s) => s.id === stepId),
     [body, stepId],
   );
+
+  /**
+   * The case the SELECTED step belongs to, never `testCases[0]`.
+   *
+   * `StepList` renders every case, so selecting a step in the second scenario
+   * left this pointing at the first: the evidence pane showed the wrong feature
+   * file, `CaseNotes` showed another case's warnings, and editing the prose
+   * wrote it to the wrong case. Not a rare path -- a bug report is a sibling
+   * test case (SS14.2), so any recording with one has two.
+   */
+  const testCase: TestCase | undefined = useMemo(
+    () => body?.ir.testCases.find((c) => c.steps.some((s) => s.id === stepId)),
+    [body, stepId],
+  );
+
+  /**
+   * The keyboard loop (SS13.1).
+   *
+   * This file's own header says accept/reject "must take seconds, because that
+   * is the loop a tester runs dozens of times" -- and there was not one
+   * shortcut in the review UI. Every verdict was a mouse trip to a checkbox.
+   *
+   * Two rules keep it out of the way: a key is ignored while focus is in a
+   * field, so typing a step never fires a verdict, and nothing destructive is
+   * bound, so a mis-key costs a keystroke.
+   */
+  const orderedSteps = useMemo(() => body?.ir.testCases.flatMap((c) => c.steps) ?? [], [body]);
+  const [showKeys, setShowKeys] = useState(false);
+
+  const move = useCallback(
+    (delta: number) => {
+      if (!orderedSteps.length) return;
+      const at = orderedSteps.findIndex((s) => s.id === stepId);
+      const next = Math.min(Math.max((at < 0 ? 0 : at) + delta, 0), orderedSteps.length - 1);
+      const target = orderedSteps[next];
+      if (target) setStepId(target.id);
+    },
+    [orderedSteps, stepId],
+  );
+
+  const verdict = useCallback(
+    (accepted: boolean) => {
+      if (!step?.assertions.length) return;
+      for (const assertion of step.assertions) {
+        act((rec, run) => api.setAssertion(rec, run, step.id, assertion.id, accepted));
+      }
+    },
+    [step, act],
+  );
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable);
+
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault();
+        if (!body?.review.approved) approve();
+        return;
+      }
+      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+
+      switch (event.key) {
+        case 'j': move(1); break;
+        case 'k': move(-1); break;
+        case 'a': verdict(true); break;
+        case 'r': verdict(false); break;
+        case 'e':
+          event.preventDefault();
+          document.getElementById('step-text')?.focus();
+          break;
+        case '?': setShowKeys((on) => !on); break;
+        case 'Escape': setShowKeys(false); break;
+        default: return;
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [move, verdict, body, approve]);
 
   if (!body || !selected) {
     return (
@@ -96,11 +192,7 @@ export function App() {
         {body.review.approved ? (
           <span className="badge approved">approved</span>
         ) : (
-          <button
-            className="primary"
-            disabled={busy}
-            onClick={() => act((rec, run) => api.approve(rec, run))}
-          >
+          <button className="primary" disabled={busy} onClick={approve} title="Approve (Cmd/Ctrl+Enter)">
             Approve
           </button>
         )}
@@ -113,6 +205,7 @@ export function App() {
       </header>
 
       <JobBanner onFinished={refresh} />
+      <TrustStrip trace={body.trace} />
 
       {error && (
         <div className="error banner" role="alert">
@@ -156,10 +249,14 @@ export function App() {
           </section>
         )}
 
+        {/* `feature` is keyed by case id, because `render_document` keys it that
+            way -- and a bug report is deliberately absent from that map, having
+            no `.feature` at all, so the empty fallback is the correct answer
+            here rather than a missing one. */}
         <EvidencePanel
           step={step}
           trace={body.trace}
-          feature={Object.values(body.feature)[0] ?? ''}
+          feature={(testCase && body.feature[testCase.id]) ?? ''}
           recordingId={selected.recordingId}
           runId={selected.runId}
           busy={busy}
@@ -170,6 +267,7 @@ export function App() {
       </main>
 
       {testCase && <CaseNotes testCase={testCase} />}
+      {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
     </div>
   );
 }
