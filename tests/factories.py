@@ -234,13 +234,14 @@ def test_case(
     title: str = "Order checkout",
     description: str = "Recorded checkout flow.",
     scenarioName: str = "Submitting a valid order shows the confirmation",
+    kind: str = "test_case",
     **kw: Any,
 ) -> TestCaseIR:
     return TestCaseIR(
         id=ident,
         recordingId=recording_id,
         runId=run_id,
-        kind="test_case",
+        kind=kind,
         title=title,
         description=description,
         scenarioName=scenarioName,

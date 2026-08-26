@@ -329,6 +329,25 @@ def apply_feature_text(
     was = _feature_lines(rendered)
     now = _feature_lines(text)
 
+    # A `Background:` block can hold preconditions INHERITED from an earlier
+    # test case in the same recording, and those exist in no narrative of this
+    # one -- so the rendered file has more lines than `build_narrative` will
+    # produce, and every edit of a two-scenario feature file was refused with
+    # "this does not line up with the test case it came from". Latent until a
+    # recording produced two scenarios, which none ever had.
+    #
+    # Refusing to edit them here is the honest answer, in the same way this
+    # function refuses structure: the sentence belongs to the case that
+    # performed it, and editing it there is what makes it follow.
+    shared = [p for p in case.preconditions if p.shared] or case.preconditions
+    prefix = len(shared) if _has_background(rendered) else 0
+    if prefix and was[:prefix] != now[:prefix]:
+        raise ReviewError(
+            "a precondition in the Background comes from an earlier test case in this "
+            "recording. Edit it there and it will follow here."
+        )
+    was, now = was[prefix:], now[prefix:]
+
     if len(was) != len(now):
         raise ReviewError(
             f"this edit changes the number of steps ({len(was)} to {len(now)}). "
@@ -365,6 +384,15 @@ def apply_feature_text(
     if changed:
         resync_keywords(ir)
     return case
+
+
+def _has_background(text: str) -> bool:
+    """Did the renderer emit a `Background:` block for this file?
+
+    Read off the text rather than recomputed, so the reviewer's arithmetic
+    matches the file in front of them even if the lift rule changes.
+    """
+    return any(line.strip().startswith("Background:") for line in text.splitlines())
 
 
 def _feature_lines(text: str) -> list[tuple[str, str]]:

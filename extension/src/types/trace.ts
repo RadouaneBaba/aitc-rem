@@ -17,7 +17,7 @@ export type TruncationStrategy = "head_tail" | "head" | "none";
  * via the `definition` "PipelineStage".
  */
 export type PipelineStage =
-  "segment" | "decompose" | "name" | "assert" | "library" | "validate" | "critic" | "coverage" | "render";
+  "segment" | "decompose" | "split" | "name" | "assert" | "library" | "validate" | "critic" | "coverage" | "render";
 export type StopReason = "no_investigation_needed" | "evidence_sufficient" | "budget_exhausted" | "escalated";
 /**
  * degraded -- the stage produced usable output by falling back rather than by doing its job. Distinguished from ok because a fallback that reports success is how a quiet failure becomes permanent.
@@ -36,7 +36,8 @@ export type ValidatorName =
   | "no_placeholder_leak"
   | "selector_resolvable"
   | "no_pruned_assertion"
-  | "suggestions_quarantined";
+  | "suggestions_quarantined"
+  | "evidence_discriminates";
 export type ValidatorStatus = "pass" | "fail" | "warn" | "skip";
 /**
  * reject -> regenerate. hard_fail -> do not render at all (no_placeholder_leak only).
@@ -297,9 +298,17 @@ export interface RunMetrics {
    */
   validatorFinalPassRate?: number;
   /**
-   * The denominator of repairConvergenceRate, and it never ships without it. A convergence rate over zero findings is vacuously 1.0, exactly the way groundingRate is vacuously 1.0 for a configuration that abstains.
+   * How much the critic had to say: distinct findings across every critique in the run. The denominator of repairConvergenceRate, and it never ships without it. A convergence rate over zero findings is vacuously 1.0, exactly the way groundingRate is vacuously 1.0 for a configuration that abstains. Counted from the critic's own findings, NOT from repair attempts: reading it off the repair loop counted a two-stage validator rejection as two critic findings and counted a coherence finding -- which has no repair route -- as none, so it was wrong in 10 of 13 runs, in both directions.
    */
   criticFindingsRaised?: number;
+  /**
+   * How many of those the repair loop resolved within budget. A finding with no repair route (coherence, state_jump) is never resolved, and that is the honest reading of SS9.9 rather than an omission.
+   */
+  criticFindingsResolved?: number;
+  /**
+   * Distinct (stage, step, finding) repairs attempted. A different fact from criticFindingsRaised -- most repairs are triggered by a validator, not by the critic -- and worth keeping now that the two are no longer conflated.
+   */
+  repairAttempts?: number;
   toolCallsTotal?: number;
   /**
    * Keyed by stepId. The x-axis of the effort/difficulty correlation (SS3.4), and the column that separates an agent from a chain -- a chain is flat by construction.

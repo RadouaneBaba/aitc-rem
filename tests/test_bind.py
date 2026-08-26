@@ -36,6 +36,7 @@ from server.pipeline.bind import (
     MIN_LITERAL,
     _best_literal,
     _existence_only,
+    _own_input,
     _unwitnessed,
     bind_claims,
 )
@@ -391,3 +392,158 @@ def test_a_literal_too_short_to_mean_anything_is_not_evidence():
     # constant has to be a deliberate one.
     assert MIN_LITERAL >= 3
     assert 0.0 < COVERAGE_FLOOR <= 1.0
+
+
+# --------------------------------------------------------------------------
+# the tester's own input is not evidence of an outcome
+# --------------------------------------------------------------------------
+
+
+def store_with_target(role: str, name: str, value: str | None = None) -> EvidenceStore:
+    event = f.event("evt_001", tgt=f.target(role, name, **({"value": value} if value else {})))
+    return EvidenceStore(recording=f.recording(events=[event]))
+
+
+def test_a_claim_may_not_rest_on_the_option_the_tester_selected():
+    # Observed on a real recording of a French storefront, bound by the AGENT
+    # and past the whole gate: "the product list updates to show lower-priced
+    # items first" resting on "Prix bas a haut" -- the option they had just
+    # chosen in the sort dropdown. It proves the dropdown says what they set it
+    # to, and reads identically if the list came back sorted the wrong way.
+    store = store_with_target("combobox", "Sort filter", "Prix bas a haut")
+
+    why = _own_input(store, "Prix bas a haut", "evt_001")
+
+    assert why and "not what the application did with it" in why
+
+
+def test_a_claim_may_not_rest_on_the_label_of_the_control_operated():
+    # The same defect through the other field, and the older form of it: the
+    # deterministic pass once bound "a file containing the order details is
+    # downloaded" to `Export the order`, the label on the button just pressed.
+    store = store_with_target("button", "Export the order")
+    assert _own_input(store, "Export the order", "evt_001")
+
+
+def test_what_the_application_put_on_the_page_is_untouched():
+    # The negative case, and the one that decides whether this is a fix or a
+    # yield cut: a status message the application produced is exactly what a
+    # claim SHOULD rest on, and it is not what the tester operated.
+    store = store_with_target("combobox", "Sort filter", "Prix bas a haut")
+    for literal in ("9 produits affiches", "Results updated.", "Order confirmed"):
+        assert _own_input(store, literal, "evt_001") is None
+
+
+def test_an_event_that_is_not_in_the_recording_is_not_second_guessed():
+    store = store_with_target("button", "Export the order")
+    assert _own_input(store, "Export the order", "evt_404") is None
+
+
+def test_the_deterministic_pass_declines_where_the_agent_is_refused():
+    # Two tiers on purpose. "the quantity field shows 3" after typing 3 is a
+    # thin test but not a false one, and only something reading the page can
+    # tell those apart -- so the cheap pass hands it over rather than deciding.
+    from server.pipeline.bind import _Candidate
+
+    own = _Candidate(
+        literal="Prix bas a haut",
+        kind="semantic_node",
+        tool="get_snapshot",
+        args={},
+        is_own_input=True,
+    )
+    other = _Candidate(
+        literal="Prix bas a haut", kind="semantic_node", tool="get_snapshot", args={}
+    )
+    assert own.conclusive is False
+    assert other.conclusive is True
+
+
+def test_a_re_bound_claim_ships_once_and_keeps_both_attempts_on_record():
+    # `_second_chance` re-proposes for a verdictless scenario and then re-binds,
+    # prepending the first attempt so a reviewer can see what was tried. But
+    # re-binding runs over the WHOLE document, so a step that had already bound
+    # cleanly binds again -- and assembly read the merged list and emitted both.
+    #
+    # Shipped on a real recording as `Then the product list is filtered ...`
+    # immediately followed by `And the product list is filtered ...`, same step,
+    # differing only in the evidence behind them.
+    from server.pipeline.bind import BindResult, BoundClaim
+
+    first = BoundClaim(
+        step_id="step_004",
+        text="the list shows only available items",
+        original="the list shows only available items",
+        verdict="bind",
+        assertion=f.assertion("a1", "the list shows only available items"),
+    )
+    second = BoundClaim(
+        step_id="step_004",
+        text="the list shows only available items",
+        original="the list shows only available items",
+        verdict="bind",
+        assertion=f.assertion("a2", "the list shows only available items"),
+    )
+    result = BindResult(claims=[first, second])
+
+    shipped = result.for_step("step_004")
+    assert len(shipped) == 1
+    # Last wins: the later attempt was made with the reason the first failed in
+    # front of it.
+    assert shipped[0].id == "a2"
+    # And the history is intact, which is what the reviewer and SS3.4 read.
+    assert len(result.claims) == 2
+
+
+def test_two_genuinely_different_claims_on_one_step_both_ship():
+    # The negative case. A step may legitimately carry two expected results --
+    # the drafting prompt asks for exactly that when both matter -- and keying
+    # on the original sentence is what tells them apart from a re-answer.
+    from server.pipeline.bind import BindResult, BoundClaim
+
+    result = BindResult(
+        claims=[
+            BoundClaim(
+                step_id="step_004",
+                text="the badge shows 1",
+                original="the badge shows 1",
+                verdict="bind",
+                assertion=f.assertion("a1", "the badge shows 1"),
+            ),
+            BoundClaim(
+                step_id="step_004",
+                text="the total reads 615",
+                original="the total reads 615",
+                verdict="bind",
+                assertion=f.assertion("a2", "the total reads 615"),
+            ),
+        ]
+    )
+    assert len(result.for_step("step_004")) == 2
+
+
+def test_a_revised_sentence_is_still_the_same_proposal():
+    # A `revise` changes the text and is the same claim answered twice, so the
+    # key has to be the drafter's ORIGINAL sentence.
+    from server.pipeline.bind import BindResult, BoundClaim
+
+    result = BindResult(
+        claims=[
+            BoundClaim(
+                step_id="step_007",
+                text="the list returns to the default view",
+                original="the list returns to the default view",
+                verdict="bind",
+                assertion=f.assertion("a1", "the list returns to the default view"),
+            ),
+            BoundClaim(
+                step_id="step_007",
+                text="the list updates to show all products",
+                original="the list returns to the default view",
+                verdict="revise",
+                assertion=f.assertion("a2", "the list updates to show all products"),
+            ),
+        ]
+    )
+    shipped = result.for_step("step_007")
+    assert len(shipped) == 1 and shipped[0].id == "a2"

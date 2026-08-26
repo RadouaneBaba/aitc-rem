@@ -79,9 +79,11 @@ Look for what the recording REVEALED about the application, not what it did:
 
 Rules:
 
-* Each suggestion must rest on something you actually saw. Put the event ids or
-  tool call ids in `basedOn`. A suggestion with nothing behind it is a guess
-  about software in general, and the tester can produce those without us.
+* Each suggestion must rest on something you actually saw. Put the ids in
+  `basedOn`: an event (`evt_0007`), a retrieval (`tc_0012`), a step
+  (`step_003`), a request (`net_0002`) or a console line. A suggestion with
+  nothing behind it is a guess about software in general, and the tester can
+  produce those without us.
 * Do not restate the test case. "Check that an order over 500 needs approval" is
   worthless when that is the test you just read.
 * Do not suggest testing that the thing that worked still works.

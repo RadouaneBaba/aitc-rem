@@ -136,6 +136,7 @@ export function App() {
           <StepDetail
             step={step}
             recordingId={selected.recordingId}
+            screens={body.screens ?? []}
             busy={busy}
             onEdit={(text) => act((rec, run) => api.editStep(rec, run, step.id, text))}
             onDelete={() => act((rec, run) => api.deleteStep(rec, run, step.id))}

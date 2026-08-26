@@ -51,6 +51,7 @@ UI_DIST = REPO_ROOT / "ui" / "dist"
 STAGE_DETAIL = {
     PipelineStage.segment: "reading the recording",
     PipelineStage.decompose: "writing the test case",
+    PipelineStage.split: "deciding whether this is one test case or several",
     PipelineStage.assert_: "checking each expected result against the recording",
     PipelineStage.name: "rewriting a step a review flagged",
     PipelineStage.render: "writing the feature file",
@@ -277,13 +278,14 @@ def create_app(
 
     @app.get("/api/runs/{recording_id}/{run_id}")
     def get_run(recording_id: str, run_id: str) -> dict[str, Any]:
-        run = storage.run(recording_id, run_id)
+        run = storage.existing_run(recording_id, run_id)
         ir = _load_ir(run.root)
         return {
             "ir": ir.model_dump(mode="json", exclude_none=True),
             "trace": _load_json(run.root / "trace.json"),
             "review": _load_review(run.root, ir).model_dump(mode="json", exclude_none=True),
             "feature": _feature_text(run.root, ir, config),
+            "screens": _screens(storage, recording_id),
         }
 
     @app.get("/api/runs/{recording_id}/{run_id}/steps/{step_id}/narration")
@@ -299,7 +301,7 @@ def create_app(
         from server.evidence.store import EvidenceStore
         from server.pipeline.transcribe import supports_narrated
 
-        run = storage.run(recording_id, run_id)
+        run = storage.existing_run(recording_id, run_id)
         ir = _load_ir(run.root)
         step = next(
             (s for case in ir.testCases for s in case.steps if s.id == step_id),
@@ -307,6 +309,17 @@ def create_app(
         )
         if step is None:
             raise HTTPException(404, f"no step {step_id} in this run")
+
+        # The recording itself is not part of a run, and a run outlives it:
+        # `runs/` is kept for the ablation while `recordings/` gets cleared, so
+        # most runs on disk have no recording beside them. This endpoint used
+        # to call `load_recording_json` straight into a `.read_text()`, so
+        # opening any such run threw `FileNotFoundError` -- a 500 on first
+        # paint and again on every step click. The panel `.catch`es it and
+        # shows nothing, which is why the app still works and the terminal
+        # fills with tracebacks. There is simply no narration to report.
+        if not storage.recording_path(recording_id).is_file():
+            return {"segments": [], "hasAudio": storage.audio_path(recording_id).is_file()}
 
         recording = Recording.model_validate(storage.load_recording_json(recording_id))
         store = EvidenceStore(recording=recording)
@@ -333,7 +346,7 @@ def create_app(
     @app.get("/api/runs/{recording_id}/{run_id}/tools/{tool_call_id}")
     def get_tool_response(recording_id: str, run_id: str, tool_call_id: str) -> Any:
         """SS13.3's evidence panel: the retrieval itself, not a summary of it."""
-        run = storage.run(recording_id, run_id)
+        run = storage.existing_run(recording_id, run_id)
         path = run.tool_response(tool_call_id)
         if not path.exists():
             raise HTTPException(404, f"no stored response for {tool_call_id}")
@@ -342,7 +355,7 @@ def create_app(
     # -- review ----------------------------------------------------------
 
     def _edit(recording_id: str, run_id: str, mutate) -> dict[str, Any]:
-        run = storage.run(recording_id, run_id)
+        run = storage.existing_run(recording_id, run_id)
         ir = _load_ir(run.root)
         review = _load_review(run.root, ir)
         try:
@@ -448,7 +461,7 @@ def create_app(
         review functions the forms call -- the record is identical either way,
         and nothing writes to the IR behind its back.
         """
-        run = storage.run(recording_id, run_id)
+        run = storage.existing_run(recording_id, run_id)
         rendered = _feature_text(run.root, _load_ir(run.root), config).get(case_id, "")
         return _edit(
             recording_id,
@@ -470,8 +483,24 @@ def create_app(
 
     @app.post("/api/runs/{recording_id}/{run_id}/export")
     def export(recording_id: str, run_id: str, body: ExportRequest) -> dict[str, Any]:
-        run = storage.run(recording_id, run_id)
+        run = storage.existing_run(recording_id, run_id)
         ir = _load_ir(run.root)
+
+        # `no_placeholder_leak` is the only validator whose action is
+        # `hard_fail`, and the pipeline responds by erasing the `.feature`, the
+        # sidecar and the bug report. The IR survives -- that validator scans
+        # `case.model_dump()`, so the leaked value is inside it by definition --
+        # and every exporter reads a finished IRDocument. Exporting here would
+        # write the secret into an xlsx or a Jira issue through the one path
+        # SS7.1 exists to make impossible. The CLI gates this too; this endpoint
+        # had no check at all.
+        if _hard_failed(run.root):
+            raise HTTPException(
+                409,
+                "this run hard-failed on redaction, and every export reads the same IR. "
+                "Fix the recording and run it again.",
+            )
+
         results = export_all(ir, out_dir=run.root, config=config, names=body.formats or None)
         return {
             "exports": [
@@ -487,7 +516,7 @@ def create_app(
     @app.get("/api/runs/{recording_id}/{run_id}/files/{name}")
     def download(recording_id: str, run_id: str, name: str):
         """Approve then export, without a terminal (SS13.2)."""
-        run = storage.run(recording_id, run_id)
+        run = storage.existing_run(recording_id, run_id)
         path = (run.root / name).resolve()
         if not path.is_file() or run.root.resolve() not in path.parents:
             raise HTTPException(404, f"no file {name} in this run")
@@ -690,8 +719,40 @@ def _load_review(root: Path, ir: IRDocument) -> ReviewDocument:
     return review_ops.new_review(ir)
 
 
+def _screens(storage: Storage, recording_id: str) -> list[str]:
+    """Which events have a picture, told once instead of asked per step.
+
+    The reviewer's step pane rendered an `<img>` for every step and hid it
+    `onError`, so a recording with no `screens/` directory -- an import, or any
+    run whose recording was cleared -- produced one 404 per step click. The
+    browser logs those whatever the handler does, which is most of the noise on
+    the console. Nothing is broken by a missing picture (SS7.4: it is for the
+    human and never leaves the machine), so the fix is to stop asking.
+    """
+    folder = storage.recordings_dir / recording_id / "screens"
+    if not folder.is_dir():
+        return []
+    return sorted(p.stem for p in folder.glob("*.png"))
+
+
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def _hard_failed(root: Path) -> bool:
+    """Did the gate refuse to write this run's output at all?
+
+    Read from `trace.json`, which is where the gate's verdict is persisted --
+    `validatorResults` carries every row with its action, and `hard_fail` is
+    reachable by exactly one validator (`no_placeholder_leak`). A run with no
+    trace has not been through the gate, and is not treated as clean.
+    """
+    trace = _load_json(root / "trace.json")
+    if not trace:
+        return True
+    return any(
+        str(row.get("action")) == "hard_fail" for row in trace.get("validatorResults") or []
+    )
 
 
 def _feature_text(root: Path, ir: IRDocument, config: ProjectConfig) -> dict[str, str]:

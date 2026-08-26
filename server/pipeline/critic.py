@@ -65,15 +65,15 @@ individual step.
   failure that matters most and the easiest to miss, because every sentence in
   it can be true while the whole is unusable:
 
-      Scenario: Upgrading hamper size and adjusting item quantities
-        When the tester opens the hampers category
-        Then the hampers category page is loaded
-        When the tester selects "Morocco" as the delivery country
-        Then the hamper selection options are displayed
-        When the tester picks the "Small Wicker Basket"
-        Then the hamper capacity is updated to 5 items
-        When the tester increases the quantity of an item
-        Then the quantity increases to 18
+      Scenario: Managing a team and updating billing
+        When the tester opens the team settings page
+        Then the team settings page is displayed
+        When the tester invites "sam@example.com" as an editor
+        Then the pending invitations list shows one entry
+        When the tester opens the billing tab
+        Then the current plan is shown as "Team"
+        When the tester changes the seat count to "12"
+        Then the monthly total updates to "144"
 
   Every literal there was retrieved. It is still not a test case: it is four
   unrelated checks in a row, and when it fails nobody can say what broke. That
@@ -83,11 +83,11 @@ individual step.
 
   Does the scenario name say what this test PROVES?
 
-  "Upgrading hamper size and adjusting item quantities" describes what the
-  tester did. "A hamper at capacity cannot be upgraded past the largest size"
-  says what the test establishes, and a reader scanning a list of scenarios can
-  tell it apart from the others. A name that reads like a summary of the steps
-  underneath it is a `coherence` finding.
+  "Managing a team and updating billing" describes what the tester did.
+  "Adding a seat raises the monthly total by the per-seat price" says what the
+  test establishes, and a reader scanning a list of scenarios can tell it apart
+  from the others. A name that reads like a summary of the steps underneath it
+  is a `coherence` finding.
 
 Then judge the steps, on these:
 

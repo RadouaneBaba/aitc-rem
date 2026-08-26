@@ -229,19 +229,18 @@ RULES ON THE LITERAL
 * Do not quote a timestamp, a date, a uuid, a generated id, or anything from an
   advertising or analytics payload. Those are grounded and worthless: they
   break the first time somebody runs the test.
-* Quote the most specific thing that supports the claim. "Large Wicker Basket"
-  beats "Basket"; "18 / 18" beats "18".
+* Quote the most specific thing that supports the claim. "Priority delivery"
+  beats "delivery"; "18 / 18" beats "18".
 
 * **The literal must cover everything the sentence CHECKS, not just enough of
   it to look supported.** Every value the sentence puts in quotes, and every
   number in it, has to be in the string you quote. A sentence that checks two
   things needs evidence for both.
-      claim    the hamper is shown as a "Small Wicker Basket" with a
-               capacity of "5 / 5"
-      BAD      literal "Small Wicker Basket"      ("5 / 5" is unproved)
-      GOOD     literal "Small Wicker Basket 5 / 5"
-      GOOD     revise to *the hamper is shown as a "Small Wicker Basket"*,
-               literal "Small Wicker Basket"
+      claim    the plan is shown as "Team" with "12" seats remaining
+      BAD      literal "Team"                     ("12" is unproved)
+      GOOD     literal "Team - 12 seats remaining"
+      GOOD     revise to *the plan is shown as "Team"*,
+               literal "Team"
   If one retrieval covers the whole sentence, bind. If none does, `revise` the
   sentence down to the part you can actually prove -- that is better than
   binding a half of it, and far better than dropping it. This is checked, and
@@ -315,9 +314,33 @@ class BindResult:
         return sum(1 for c in self.claims if c.assertion is None)
 
     def for_step(self, step_id: str) -> list[Assertion]:
-        return [
-            c.assertion for c in self.claims if c.step_id == step_id and c.assertion is not None
-        ]
+        """The assertions this step ships, one per proposal at most.
+
+        **`claims` is a history and this is a selection, and conflating them
+        put the same sentence in the artifact twice.** `run._second_chance`
+        re-proposes for a verdictless scenario and then re-binds, prepending the
+        first attempt's claims so a reviewer asking "why is there no expected
+        result here" can see what was tried. But re-binding runs over the WHOLE
+        document, so every step that had already bound cleanly bound again --
+        and assembly read the merged list and emitted both.
+
+        Shipped on a real recording: `Then the product list is filtered to show
+        only available items` immediately followed by `And the product list is
+        filtered to show only available items`, on the same step, differing only
+        in the evidence behind them. `merge_repeats` folds duplicate STEPS and
+        never looked at this.
+
+        Keyed on the drafter's ORIGINAL sentence rather than the final one,
+        because a `revise` legitimately changes the text and is still the same
+        proposal answered twice. Last wins: the later attempt is the one made
+        with the reason the first failed in front of it.
+        """
+        latest: dict[str, Assertion] = {}
+        for claim in self.claims:
+            if claim.step_id != step_id or claim.assertion is None:
+                continue
+            latest[claim.original or claim.text] = claim.assertion
+        return list(latest.values())
 
     def to_artifact(self) -> dict[str, Any]:
         return {
@@ -562,6 +585,11 @@ def _from_answer(
         base.reason = browser
         return base
 
+    own = _own_input(store, literal, expectation.event_id)
+    if own:
+        base.reason = own
+        return base
+
     gap = _unwitnessed(checked, literal)
     if gap:
         base.reason = (
@@ -591,9 +619,8 @@ def _from_answer(
     # way. Checking it here means the claim is dropped with an explanation
     # rather than surviving to be rejected by the gate with nothing to do
     # about it.
-    matches = store.find_text(literal, case_sensitive=True)
-    if not any(m.get("eventId") == event_id for m in matches):
-        elsewhere = sorted({str(m.get("eventId")) for m in matches if m.get("eventId")})
+    if not store.contains_at(literal, event_id, case_sensitive=True):
+        elsewhere = store.events_containing(literal, case_sensitive=True)
         if len(elsewhere) == 1:
             # It is real, it is just somewhere else. Re-pointing is safe --
             # the literal and the retrieval are unchanged, only the event this
@@ -634,6 +661,10 @@ class _Candidate:
     kind: str
     tool: str
     args: dict[str, Any]
+    #: True when this string is the name or the value of the control the tester
+    #: OPERATED at this event -- the option they chose, the box they ticked.
+    #: See `conclusive`.
+    is_own_input: bool = False
 
     @property
     def conclusive(self) -> bool:
@@ -650,11 +681,75 @@ class _Candidate:
         agent that can look at what the number was counting. That is effort
         landing on the hard claims and not on the easy ones, which is the whole
         argument for retrieval being adaptive rather than scheduled.
+
+        **An expected result bound to the tester's own input is not evidence
+        of an outcome**, and the deterministic pass cannot tell the difference
+        by scoring. On a real recording of a French storefront:
+
+            claim:   the product list updates to show lower-priced items first
+            literal: "Prix bas a haut"
+
+        which is the option the tester had just selected in the sort dropdown.
+        Perfectly grounded evidence that the dropdown says what they set it to,
+        and it would read identically if the list came back sorted the wrong
+        way. It is `Export the order` again -- the label on the button the
+        tester had just pressed -- reaching the candidate set through a door
+        `_changed_at` cannot close, because choosing an option really does
+        change the page.
+
+        So this declines, and the claim becomes a question for an agent that
+        can look at the list itself. Declining rather than REFUSING is the
+        point: "the quantity field shows 3" after typing 3 is a thin test but
+        not a false one, and the agent is the thing that can tell those apart.
         """
+        if self.is_own_input:
+            return False
         content = _tokens(self.literal) - STOPWORDS
         if len(content) >= 2:
             return True
         return any(len(t) >= 4 and not t.isdigit() for t in content)
+
+
+def _own_input(store: EvidenceStore, literal: str, event_id: str) -> str | None:
+    """Refuse a claim resting on the control the tester OPERATED at this event.
+
+    The tester's input is not evidence of an outcome. Observed on a real
+    recording of a French storefront, bound by the agent and past the whole
+    gate:
+
+        claim:   the product list updates to show lower-priced items first
+        literal: "Prix bas a haut"
+
+    which is the option they had just chosen in the sort dropdown. It proves
+    the dropdown says what they set it to, and it would read identically if the
+    list came back sorted the wrong way -- the one failure the step exists to
+    catch.
+
+    **The agent had the discriminating evidence and cited the other thing.** Its
+    own recorded reason was *"The URL changed to include 'order:ASC' (ascending
+    price) and the combobox value..."*: it found `order:ASC`, reasoned about it
+    correctly, and then quoted the label. So this is not a retrieval failure and
+    no amount of extra budget fixes it; refusing sends the claim back with the
+    reason, and what it can bind to instead is already in the candidate set.
+
+    Checked on the agent's answer as well as in the deterministic pass -- where
+    `_Candidate.conclusive` merely DECLINES, because "the quantity field shows
+    3" after typing 3 is thin but not false, and only something reading the page
+    can tell those apart. Same two-tier shape as `_unwitnessed`, for the same
+    reason: a prompt that asks is not a guarantee.
+    """
+    if not store.has_event(event_id):
+        return None
+    target = store.event(event_id).target
+    key = _key(literal)
+    if not key:
+        return None
+    if key not in {_key(target.name), _key(getattr(target, "value", None))}:
+        return None
+    return (
+        f"{literal[:40]!r} is what the tester selected or entered at this event, not what "
+        f"the application did with it. Quote what CHANGED instead"
+    )
 
 
 def _unwitnessed(claim: str, literal: str) -> str | None:
@@ -763,7 +858,10 @@ def _bind_deterministically(
     # a stage that does not add itself to the trace is a stage that costs quota
     # invisibly, which is how `toolCallsTotal` came to exclude composition.
     # `no_investigation_needed` is the honest stop reason: the evidence was
-    # already sufficient and one call confirmed it.
+    # already sufficient and one call confirmed it, and `run._calls_per_step`
+    # reads exactly that to keep this mandatory call out of SS3.4's effort
+    # column. It is one call out of one allowed, not one out of zero: the review
+    # UI and the sidecar both render "used N of M" and were printing "1 of 0".
     investigation = StepInvestigation(
         id=f"inv_bind_{step.step_id}_{assertion_id.rsplit('_', 1)[-1]}",
         stage=PipelineStage.assert_,
@@ -771,7 +869,7 @@ def _bind_deterministically(
         initialUncertainty=[],
         toolCallIds=[call_id],
         budgetUsed=1,
-        budgetMax=0,
+        budgetMax=1,
         stopReason="no_investigation_needed",
         narrative=[f"{found.tool}({found.args.get('eventId', '')}) -> {call_id}"],
     )
@@ -831,8 +929,7 @@ def _best_literal(store: EvidenceStore, event_id: str, claim: str) -> _Candidate
         # `assertion_grounding` will independently require the literal to be
         # findable at this event, so anything that would fail there is dropped
         # here instead of being bound and then rejected by the gate.
-        matches = store.find_text(literal, case_sensitive=True)
-        if not any(m.get("eventId") == event_id for m in matches):
+        if not store.contains_at(literal, event_id, case_sensitive=True):
             continue
 
         # Coverage first, then specificity: a literal the claim fully accounts
@@ -855,11 +952,25 @@ def _candidates(store: EvidenceStore, event_id: str) -> list[_Candidate]:
     seen: set[str] = set()
     event = store.event(event_id)
 
+    # What the tester operated at this event: the option they chose, the box
+    # they ticked, the field they filled. A claim resting on one of these is
+    # resting on the INPUT, not on what the application did with it -- see
+    # `_Candidate.conclusive`.
+    own = {_key(v) for v in (event.target.name, getattr(event.target, "value", None)) if _key(v)}
+
     def add(value: str | None, kind: str, tool: str, args: dict[str, Any]) -> None:
         text = " ".join((value or "").split())
         if text and text not in seen:
             seen.add(text)
-            out.append(_Candidate(literal=text, kind=kind, tool=tool, args=args))
+            out.append(
+                _Candidate(
+                    literal=text,
+                    kind=kind,
+                    tool=tool,
+                    args=args,
+                    is_own_input=_key(text) in own,
+                )
+            )
 
     # **An expected result is about what CHANGED.**
     #

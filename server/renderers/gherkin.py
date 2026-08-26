@@ -197,29 +197,32 @@ def _background(case: TestCaseIR, narrative: Narrative, outline: list[str]) -> l
     bottom. Decomposition lifts them once a recording yields several scenarios
     that genuinely share setup (SS9.3).
     """
-    lines = ["", f"{INDENT}Background:"]
-
-    # The lifted steps come first, because `build_narrative` has already decided
-    # which they are and assigned their keywords.
+    # Inherited preconditions FIRST, then the setup this case lifted out of its
+    # own scenario. Both, in that order, and neither optional.
     #
-    # This branch did not exist, and its absence DELETED them: `lift_background`
-    # moved the leading setup steps into `narrative.background` and nothing
-    # rendered that, so every multi-scenario recording lost its sign-in from the
-    # feature file. Nothing caught it -- `event_coverage` reads the IR rather
-    # than the rendered output, and a file missing a step still parses.
-    if narrative.background:
-        for line in narrative.background:
-            lines.append(f"{INDENT * 2}{line.keyword} {_step_text(line.text, outline)}")
-        return lines
-
+    # This used to `return` after the lifted lines, which dropped
+    # `case.preconditions` entirely -- and `_build_case` fills those for case 2
+    # onwards with the setup steps of EARLIER cases, precisely so each scenario
+    # is runnable standalone. So the second test case out of a recording lost
+    # the sign-in the first one performed, whenever its own steps happened to
+    # begin with a setup step. Sibling of the bug where `lift_background` moved
+    # steps into a list nothing rendered: if you add anything to `Narrative`,
+    # check that a renderer reads it.
     shared = [p for p in case.preconditions if p.shared] or case.preconditions
-    if not shared:
+    if not shared and not narrative.background:
         return []
 
+    lines = ["", f"{INDENT}Background:"]
     for index, precondition in enumerate(shared):
         keyword = "Given" if index == 0 else "And"
-        text = _step_text(precondition.text, outline)
-        lines.append(f"{INDENT * 2}{keyword} {text}")
+        lines.append(f"{INDENT * 2}{keyword} {_step_text(precondition.text, outline)}")
+
+    for index, line in enumerate(narrative.background):
+        # `build_narrative` assigned these keywords against a block that started
+        # empty. Once preconditions precede them, the first one continues that
+        # block rather than opening one.
+        keyword = "And" if shared and index == 0 and line.keyword == "Given" else line.keyword
+        lines.append(f"{INDENT * 2}{keyword} {_step_text(line.text, outline)}")
     return lines
 
 

@@ -65,7 +65,7 @@ from server.pipeline.bugmode import (
     repro_steps,
 )
 from server.pipeline.coverage import COVERAGE_BUDGET, CoverageResult, attach, suggest_coverage
-from server.pipeline.critic import CRITIC_BUDGET, CriticResult, critique
+from server.pipeline.critic import CRITIC_BUDGET, CriticResult, Finding, critique
 from server.pipeline.digest import typed_parameters
 from server.pipeline.draft import (
     DRAFT_BUDGET,
@@ -79,12 +79,14 @@ from server.pipeline.narrative import merge_repeats, sync_keywords
 from server.pipeline.repair import (
     MAX_REPAIR_ATTEMPTS,
     RepairOutcome,
+    findings_raised,
     record,
     still_failing,
     still_flagged,
     targets,
 )
 from server.pipeline.segment import break_openers, segment_recording
+from server.pipeline.split import SPLIT_BUDGET, SplitResult, split_scenarios
 from server.pipeline.validators import (
     ValidationContext,
     ValidationReport,
@@ -268,6 +270,35 @@ def run_pipeline(
     # a guarantee.
     dictated = apply_intent_notes(store, drafted)
     _split_on_declared_breaks(store, drafted)
+
+    # -- 2b. split (agentic, only when a scenario is too big to be one) ----
+    #
+    # After the declared break, so a tester's own boundary is a floor this can
+    # only cut further inside -- SS6.7's override survives whole. Before
+    # `draft.json` is saved, so the artifact shows the document that was
+    # actually bound; before `_bind`, so a new scenario's claims are proved like
+    # any other; and before `_second_chance`, so a scenario left without a
+    # verdict still gets its one re-ask.
+    #
+    # `bind_claims` iterates the FLATTENED step list, so this changes nothing it
+    # sees: same claims, same order, same cassette keys. The split costs one
+    # model call and re-costs nothing downstream.
+    announce(PipelineStage.split)
+    t_split = time.time()
+    split = split_scenarios(
+        store,
+        runner,
+        model,
+        drafted,
+        model_name=options.model_name,
+        budget=SPLIT_BUDGET,
+        tools_enabled=options.tools_enabled,
+        temperature=options.temperature,
+        config=options.project,
+    )
+    t_split_end = time.time()
+    # `draft.json` is written AFTER the split, so the artifact a human opens is
+    # the document that was actually bound and rendered.
     path = storage.save_artifact(run, "draft", drafted.to_artifact())
     stages.append(
         StageRecord(
@@ -279,6 +310,18 @@ def run_pipeline(
             endedAt=time.time(),
             status=StageStatus.degraded if drafted.degraded else StageStatus.ok,
             **({"error": drafted.degraded} if drafted.degraded else {}),
+        )
+    )
+    split_path = storage.save_artifact(run, "split", split.to_artifact())
+    stages.append(
+        StageRecord(
+            stage=PipelineStage.split,
+            attempt=1,
+            inputPath=run.relative(run.artifact("draft")),
+            outputPath=run.relative(split_path),
+            startedAt=t_split,
+            endedAt=t_split_end,
+            status=StageStatus.ok,
         )
     )
 
@@ -324,6 +367,7 @@ def run_pipeline(
         drafted=drafted,
         bound=bound,
         critic=None,
+        split=split,
         stages=stages,
         announce=announce,
         attempt=attempt,
@@ -340,9 +384,17 @@ def run_pipeline(
     first_report = ValidationReport(results=list(draft.report.results))
     outcome = RepairOutcome()
     critic: CriticResult | None = None
+    #: Every critique, not just the last. The loop re-critiques after a repair
+    #: round NARROWED to the steps it repaired, and rebinding `critic` was
+    #: enough to lose the first critique's findings from the metrics -- so
+    #: `criticFindingsRaised` described whatever the critic happened to mention
+    #: last. `critic` below stays the live one, because that is what `targets`
+    #: and `still_flagged` have to reason about.
+    critiques: list[CriticResult] = []
 
     if options.critic_enabled:
         critic = _critique(runner, model, draft, options, dictated, storage, run, stages, announce)
+        critiques.append(critic)
 
     while options.repair_enabled and attempt < MAX_REPAIR_ATTEMPTS:
         pending = targets(
@@ -368,6 +420,7 @@ def run_pipeline(
             drafted=drafted,
             bound=bound,
             critic=critic,
+            split=split,
             stages=stages,
             announce=announce,
             attempt=attempt,
@@ -386,6 +439,7 @@ def run_pipeline(
                 only=repaired,
                 attempt=attempt,
             )
+            critiques.append(critic)
         for target in pending:
             resolved = not still_failing(draft.report, target) and not still_flagged(critic, target)
             record(
@@ -535,7 +589,14 @@ def run_pipeline(
     trace.validatorResults = report.results
     trace.repairAttempts = outcome.attempts
     trace.metrics = _metrics(
-        ir, trace, report, first_report, outcome, rate, time.perf_counter() - started
+        ir,
+        trace,
+        report,
+        first_report,
+        outcome,
+        findings_raised(critiques),
+        rate,
+        time.perf_counter() - started,
     )
 
     trace.stages = stages
@@ -568,6 +629,7 @@ def run_pipeline(
         artifacts={
             "segments": run.artifact("segments"),
             "draft": run.artifact("draft"),
+            "split": run.artifact("split"),
             "assertions": run.artifact("assertions"),
             "ir": run.artifact("ir"),
             "trace": trace_path,
@@ -609,6 +671,7 @@ def _attempt(
     drafted: DraftResult,
     bound: BindResult,
     critic: CriticResult | None,
+    split: SplitResult,
     stages: list[StageRecord],
     announce: Callable[[PipelineStage], None],
     attempt: int,
@@ -639,7 +702,7 @@ def _attempt(
     t0 = time.time()
     ir = _assemble(recording, run_id, drafted, bound)
     storage.save_artifact(run, "ir", ir)
-    trace = _trace(recording, run_id, options, runner, drafted, bound, critic)
+    trace = _trace(recording, run_id, options, runner, drafted, bound, critic, split)
     rendered = render_document(ir, config=options.project)
     sidecars: dict[str, str] = {}
     if options.project.trace == "sidecar":
@@ -783,17 +846,32 @@ def _second_chance(
 
         if target is None:
             if not dropped:
-                # Nothing was proposed for this scenario in the first place, so
-                # there is no evidence to feed back. `gherkin_style` says
-                # plainly that the scenario has no verdict, and that is the
-                # honest outcome.
-                continue
-            last = dropped[-1]
-            target = last.step_id
-            why = (
-                f"the expected result {last.text!r} could not be proved: {last.reason}. "
-                f"This scenario now has no expected result at all."
-            )
+                # The drafter proposed nothing here in the first place, so
+                # there is no failed claim to feed back -- which is a weaker
+                # question, not an absent one. This used to decline on that
+                # ground and call the result honest; what it produced on
+                # `twoflows` was a scenario named "An order exceeding the
+                # approval threshold cannot be placed" whose entire body was a
+                # sign-in. A scenario whose NAME promises a verdict and whose
+                # body has none is not an honest outcome, it is the defect this
+                # function exists for, arriving through the other door.
+                #
+                # `repropose_expectations` may still answer with an empty list,
+                # and for a genuinely all-setup scenario that is correct. The
+                # cost is one call per verdictless scenario, which is bounded
+                # by how many of them there are.
+                target = scenario.steps[-1].step_id
+                why = (
+                    f"the scenario {scenario.name or '(unnamed)'!r} was drafted with no "
+                    f"expected result on any of its steps, so it has no verdict at all."
+                )
+            else:
+                last = dropped[-1]
+                target = last.step_id
+                why = (
+                    f"the expected result {last.text!r} could not be proved: {last.reason}. "
+                    f"This scenario now has no expected result at all."
+                )
         else:
             why = (
                 "this is the last step of the scenario and it has no expected result, so "
@@ -1173,9 +1251,7 @@ def _drop_rejected(ir: IRDocument, report: ValidationReport) -> bool:
     doomed: set[str] = {
         r.assertionId
         for r in report.results
-        if r.assertionId
-        and r.status == ValidatorStatus.fail
-        and r.action == ValidatorAction.reject
+        if r.assertionId and r.status == ValidatorStatus.fail and r.action == ValidatorAction.reject
     }
     if not doomed:
         return False
@@ -1438,9 +1514,7 @@ def _parameters(recording: Recording, steps: list[Step]) -> list[dict[str, str]]
     first is what makes the list useful; the second keeps a placeholder that a
     step legitimately dropped from vanishing silently.
     """
-    written = " ".join(
-        [s.text for s in steps] + [a.text for s in steps for a in s.assertions]
-    )
+    written = " ".join([s.text for s in steps] + [a.text for s in steps for a in s.assertions])
     typed = {p.placeholder for p in typed_parameters(recording)}
     return [
         {"name": p.name, "placeholder": p.placeholder, "category": p.category.value}
@@ -1457,6 +1531,31 @@ def _write_output(
     config: ProjectConfig,
 ) -> None:
     by_id = {case.id: case for case in ir.testCases}
+
+    # Clear what a PREVIOUS run into this same run id rendered, before writing.
+    #
+    # The filename carries the case id, and the case id carries the scenario
+    # NUMBER, so a re-run that produces a different number of test cases leaves
+    # the old ones behind: `checkout` shipped a run directory holding
+    # `tc_..._01.feature` and `tc_..._02.feature` from a two-scenario run
+    # alongside `tc_....feature` from the one-scenario re-run that replaced it.
+    # Three feature files, two of them describing a document that no longer
+    # exists, all downloadable through `/files/{name}` and all indistinguishable
+    # from the current one.
+    #
+    # Scoped to this run's own directory and to the three suffixes this
+    # function writes -- never a glob wide enough to reach `ir.json` or a tool
+    # response, which are what the gate re-reads.
+    keep = (
+        {run.root / feature_filename(case, config) for case in ir.testCases}
+        | {run.root / trace_filename(case, config) for case in ir.testCases}
+        | {run.root / bug_md.bug_filename(case, config) for case in ir.testCases}
+    )
+    for suffix in ("*.feature", "*.trace.md", "*.bug.md"):
+        for stale in run.root.glob(suffix):
+            if stale not in keep:
+                stale.unlink(missing_ok=True)
+
     for case_id, text in rendered.items():
         (run.root / feature_filename(by_id[case_id], config)).write_text(text, encoding="utf-8")
     for case_id, text in sidecars.items():
@@ -1466,9 +1565,7 @@ def _write_output(
     # feature file and for the same reason: the validation gate has already read
     # it, so it is not optional output.
     for case_id, text in bug_md.render_document(ir, config=config).items():
-        (run.root / bug_md.bug_filename(by_id[case_id], config)).write_text(
-            text, encoding="utf-8"
-        )
+        (run.root / bug_md.bug_filename(by_id[case_id], config)).write_text(text, encoding="utf-8")
 
 
 def _erase_output(run: RunPaths, ir: IRDocument, config: ProjectConfig) -> None:
@@ -1499,11 +1596,14 @@ def _trace(
     drafted: DraftResult,
     bound: BindResult,
     critic: CriticResult | None = None,
+    split: SplitResult | None = None,
 ) -> AgentTrace:
     models = {
         "draft": {"provider": "configured", "model": options.model_name},
         "bind": {"provider": "configured", "model": options.model_name},
     }
+    if split is not None and split.investigations:
+        models["split"] = {"provider": "configured", "model": options.model_name}
     if options.critic_enabled:
         models["critic"] = {"provider": "configured", "model": options.model_name}
     config = RunConfig(
@@ -1525,10 +1625,14 @@ def _trace(
     investigations = [*bound.investigations, *drafted.repairs]
     if drafted.investigation is not None:
         investigations.insert(0, drafted.investigation)
+    if split is not None:
+        investigations.extend(split.investigations)
     if critic is not None:
         investigations.extend(critic.investigations)
 
     model_calls = [*drafted.model_calls, *bound.model_calls]
+    if split is not None:
+        model_calls.extend(split.model_calls)
     if critic is not None:
         model_calls.extend(critic.model_calls)
 
@@ -1614,6 +1718,16 @@ def _calls_per_step(investigations: list, trace_calls: list | None = None) -> di
     that stopped adapting when nothing of the sort had happened.
     `toolCallsTotal` still counts them -- they are real calls that cost real
     quota -- but they are not evidence of investigation.
+
+    The deterministic binding pass is the same thing arriving by a different
+    door. It confirms a claim with one mandatory `get_snapshot` and records the
+    retrieval as an investigation that stopped `no_investigation_needed` -- so
+    every bound claim contributed exactly 1, and 9 of 13 runs read a column of
+    constant 1s while CLAUDE.md quoted the variance as SS3.3's signature.
+    `ROUTINE_TOOLS` cannot catch it, because it filters by TOOL NAME and
+    `get_snapshot` is genuine effort everywhere else. The stop reason is the
+    honest discriminator: an investigation that investigated nothing is not
+    effort, whatever it cost.
     """
     routine = {c.id for c in (trace_calls or []) if getattr(c, "tool", None) in ROUTINE_TOOLS}
     per_step: dict[str, int] = {}
@@ -1621,6 +1735,9 @@ def _calls_per_step(investigations: list, trace_calls: list | None = None) -> di
     for investigation in investigations:
         step_id = getattr(investigation, "stepId", None)
         if not step_id:
+            continue
+        if str(getattr(investigation, "stopReason", "")) == "no_investigation_needed":
+            per_step.setdefault(step_id, 0)
             continue
         per_step[step_id] = per_step.get(step_id, 0) + sum(
             1 for i in investigation.toolCallIds if i not in routine
@@ -1650,6 +1767,7 @@ def _metrics(
     report: ValidationReport,
     first_report: ValidationReport,
     outcome: RepairOutcome,
+    critic_findings: list[Finding],
     rate: float,
     elapsed: float,
 ) -> RunMetrics:
@@ -1684,8 +1802,21 @@ def _metrics(
         # vacuously 1.0, exactly the way `groundingRate` is vacuously 1.0 for a
         # configuration that abstains -- the trap this project has now hit in
         # four separate columns.
-        criticFindingsRaised=outcome.findings_raised,
-        repairConvergenceRate=outcome.convergence_rate,
+        #
+        # Counted from the critic's OWN findings. Reading them off the repair
+        # loop counted a two-stage validator rejection as two critic findings
+        # and a `coherence` finding -- which has no repair route, and is the
+        # most important kind -- as none. It disagreed with `critic.json` in 10
+        # of 13 runs, in both directions, and `repairConvergenceRate` shared
+        # the wrong denominator.
+        criticFindingsRaised=len(critic_findings),
+        criticFindingsResolved=len([f for f in critic_findings if outcome.resolved(f)]),
+        repairConvergenceRate=(
+            len([f for f in critic_findings if outcome.resolved(f)]) / len(critic_findings)
+            if critic_findings
+            else 0.0
+        ),
+        repairAttempts=outcome.repairs_attempted,
         # Every retrieval the run actually made, read from the log rather than
         # summed over investigations. Summing investigations undercounts by
         # exactly the calls no investigation wrapped -- which is how this came

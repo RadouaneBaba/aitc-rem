@@ -330,13 +330,20 @@ def describe(
     expected = str(answer.get("expected") or "").strip()
     actual = str(answer.get("actual") or "").strip()
     literal = str(answer.get("literal") or "")
-    call_id = str(answer.get("toolCallId") or "").strip()
-    event_id = str(answer.get("eventId") or "").strip()
+
+    # The model names a literal and NOTHING else. It used to supply the
+    # `toolCallId` and the `eventId` too, checked after the fact in
+    # `grounding.py` -- one tier weaker than every other stage in this pipeline,
+    # on the one sentence a developer reads before deciding whether to go and
+    # reproduce something. `_resolve_call` searches the retrievals the agent
+    # actually made, so a fabricated citation is not something it can express.
+    call_id = _resolve_call(runner, enquiry.tool_call_ids, literal) if literal else None
+    event_id = _event_of(store, runner, call_id, literal) if call_id else ""
 
     if not (expected and actual and literal and call_id and event_id):
         enquiry.narrative.append(
-            "no bug report written: `actual` must quote a retrieval (SS14.2) and the "
-            "answer did not carry one"
+            "no bug report written: `actual` must quote a retrieval made in this run "
+            "(SS14.2), and nothing retrieved here contains that string"
         )
         return None, investigation, enquiry.model_calls
 
@@ -378,10 +385,10 @@ something you retrieved.
   * `literal` must appear VERBATIM in a tool response you received in THIS
     conversation. Copy it character for character. Not paraphrased, not
     reformatted, not with the quotes changed.
-  * `toolCallId` must be the id that response arrived with. It is inside the
-    tool result, in the `toolCallId` field. Do not invent one and do not guess
-    at its shape.
-  * `eventId` must be the event the literal was found at.
+
+That is all you supply. Which retrieval it came from and which event it belongs
+to are worked out from the response itself, so there is no id to get wrong and
+none to invent.
 
 Retrieve first. `get_console` for an exception, `get_network` for a failed
 request, `get_snapshot` for what the page said. Then quote what came back.
@@ -400,8 +407,6 @@ When you are ready to answer, call no tools and reply with ONLY this JSON:
   "expected": "the order is placed and a confirmation reference is shown",
   "actual": "the server returned a 500 and no order was created",
   "literal": "Internal server error",
-  "toolCallId": "tc_0007",
-  "eventId": "evt_0009",
   "kind": "network"
 }
 
@@ -414,6 +419,39 @@ def system_prompt(config: ProjectConfig) -> str:
 
 
 # --------------------------------------------------------------------------
+
+
+def _resolve_call(runner: ToolRunner, tool_call_ids: list[str], literal: str) -> str | None:
+    """Which of this agent's own retrievals contains the string it quoted?
+
+    Imported from `bind` rather than reimplemented. A second implementation of
+    evidence binding is a second thing that can be wrong, and this is the one
+    sentence a developer reads before deciding whether to go and reproduce
+    something. It carries `find_text`'s exclusion with it -- that tool echoes
+    its own query back, so binding to one would be true for any string
+    whatsoever.
+    """
+    from server.pipeline.bind import _resolve_call as resolve
+
+    return resolve(runner, tool_call_ids, literal)
+
+
+def _event_of(store: EvidenceStore, runner: ToolRunner, call_id: str, literal: str) -> str:
+    """Which event the quoted string belongs to.
+
+    Read from the recording first, uncapped, and only accepted when the answer
+    is unambiguous. Falling back to the retrieval's own `eventId` argument
+    covers a console or network response fetched for one event specifically.
+    """
+    events = store.events_containing(literal, case_sensitive=True)
+    if len(events) == 1:
+        return events[0]
+
+    call = next((c for c in runner.calls if c.id == call_id), None)
+    asked = str((getattr(call, "args", None) or {}).get("eventId") or "")
+    if asked and asked in events:
+        return asked
+    return events[0] if events else asked
 
 
 def _alerts(event) -> list[str]:

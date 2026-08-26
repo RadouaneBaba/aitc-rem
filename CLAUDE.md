@@ -142,7 +142,8 @@ server/
   evidence/      store.py = the recording, indexed. tools.py = the 12 tools + ToolRunner
   pipeline/      segment.py (code, hints only) -> digest.py (code, the session
                  index) -> draft.py (agentic, writes the whole document) ->
-                 bind.py (agentic per contested claim, proves or deletes each)
+                 split.py (agentic, only when a scenario is over a size floor)
+                 -> bind.py (agentic per contested claim, proves or deletes each)
                  -> narrative.py (code) -> validators/ (code)
                  -> critic.py + repair.py (agentic, bounded) -> bugmode.py
                  -> coverage.py -> run.py
@@ -171,7 +172,18 @@ it produces has to be the same every time, because the drafter reads it.
 
 The net under that freedom is `event_coverage`. The drafter decides what a step
 IS, so every recorded event must land in a step or in an explicit `omitted`
-entry naming it. That validator is the reason the freedom is safe to grant.
+entry naming it, EXACTLY once -- counted per test case, because a bug report
+retraces the same session on purpose (SS14.2) and a rule reading "no event twice
+in the IR" turns the fixture built to contain a 500 into a rejection with
+nothing wrong in it. That validator is the reason the freedom is safe to grant.
+
+**It cannot tell a step from a step that swallowed something, and nothing can.**
+On `wander` the drafter put a two-click detour to the reports page inside *"adds
+an item to the cart and proceeds to checkout"* -- every event accounted for,
+gate green, and a step whose sentence covers neither event. The counter-measure
+is in the drafting prompt, which now shows the bad and the good shape side by
+side, and the check is `wander` producing an omission that `no_pruned_assertion`
+actually reads.
 
 **Every review edit goes through `server/api/review.py`.** Not because it is
 tidy, but because SS13.5's record is the project's only source of difficulty
@@ -225,6 +237,49 @@ before. Without that rule it bound "a file containing the order details is
 downloaded" to `Export the order` -- the label on the button the tester had
 just pressed, two shared words, a clean grounding trail, and the export had in
 fact returned a 500.
+
+**The tester's own input is not evidence of an outcome.** `bind._own_input`
+refuses a literal that is the name or the value of the control operated at that
+event. Found on a French storefront, past the whole gate:
+
+```
+claim:   the product list updates to show lower-priced items first
+literal: "Prix bas à haut"     <- the option selected in the sort dropdown
+```
+
+`Export the order` again -- the label on the button just pressed -- reaching the
+candidate set through a door `_changed_at` cannot close, because choosing an
+option really does change the page. **And the agent had the discriminating
+evidence and cited the other thing**: its recorded reason was *"The URL changed
+to include `order:ASC` (ascending price) and the combobox value..."*, so this is
+not a retrieval failure and more budget does not fix it.
+
+Two tiers, the same shape as `_unwitnessed`: `_Candidate.conclusive` DECLINES to
+the agent, because "the quantity field shows 3" after typing 3 is thin but not
+false and only something reading the page can tell those apart;
+`bind._own_input` REFUSES the agent's own answer, because a prompt that asks is
+not a guarantee.
+
+**One literal may not be the whole evidence for two different claims.**
+`evidence_discriminates`, the fourteenth validator. Grounding proves a claim
+points at a retrieval; it cannot prove the retrieval is ABOUT that claim rather
+than the one next to it, and this is the cheapest test of the difference there
+is. The same storefront shipped:
+
+```
+the product list is filtered to show only available items      <- "Results updated."
+the product list updates to show items matching the processors <- "Results updated."
+```
+
+an aria-live region announcing that *something* changed -- the bare number of
+`_Candidate.conclusive` in another costume. `_unwitnessed` cannot see it,
+because neither claim quotes a value or contains a digit and prose framing is
+deliberately untouched there. Language-independent by construction, which
+matters: a wordlist of status phrases would have been useless on this recording.
+
+A **warning**. It can say two claims cannot both be right about this evidence;
+it cannot say which, and on `twoflows` one of the two was a good claim while the
+other restated the scenario name. Rejecting would have punished both.
 
 **Noise suppression is code, not a prompt line.** An assertion about a
 timestamp or a uuid passes `evidence_retrieved` perfectly and still breaks the
@@ -308,6 +363,14 @@ handing back the REASON it failed. On a session that ended in an error the
 answer is usually that the error is the expected result, and the drafter cannot
 know that until binding has looked.
 
+It asks in the other case too, and used to decline. When the drafter proposed
+nothing for a scenario at all there is no failed claim to hand back -- which is a
+weaker question, not an absent one. Declining produced, on `twoflows`, a
+scenario named *"An order exceeding the approval threshold cannot be placed"*
+whose entire body was a sign-in: a name promising a verdict over a body with
+none. `repropose_expectations` may still answer with an empty list, and for a
+genuinely all-setup scenario that is correct.
+
 **One author sees everything.** The feature name, the scenario name, tags,
 roles, keywords, where one step ends and the next begins, which outcome is
 worth checking -- all of it needs the whole session in view, and all of it is
@@ -363,16 +426,63 @@ through the middle of a step. Both halves behaved. `digest.py` now prints
 uses, and the drafting prompt says a scenario begins there. The split stays as
 the net behind it.
 
-**Nothing else splits a scenario, and nothing splits on length.** Those two --
-the drafter's judgement and the tester's declared break -- are the whole set,
-and each surviving scenario becomes one `TestCaseIR` and one `Scenario:`. There
-is no event-count trigger. `MAX_BEATS` rejects an over-long scenario at the gate
-and `gherkin_style` has no row in `VALIDATOR_REPAIR`, so that rejection is
-terminal rather than repaired; the critic's `coherence` finding has no row in
-`CRITIC_REPAIR` either. On a long recording with no declared break, a drafter
-that returns one scenario is therefore the last word. The prompt now states
-`MAX_BEATS` as a number, because a gate the author was never told about is a
-gate it cannot aim at.
+**A third thing splits a scenario, and it is asked only when size says to ask.**
+`split.py` sits between the drafter and `bind.py`, and exists because "a drafter
+that returns one scenario is the last word" was the last word thirteen times out
+of thirteen. On the 34-event commercial recording the critic diagnosed it
+exactly -- *"this covers three separate upgrade behaviours and reaches three
+distinct verdicts, making it three test cases in one"* -- and nothing happened,
+because `coherence` has no row in `CRITIC_REPAIR` and cannot have one: a
+post-assembly re-draft can change the step COUNT, which SS3.6 promises it does
+not.
+
+The trigger is deterministic and disjunctive: more than `MAX_BEATS` beats **or**
+more than `SPLIT_EVENT_FLOOR = 12` events, and never on a scenario with fewer
+than two steps. A beats-only trigger misses the case it was built for -- that
+scenario has three beats, under the limit. It is long, not beat-heavy. No
+fixture reaches the floor (the largest is 10 events), so a well-shaped document
+costs nothing and no fixture output moves.
+
+**The answer is taken whole or discarded whole, and `accept` is the rule.** The
+agent returns only an ordered regrouping of the existing step ids into named
+groups; it may not invent, reorder, drop, merge or re-word a step, and
+`step_id` and `eventIds` are untouched by construction because step ids come
+from a document-global counter. Four ways an answer is refused: it is not an
+ordered regrouping, a group is empty, the cut falls between two steps whose
+normalised text is identical -- `merge_repeats` runs per scenario, so that cut
+would change the step count -- or there is only one group, which is a complete
+and correct answer meaning "this is one test case". A refusal is recorded with
+its reason; a wrong trigger costs one model call and never a wrong document.
+
+**The trigger is deterministic; the ANSWER is not, and that is measured rather
+than feared.** On `rec_MT7MXBS9B2VB` the trigger fired identically on two runs
+-- *33 events in one scenario, over the floor of 12* -- and the agent returned
+two named groups on one and ONE group on the other. Nothing in this stage
+changed between them; the DRAFT it reads did, because an unrelated prompt line
+moved the step wording toward a more continuous narrative and the splitter read
+that as one flow.
+
+So the same recording produced one test case and two, which is a
+reproducibility problem of the kind SS3.6 cares about. Be precise about the
+scope: a tester's DECLARED break still overrides deterministically, and `accept`
+is deterministic. Only "is this long scenario one behaviour or several" varies,
+which is the part that is genuinely a judgement. Before adding any prompt line
+to `draft.py`, note that it perturbs this stage's input, and this stage is the
+one least able to absorb it.
+
+Gated on `tools_enabled`, so A0 still makes no retrieval of any kind. It runs
+under A1 and A2 alike: it is a generation capability, not a critic capability,
+and SS3.5 defines A1 vs A2 as *critic and repair loop* and nothing else. Its
+investigation carries a `segment_id` and **no** `step_id`, so a scenario-level
+decision lands in `toolCallsTotal` and stays out of `toolCallsPerStep`.
+
+So the set is three: the drafter's judgement, the tester's declared break, and
+this. Each surviving scenario becomes one `TestCaseIR` and one `Scenario:`.
+`MAX_BEATS` now genuinely rejects at the gate -- `gherkin_style` returns
+`ValidatorStatus.fail` for its two structural findings and has no row in
+`VALIDATOR_REPAIR`, so that rejection is terminal. The prompt states `MAX_BEATS`
+as a number, because a gate the author was never told about is a gate it cannot
+aim at.
 
 **`server/runners/` is to correctness what `renderers/` is to readability.** A
 new one is a new file reading a finished `IRDocument`, never a pipeline change.
@@ -415,11 +525,12 @@ would hide it rather than close it. Nothing that reaches the "nothing" rows is
 silently dropped: it becomes `criticNotes` and a `Warning`.
 
 **Repair may change a step's text and its assertions. Never its `eventIds` or
-its `step_id`.** That one constraint is what keeps `event_coverage`,
-`apply_splits` and `_case_groups` stable across attempts, and it is why
-`rename_steps` walks the named steps rather than re-running `name_segments`
-with a filter -- the latter takes each step's events from the SEGMENT, which
-would quietly undo a split.
+its `step_id`.** That one constraint is what keeps `event_coverage` and the
+scenario grouping stable across attempts, and it is why `rewrite_steps` walks
+the drafted steps rather than re-running the drafting stage with a filter -- the
+latter would re-decide boundaries and quietly change the step count mid-run.
+`split.py` inherits the same guarantee for free: it repartitions scenarios and
+never touches either field.
 
 **Coverage suggestions are quarantined three times over.** Their own IR block,
 an UNVERIFIED heading in every renderer, and `suggestions_quarantined` at the
@@ -440,6 +551,21 @@ repair loop spent its whole budget making the sentence worse, hedging it to
 SS11.1 exists to keep out. Every true positive still fires: an expected result
 claiming a change is checked on any mutation word, and a step whose own text
 asserts an outcome ("and it is saved") is checked too.
+
+**The same conflation arrives one level up, and there it is a deadlock.**
+`hardpaths` shows a status message reading "Payment method saved".
+`bind._unwitnessed` requires a claim to quote the value it rests on, so every
+admissible sentence about that message contains the word "saved" -- and the one
+sentence that does not, *a confirmation appears*, is refused by
+`bind._existence_only`. Between the two rules nothing could be said, and the run
+was rejected for a claim that was true, grounded and about the screen.
+
+`DISPLAY_CLAIM` is the fix and **the discriminator is order, which is why it is
+not a loosening**: a display verb must come FIRST. *"the order is shown as
+placed"* asserts what the page says; *"the order is placed and a confirmation is
+shown"* asserts persistence in its first clause and still has to prove a
+successful request. Both cases are pinned in `tests/test_validators.py`, the
+negative one deliberately.
 
 **Bug detection is code, and its threshold is load-bearing.** Medium signals
 never reach it at any quantity. Four fixtures contain a 4xx on a state-mutating
@@ -697,50 +823,54 @@ step_004: 1}` -- SS3.3's variance arriving on the step that was actually hard
 rather than being spread evenly and subtracted back out. The critic, which
 found nothing three times on this recording, now returns a specific finding.
 
-**The `rec_MT7MXBS9B2VB` scenario this section used to quote was not
-reproducible, and the difference is the honest status of the phase.** What
-`runs/rec_MT7MXBS9B2VB/run_001/` actually contains:
+**Phase 5 closed the four findings that recording produced.** What
+`rec_MT7MXBS9B2VB` shipped, and what it ships now, side by side:
 
 ```gherkin
+# before -- three near-duplicate beats under one heading
 Scenario: Hamper size upgrades automatically as items are added
   Given the tester navigates to the "Create Your Own Hamper" page
   When the tester adds items until the hamper reaches its capacity
   Then the hamper is shown as a "Small Wicker Basket" with a capacity of "5 / 5"
-
   When the tester continues adding items to trigger an upgrade to a Medium Wicker Basket
   Then the hamper is shown as a "Medium Wicker Basket" with a capacity of "13 / 13"
-
   When the tester continues adding items to trigger an upgrade to a Large Wicker Basket
   Then the hamper is shown as a "Large Wicker Basket" with a capacity of "18 / 18"
+
+# after -- two test cases, each with one verdict, both with the setup lifted
+Scenario: A hamper automatically upgrades to a Medium Wicker Basket when capacity is reached
+  ...
+Scenario: A hamper automatically upgrades to a Large Wicker Basket when capacity is reached
+  ...
 ```
 
-Four things are wrong with it and every one is a finding about the prompts
-rather than about the model. The scenario name describes what the tester did
-rather than what the test proves. Three near-duplicate beats where the drafting
-prompt asks for one behaviour with one verdict, and "two or three expects across
-a whole scenario" became one per test step. `to trigger an upgrade to a Medium
-Wicker Basket` states an outcome inside the step's own text, which the prompt
-forbids. And the refusal at the end -- *no bigger hampers are available*, the
-one thing on that recording worth proving -- was discarded as `omitted:
-abandoned`: the drafter threw away the verdict and kept three copies of the
-setup.
-
-The critic caught it exactly, in one sentence: *"this covers three separate
+The critic had caught it exactly, in one sentence: *"this covers three separate
 upgrade behaviours and reaches three distinct verdicts, making it three test
 cases in one."* Then nothing happened, because `coherence` has no row in
-`CRITIC_REPAIR`. Two of the three assertions were also half-proved in the way
-`_unwitnessed` now refuses.
+`CRITIC_REPAIR` and cannot have one. `split.py` is what happened instead: the
+trigger fired on *33 events in one scenario, over the floor of 12*, the agent
+returned two groups, and `accept` took them. Thirteen validators pass, three
+critic findings raised and three resolved.
 
-**Read that beside the fixture runs, because the split is the finding.** The
-demo-app recordings -- `rec_MT8TEM57CRGS`, `rec_MT8TF5SO6S71`,
-`rec_MT8TF0TIMA6U` -- produce clean, correctly shaped scenarios today. The two
-commercial recordings are where the prompt's own bolded prohibitions get
-violated and ship: `rec_MT7VTN7ZRJPO` closed on *the shopping bag panel opens,
-displaying the item(s) previously added to the cart*, which is the navigation
-assertion the drafting prompt forbids in bold, passing thirteen validators. A
-rule that holds on the fixtures and fails on real recordings is the CRITIQUE.md
-finding arriving a second time, one layer up: the fixtures no longer contain the
-thing.
+Two of those three assertions had also been half-proved in the way
+`_unwitnessed` now refuses, and the capacity numbers are gone with them -- which
+is the correct trade and worth seeing plainly. `Yield` drops before it rises.
+
+**`rec_MT7VTN7ZRJPO` closed on the assertion the drafting prompt forbids in
+bold** -- *the shopping bag panel opens, displaying the item(s) previously added
+to the cart*, bound to the panel's own heading, past thirteen validators.
+`bind._existence_only` refuses it now, `run._second_chance` re-asked, and
+binding refused the replacement too. So that scenario ships ending on an action,
+with `gherkin_style` saying so: a warning to the human rather than a claim that
+was never true. That is the designed outcome and it is still not a good test
+case; the recording may simply not contain a verdict for that step.
+
+**The fixtures had stopped containing the thing, and that is now checked.**
+`tests/test_fixture_outcomes.py` asserts what each fixture PRODUCED rather than
+what it holds -- two test cases out of `twoflows`, an assertion ranked
+`narrated`, a bound `actual` on `bugged`, an omission `no_pruned_assertion`
+actually reads. Every one of those was false at the start of the session, on a
+green suite.
 
 **What the ablation measures changed, and it is worth understanding before
 reading the table.** A0 used to FABRICATE: thirteen assertions, none grounded,
@@ -759,76 +889,124 @@ pass needs no model but still calls a tool and hashes a response; letting it
 run under A0 produced a "no tools" row with 0.33 calls per step. Pinned by
 `test_a0_makes_no_retrieval_of_any_kind`.
 
-The numbers below are from the OLD pipeline and have not been re-measured;
-treat them as history until the ablation is re-run.
-
-Seven fixtures, re-recorded through the real extension after the capture
-changes, run through the rebuilt generator:
+**Measured 2026-08-26**, on the seven fixtures re-recorded through the real
+extension, against `gemini-3.1-flash-lite`. This is the first A0/A1/A2
+comparison of the rebuilt generator; everything before it was the old pipeline.
 
 ```
 What it claimed
 Config   Assert   Grounded    Yield   Fabric.   Valid1st   ValidFin
 -------------------------------------------------------------------
-    A0        0        1.0      0.0         0     0.7143     0.7143
-    A1        9        1.0     0.45         0      0.987      0.987
-    A2        7        1.0     0.35         0      0.987     0.9592
+    A0        0        1.0      0.0         0      0.674      0.674
+    A1       14        1.0   0.6087         0     0.9727     0.9727
+    A2       12        1.0   0.5217         0     0.9727        1.0
 
 What it did to get there
 Config   Calls/step   Spread   Findings   Converged   PromptTok
 ----------------------------------------------------------------
-    A0          0.0      0.0          0         0.0      19227
-    A1          0.8      0.0          0         0.0      60278
-    A2          1.1    0.496          4         1.0      89568
+    A0          0.0      0.0          0       0.000       24813
+    A1        2.043    1.046          0       0.000      236182
+    A2        2.739    0.713          9       0.111      193677
 ```
 
-**That A2 row is a regression, and it is the reason `_keep_provable` exists.**
-Read it before trusting a repair loop. A2 claimed *fewer* expected results than
-A1 (7 against 9) and its final gate score went DOWN (0.987 to 0.959). One
-fixture caused all of it: on `hardpaths`, A1 bound two true claims -- the status
-showing "Payment method saved", and the page showing "Validating with the
-finance system...". The critic said each checked "a status message rather than
-the successful saving" and "a loading state rather than the completion of the
-validation process". Both sentences are plausible. Both ask for something the
-recording does not contain, because the slow validation never finishes inside
-it. Repair obeyed, binding correctly refused the replacements, and A2 shipped a
-scenario with no expected results at all.
+Against the old table (A1: 9 assertions, Yield 0.45, Spread 0.0; A2: 7
+assertions, Yield 0.35, ValidFin 0.959) three things moved and each is a
+different fix landing:
+
+**A2's `ValidFin` reaches 1.0, where it used to go DOWN.** That row was the
+regression `_keep_provable` was written for -- repair replacing a proven claim
+before finding out whether the replacement could be proven. A2 now claims fewer
+results than A1 (12 against 14) and ends with a clean gate rather than a worse
+one, which is the trade the critic is supposed to make.
+
+**A1's `Spread` is 1.046, and it used to be 0.0.** That flat column was flagged
+here as *"worth watching and not yet alarming"*, with the note that if it stayed
+flat on a recording with hard claims the drafter's retrieval had become
+decoration. It is not flat. Calls per step went 0.8 -> 2.04 on the same
+recordings, and the variance is on the steps that were actually contested.
+
+**`Yield` is up about a third on both configurations** -- and read that beside
+the deletions, because `_unwitnessed` and `_existence_only` were both added in
+between and both delete claims. More survives binding than before *while* two
+new refusals are running.
+
+**`Converged` at 0.111 is the vacuity trap in its sixth costume, and the number
+is not what it looks like.** Of the findings that survived to the final
+critique, **five of seven are `coherence`, which has no row in `CRITIC_REPAIR`
+by design** -- acting on one means re-drafting, and re-drafting can change the
+step count. `repairAttempts` is 0 on four of the seven runs: the loop never
+started, because there was nothing it was allowed to touch. Of findings that DO
+have a route, one of two resolved within budget.
+
+So `Converged` is currently measuring *how much of what the critic said the loop
+was permitted to act on*, not how well the loop works. Read it beside the kind
+breakdown, and if you change one metric here, change this one: convergence over
+ROUTABLE findings is the honest denominator.
+
+`Findings` rising from 4 to 9 is the critic having more to say, not the output
+being worse -- five of those nine are it correctly identifying a scenario that
+covers more than one behaviour, which is precisely what `split.py` now acts on
+earlier and what the critic legitimately still notices afterwards.
+
+**The drafter never retrieves, and that was tested rather than assumed.** 0 of
+30 drafting investigations made a single call -- every one stops at
+`no_investigation_needed`, including on the 34-event commercial recording. All
+the per-step effort in the table above comes from `bind.py`, `split.py` and
+repair.
+
+The question that raises is whether the index is sufficient or the prompt made
+declining easy, and the two have opposite fixes. Run on `rec_MT7MXBS9B2VB` with
+the decision rule fixed in advance -- keep the sentence *"making no tool calls
+at all is a perfectly good outcome"* unless removing it BOTH raises retrieval
+AND improves the document:
+
+| | as it is | sentence removed, "look before you write an expect" added |
+|---|---|---|
+| drafter retrieval | 0/8 | **0/8** |
+| accepted expected results | 2 | 3 |
+| validator pass, final | **1.000** | 0.889 |
+
+Retrieval did not move at all and the document got worse. **The sentence is not
+why the drafter declines** -- `digest.py` is simply enough for these recordings,
+which is a result about the index rather than about the model. Do not delete
+that line on the theory that it is making the agent lazy; that theory has been
+tested and is false. Worth re-testing on a recording whose index is thin, with
+many `(re-render; nothing named)` events.
+
+`Executes` / `Rechecked` / `Held` are 0 in this table because `--replay` needs
+the demo app running (`pnpm demo`). They are not a result.
+
+**`_keep_provable` is why the A2 row is no longer a regression, and the story is
+worth keeping.** A2 used to claim *fewer* expected results than A1 (7 against 9)
+and end with a WORSE gate score (0.987 -> 0.959). One fixture caused all of it:
+on `hardpaths`, A1 bound two true claims -- the status showing "Payment method
+saved", and the page showing "Validating with the finance system...". The critic
+said each checked "a status message rather than the successful saving" and "a
+loading state rather than the completion of the validation process". Both
+sentences are plausible. Both ask for something the recording does not contain,
+because the slow validation never finishes inside it. Repair obeyed, binding
+correctly refused the replacements, and A2 shipped a scenario with no expected
+results at all.
 
 **The critic being wrong is not the bug.** It is a second opinion; SS9.9 bounds
 it precisely because it can be wrong. The bug was that repair replaced a proven
-claim before finding out whether the replacement could be proven.
+claim before finding out whether the replacement could be proven. A2 now ends at
+`ValidFin` 1.0.
 
-Fixed and verified on the fixture that caused it. `hardpaths` alone, after:
-
-```
-Config   Assert   Yield   ValidFin   Calls/step   Spread   Findings   Converged
---------------------------------------------------------------------------------
-    A1        2  0.6667     0.9091          1.0      0.0          0         0.0
-    A2        2  0.6667     0.9091        5.333      2.5          3      0.6667
-```
-
-A2 keeps both claims and the gate score A1 has, and still raises three
-findings, two resolved within budget and one surfaced to the human -- which is
-SS9.9's designed outcome on exhaustion. `Spread` 2.5 against 0.0 is repair
-spending its retrievals on the steps that provoked a finding.
-
-**The seven-fixture table above predates that fix. Re-run the ablation before
-quoting it.**
-
-**`Fabric.` is structurally zero in every row now, and A0's is the row to
+**`Fabric.` is structurally zero in every row, and A0's is the row to
 understand.** A0 used to fabricate thirteen assertions. It emits none at all
 today, because the model never supplies a `toolCallId` and with no retrieval
 there is nothing for a claim to rest on. So `Grounded` reads 1.0 for a
 configuration that said nothing, which is the vacuity trap in its purest form.
 **Read `Grounded` beside `Yield`, always.**
 
-**A1's `Spread` of 0.0 is worth watching and is not yet alarming.** With no
-critic, almost every claim is settled by one deterministic retrieval, so the
-per-step column is flat by arithmetic rather than by inertia. The variance
-shows up where claims are genuinely contested -- on `checkout` alone,
-`toolCallsPerStep` reads `{step_002: 1, step_003: 4, step_004: 1}`, four
-retrievals on the rejected-order step. If that flattens on a recording with
-hard claims in it, the drafter's retrieval has become decoration and the design
-has not delivered what it promised.
+A0's `ValidFin` also FELL, 0.714 -> 0.674, and that is a definition change
+rather than a degradation: `gherkin_style` now rejects structurally, and a
+document with no `Then` in it has more shape to be wrong about. It is the reason
+the two findings that fire on every A0 run by construction -- *no Then step* and
+*ends on an action* -- were deliberately left as warnings. Promoting them would
+have made A0 fail the gate on every recording, and `ValidFin` would then measure
+the promotion rather than the architecture.
 
 Seven fixtures, each built because a fixture that does not contain the thing
 cannot demonstrate it: `checkout`, `hardpaths`, `annotated` (an element the
@@ -837,18 +1015,21 @@ scenario break), `wander` (a wrong turn, pruned), `narrated` (the tester says
 what they are checking, out loud), and `bugged` (a 500, an uncaught exception,
 and the bug-marker hotkey).
 
-**Containing the thing is not the same as demonstrating it.** `twoflows`
-contains a scenario break and produced one scenario, and no test noticed --
-the whole path was reading a field the recorder never writes. Every fixture
-that carries a feature should have a check on what that feature PRODUCED, not
-only on the recording holding it.
+**Containing the thing is not the same as demonstrating it**, and that is now
+checked rather than hoped for. `twoflows` contained a scenario break and
+produced one scenario, and no test noticed -- the whole path was reading a field
+the recorder never writes. `tests/test_fixture_outcomes.py` asserts what each
+fixture PRODUCED, replaying from cassettes and skipping honestly when a prompt
+change has invalidated one.
 
-On `wander`, thirteen validators pass and none skip.
+On `wander`, all fourteen validators pass and `no_pruned_assertion` is one of them
+rather than a skip -- the first run in this project's history where the omission
+check actually looked at something.
 
-`prove_grounding.py` over every run in `runs/`: 148 of 148 assertions resolve
-across 59 runs with tools, 13 of 13 are ungrounded across the 7 without --
-SS3.2, measured rather than asserted -- and calls per step varies rather than
-being flat, which is SS3.3's signature of an agent instead of a chain.
+`prove_grounding.py` over the nine full runs: **18 of 18 assertions resolve**
+to a retrieval whose stored response still contains the literal -- SS3.2,
+measured rather than asserted -- and calls per step varies rather than being
+flat, which is SS3.3's signature of an agent instead of a chain.
 
 **Narration was Phase 2's last piece**, and its result is worth keeping in view
 because it is the clearest thing this project has demonstrated:

@@ -21,7 +21,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from effort_difficulty import (  # noqa: E402
+    MIN_EDITED_STEPS,
     MIN_POINTS,
+    MIN_UNTOUCHED_STEPS,
     Point,
     collect,
     pearson,
@@ -36,6 +38,18 @@ def points(pairs, *, run: str = "rec_x/run_1") -> list[Point]:
         Point(run=run, step_id=f"step_{i:03d}", effort=e, edit_magnitude=m, edited=m > 0)
         for i, (e, m) in enumerate(pairs, start=1)
     ]
+
+
+def sufficient_pairs() -> list[tuple[float, float]]:
+    """The smallest sample the script will report on, and a monotone one.
+
+    Both classes have to be populated: a correlation between effort and edit
+    rate is a statement about the difference between edited and untouched
+    steps, so an all-edited sample is not a weak result, it is no result.
+    """
+    untouched = [(0, 0.0)] * MIN_UNTOUCHED_STEPS
+    edited = [(i, i * 0.1) for i in range(1, MIN_EDITED_STEPS + 1)]
+    return untouched + edited
 
 
 # --------------------------------------------------------------------------
@@ -99,11 +113,33 @@ def test_a_single_edited_step_is_not_a_correlation():
 
 
 def test_enough_data_reports_the_coefficient():
-    pairs = [(i, i * 0.1) for i in range(1, MIN_POINTS + 2)]
-    summary = report(points(pairs), reviewed=3)
+    summary = report(points(sufficient_pairs()), reviewed=3)
     assert summary["sufficient"]
     assert summary["spearman"] == 1.0
     assert summary["needed"] is None
+
+
+def test_two_edited_steps_are_not_a_correlation():
+    # This is what the script used to call sufficient: two positives out of a
+    # hundred-odd steps, reported as r = -0.057 -- noise, pointing AGAINST
+    # SS3.4's own thesis -- under a script advertised as one that refuses to
+    # overclaim. Two points make a perfect line.
+    pairs = [(0, 0.0)] * 40 + [(6, 0.8), (5, 0.7)]
+    summary = report(points(pairs), reviewed=9)
+
+    assert not summary["sufficient"]
+    assert summary["pearson"] is None and summary["spearman"] is None
+    assert "2 edited" in summary["needed"]
+
+
+def test_a_sample_with_nothing_left_alone_is_not_a_correlation_either():
+    # The other empty half. Every step edited says nothing about whether effort
+    # went where the work was hard, because there is no comparison group.
+    pairs = [(i, i * 0.1) for i in range(1, MIN_POINTS + MIN_EDITED_STEPS + 1)]
+    summary = report(points(pairs), reviewed=5)
+
+    assert not summary["sufficient"]
+    assert "0 untouched" in summary["needed"]
 
 
 def test_both_sides_of_the_comparison_are_reported():
@@ -183,7 +219,7 @@ def test_the_chart_says_so_when_the_data_is_thin():
 def test_the_chart_is_self_contained():
     # No plotting dependency and no external assets: it opens anywhere, diffs
     # in review, and drops into a document.
-    summary = report(points([(i, i * 0.1) for i in range(1, MIN_POINTS + 2)]), reviewed=3)
-    drawing = svg(points([(i, i * 0.1) for i in range(1, MIN_POINTS + 2)]), summary)
+    summary = report(points(sufficient_pairs()), reviewed=3)
+    drawing = svg(points(sufficient_pairs()), summary)
     assert "http" not in drawing.replace("http://www.w3.org/2000/svg", "")
     assert "Spearman" in drawing

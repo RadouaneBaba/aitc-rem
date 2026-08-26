@@ -12,13 +12,21 @@ import { useState } from 'react';
  * for them -- which is also why a missing one is silent rather than an error:
  * an imported recording has none by construction, and a run that predates the
  * upload path has none either.
+ *
+ * Silent used to mean rendering the `<img>` anyway and hiding it `onError`,
+ * which the browser still logs -- one 404 per step click, on every recording
+ * without a `screens/` directory. `screens` is the manifest the run body
+ * carries so the question is asked once, from disk, instead of over HTTP per
+ * step.
  */
 export function Screenshot({
   recordingId,
   eventIds,
+  screens,
 }: {
   recordingId: string;
   eventIds: string[];
+  screens: string[];
 }) {
   const [failed, setFailed] = useState(false);
   const [zoomed, setZoomed] = useState(false);
@@ -28,7 +36,7 @@ export function Screenshot({
   // the last frame is the page after everything settled, which is what the
   // expected result is about rather than the action.
   const eventId = eventIds[0];
-  if (!eventId || failed) return null;
+  if (!eventId || failed || !screens.includes(eventId)) return null;
 
   const src = `/api/recordings/${recordingId}/screens/${eventId}`;
 

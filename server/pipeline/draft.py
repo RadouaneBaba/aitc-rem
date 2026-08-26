@@ -252,6 +252,23 @@ that drops an event is rejected.
 * Be sparing. A step you merely find uninteresting is not exploratory. If it
   advances the objective at all, it belongs in the test as "setup" or
   "test_step".
+* **Putting an event in a step whose sentence does not describe it is not
+  accounting for it.** A detour swept into the neighbouring step passes the
+  mechanical check and makes the step a lie:
+
+      BAD   text: the tester adds an item to the cart and proceeds to checkout
+            eventIds: [evt_004, evt_005, evt_006, evt_007]
+            (evt_004 opened Reports and evt_005 came back; neither is in that
+            sentence, and someone running this test would not do them)
+
+      GOOD  text: the tester adds an item to the cart and proceeds to checkout
+            eventIds: [evt_006, evt_007]
+            omitted: [{{"eventIds": ["evt_004", "evt_005"],
+                       "reason": "exploratory",
+                       "summary": "opened the reports page and came back"}}]
+
+  Read each step's eventIds back against its own sentence. Every event that
+  sentence does not cover is either its own step or an omission.
 
 ## Looking things up
 
@@ -264,9 +281,25 @@ Go and look when it is not enough, and especially when:
 * you cannot tell what an action accomplished
 * you are about to write an "expect" and are unsure of the wording on the page
 
-`get_diff` and `get_snapshot` answer most of it. `find_text` tells you where a
-string really appears. `get_narration` and `get_events` give you the tester's
-own words. Spend calls where the session is unclear and nowhere else.
+What each tool answers:
+
+* `get_diff` -- what one action changed. The first thing to reach for.
+* `get_snapshot` -- what the page said around an event. `get_full_snapshot`
+  when the scoped view is not enough.
+* `query_element` -- one node by role and name, when you need to be sure a
+  control was really there.
+* `find_text` -- where a string really appears in the session. This is the
+  index every claim is later checked against, so if you cannot find a phrase
+  here, do not write it.
+* `get_network` and `get_console` -- what the server said, and what broke.
+* `get_narration` and `get_events` -- the tester's own words, and the raw
+  actions behind a step.
+* `get_objective` -- what the tester said they were checking, in full.
+* `get_neighbouring_segments` -- what happened either side of a boundary.
+* `search_step_library` -- phrasing this project has approved before. Advice
+  about wording, never evidence, and never required.
+
+Spend calls where the session is unclear and nowhere else.
 
 Put anything you could not resolve in "uncertainties". Saying "I could not tell
 whether the price changed because of the upgrade or the quantity" is more

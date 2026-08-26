@@ -107,22 +107,30 @@ class RepairOutcome:
     unresolved: list[Target] = field(default_factory=list)
 
     @property
-    def findings_raised(self) -> int:
-        """The denominator. `repairConvergenceRate` over zero findings is
-        vacuously 1.0, in exactly the way `groundingRate` is vacuously 1.0 for a
-        configuration that abstains -- so the two are always reported together
-        (SS3.5)."""
+    def repairs_attempted(self) -> int:
+        """Distinct (stage, step, finding) repairs the loop actually ran.
+
+        This used to be reported as `criticFindingsRaised`, and it is not that
+        number. Most repairs are triggered by a validator; `mutation_claimed`
+        routes to two stages, so ONE rejection contributed two; and a finding
+        with no repair route -- `coherence` and `state_jump`, the two that
+        matter most -- contributed nothing at all. It was wrong in 10 of 13
+        runs, in both directions. Kept as its own fact, which is what it is.
+        """
         return len({(a.stage, a.targetStepId, a.finding) for a in self.attempts})
 
-    @property
-    def convergence_rate(self) -> float:
-        raised = self.findings_raised
-        if not raised:
-            return 0.0
-        resolved = len(
-            {(a.stage, a.targetStepId, a.finding) for a in self.attempts if a.resolved}
-        )
-        return resolved / raised
+    def resolved(self, finding: Finding) -> bool:
+        """Did the repair loop settle this critic finding within budget?
+
+        Matched on the text `targets` embeds into the Target, because a Target
+        joins every reason for re-running one step into one string -- the step
+        is asked everything at once, so there is no per-finding attempt to key
+        on. A finding with no repair route never matches, which is the honest
+        answer rather than a gap: SS9.9's convergence is "how often repair fixes
+        the finding", and one it cannot reach is one it did not fix.
+        """
+        needle = f"{finding.kind}: {finding.message}"
+        return any(needle in attempt.finding for attempt in self.attempts if attempt.resolved)
 
 
 def targets(
@@ -237,13 +245,35 @@ def record(
         outcome.unresolved.append(target)
 
 
+def findings_raised(critiques: list[CriticResult]) -> list[Finding]:
+    """Every distinct thing the critic said, across every critique in the run.
+
+    The run re-critiques after a repair round, narrowed to the steps that were
+    repaired, and `run_pipeline` used to REBIND its `critic` variable each time
+    -- so the object alive when the metrics were computed held only the last,
+    narrowed critique. Accumulating is the difference between "what the critic
+    found" and "what the critic last mentioned".
+
+    Deduplicated on the whole finding rather than on the step: the same step
+    criticised twice for two different things is two findings, and the same
+    sentence repeated after a repair that did not resolve it is one.
+    """
+    seen: dict[tuple[str, str | None, str | None, str], Finding] = {}
+    for critique in critiques:
+        for finding in critique.findings:
+            seen.setdefault(
+                (finding.kind, finding.step_id, finding.case_id, finding.message), finding
+            )
+    return list(seen.values())
+
+
 __all__ = [
     "CRITIC_REPAIR",
     "MAX_REPAIR_ATTEMPTS",
     "VALIDATOR_REPAIR",
     "RepairOutcome",
     "Target",
-
+    "findings_raised",
     "record",
     "still_failing",
     "still_flagged",

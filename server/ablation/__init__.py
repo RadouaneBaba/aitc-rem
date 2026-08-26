@@ -55,6 +55,11 @@ class ConfigMetrics:
     #: its denominator, so both are columns.
     critic_findings: int = 0
     repairs_resolved: int = 0
+    #: Repairs the loop actually ran. A different fact from `critic_findings`
+    #: -- most repairs are triggered by a validator, not by the critic -- and
+    #: the two were the same number here until it turned out that number was
+    #: neither of them.
+    repair_attempts: int = 0
     tool_calls: int = 0
     tool_calls_per_step: float = 0.0
     #: Steps whose tool-call count differs from the run's mean. A chain is flat
@@ -158,6 +163,7 @@ class ConfigMetrics:
             "validatorFinalPassRate": round(self.validator_final_pass, 4),
             "criticFindings": self.critic_findings,
             "repairsResolved": self.repairs_resolved,
+            "repairAttempts": self.repair_attempts,
             "repairConvergenceRate": round(self.repair_convergence_rate, 4),
             "toolCalls": self.tool_calls,
             "toolCallsPerStep": round(self.tool_calls_per_step, 3),
@@ -380,17 +386,17 @@ def _accumulate(metrics: ConfigMetrics, result: PipelineResult) -> None:
     if result.report.hard_failed:
         metrics.hard_failures += 1
 
+    # Aggregated over findings rather than averaged over runs, so a run with one
+    # finding does not weigh as much as a run with ten.
+    #
+    # Both halves come from the same source now. `repairs_resolved` used to be
+    # counted from `trace.repairAttempts` -- every resolved repair, including
+    # the validator-triggered ones -- while `critic_findings` counted only what
+    # the critic said. Once the numerator stops being a subset of the
+    # denominator the ratio can exceed 1, which is a rate that means nothing.
     metrics.critic_findings += run_metrics.criticFindingsRaised or 0
-    # Counted from the trace rather than derived from the rate, so the row is an
-    # aggregate over every finding rather than a mean of per-run ratios -- a run
-    # with one finding would otherwise weigh as much as a run with ten.
-    metrics.repairs_resolved += len(
-        {
-            (a.stage, a.targetStepId, a.finding)
-            for a in result.trace.repairAttempts
-            if a.resolved
-        }
-    )
+    metrics.repairs_resolved += run_metrics.criticFindingsResolved or 0
+    metrics.repair_attempts += run_metrics.repairAttempts or 0
 
     # Running means, so the row stays correct across a growing recording set.
     n = metrics.recordings

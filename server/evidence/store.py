@@ -15,6 +15,7 @@ answers questions.
 from __future__ import annotations
 
 from bisect import bisect_left
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -205,13 +206,69 @@ class EvidenceStore:
         scope: str | None = None,
         case_sensitive: bool = False,
     ) -> list[dict[str, Any]]:
-        """Where does this string appear across the recording?
+        """Where does this string appear across the recording? Capped, for an agent.
 
         The grounding lookup: an agent about to claim something uses this to
         find the retrieval that would license the claim.
+
+        `MAX_MATCHES` belongs HERE and nowhere else. It exists to bound a tool
+        response, which is a presentation concern -- and because ids are
+        zero-padded, the sort below makes the cap discard the LATEST events,
+        which is where a test's verdict lives. Code that asks a yes/no question
+        must call `contains_at` or `events_containing` instead: a presence check
+        that reads a truncated list answers "no" for a string that is really
+        there, and rejects a true, correctly cited claim as ungrounded.
+        """
+        matches = sorted(
+            self._scan(query, scope=scope, case_sensitive=case_sensitive),
+            key=lambda m: str(m.get("eventId", "")),
+        )
+        return matches[:MAX_MATCHES]
+
+    def contains_at(self, literal: str, event_id: str, *, case_sensitive: bool = True) -> bool:
+        """Does this string really appear at this event? Uncapped.
+
+        What `assertion_grounding` and the binder actually want to know. Both
+        used to ask `find_text` and scan its 40-match answer, so on a recording
+        long enough to hit the cap they were reading an index that stopped
+        partway through the session.
+        """
+        return any(
+            match.get("eventId") == event_id
+            for match in self._scan(literal, scope=event_id, case_sensitive=case_sensitive)
+        )
+
+    def events_containing(self, literal: str, *, case_sensitive: bool = True) -> list[str]:
+        """Every event this string appears at, in order. Uncapped.
+
+        For the one caller that needs more than a boolean: `bind._from_answer`
+        re-points a citation when the literal turns out to live at exactly one
+        other event, and a truncated list would let it re-point to the wrong one
+        or decline a re-point that was available.
+        """
+        return sorted(
+            {
+                str(match["eventId"])
+                for match in self._scan(literal, case_sensitive=case_sensitive)
+                if match.get("eventId")
+            }
+        )
+
+    def _scan(
+        self,
+        query: str,
+        *,
+        scope: str | None = None,
+        case_sensitive: bool = False,
+    ) -> Iterator[dict[str, Any]]:
+        """Every match anywhere in the recording, uncapped and unsorted.
+
+        One implementation for five sources, because `scope` used to be honoured
+        by the semantic-node loop alone: a scoped search still returned every
+        URL, request, console line and annotation in the whole session, so
+        `find_text(lit, scope=evt)` was not a per-event search at all.
         """
         needle = query if case_sensitive else query.casefold()
-        matches: list[dict[str, Any]] = []
 
         for (event_id, when), nodes in self._nodes.items():
             if scope and scope not in (event_id, when):
@@ -226,7 +283,7 @@ class EvidenceStore:
                         match = node.as_dict()
                         match["matchedField"] = field_name
                         match["kind"] = "semantic_node"
-                        matches.append(match)
+                        yield match
                         break
 
         # The page URL, which is not a node and not a request.
@@ -238,6 +295,8 @@ class EvidenceStore:
         # recording could not be searched anywhere the URL actually lives. The
         # validator was right both times; the index was incomplete.
         for event in self._ordered:
+            if scope and scope != event.id:
+                continue
             seen: set[str] = set()
             for where, haystack in (
                 ("url", event.url),
@@ -249,17 +308,17 @@ class EvidenceStore:
                 seen.add(haystack)
                 probe = haystack if case_sensitive else haystack.casefold()
                 if needle in probe:
-                    matches.append(
-                        {
-                            "eventId": event.id,
-                            "kind": "url",
-                            "matchedField": where,
-                            "url": haystack,
-                        }
-                    )
+                    yield {
+                        "eventId": event.id,
+                        "kind": "url",
+                        "matchedField": where,
+                        "url": haystack,
+                    }
                     break
 
         for event in self._ordered:
+            if scope and scope != event.id:
+                continue
             for call in event.network:
                 for field_name in ("url", "responseBody", "requestBody"):
                     haystack = getattr(call, field_name, None)
@@ -267,42 +326,40 @@ class EvidenceStore:
                         continue
                     probe = haystack if case_sensitive else haystack.casefold()
                     if needle in probe:
-                        matches.append(
-                            {
-                                "eventId": event.id,
-                                "kind": "network",
-                                "matchedField": field_name,
-                                "method": call.method,
-                                "url": call.url,
-                                "status": call.status,
-                            }
-                        )
+                        yield {
+                            "eventId": event.id,
+                            "kind": "network",
+                            "matchedField": field_name,
+                            "method": call.method,
+                            "url": call.url,
+                            "status": call.status,
+                        }
                         break
             for entry in event.console:
                 probe = entry.text if case_sensitive else entry.text.casefold()
                 if needle in probe:
-                    matches.append(
-                        {
-                            "eventId": event.id,
-                            "kind": "console",
-                            "matchedField": "text",
-                            "level": entry.level.value,
-                            "text": entry.text,
-                        }
-                    )
+                    yield {
+                        "eventId": event.id,
+                        "kind": "console",
+                        "matchedField": "text",
+                        "level": entry.level.value,
+                        "text": entry.text,
+                    }
 
-        for segment in self.recording.narration:
+        # Narration is not attached to an event -- it is a time range over the
+        # session -- so a scoped search cannot honestly return any of it. Left in
+        # the unscoped index, where it is what lets a claim the tester spoke
+        # aloud be found at all.
+        for segment in self.recording.narration if not scope else ():
             probe = segment.text if case_sensitive else segment.text.casefold()
             if needle in probe:
-                matches.append(
-                    {
-                        "kind": "narration",
-                        "matchedField": "text",
-                        "startMs": segment.startMs,
-                        "endMs": segment.endMs,
-                        "text": segment.text,
-                    }
-                )
+                yield {
+                    "kind": "narration",
+                    "matchedField": "text",
+                    "startMs": segment.startMs,
+                    "endMs": segment.endMs,
+                    "text": segment.text,
+                }
 
         # Annotations. This index is what `assertion_grounding` reads, so a gap
         # in it looks exactly like a validator bug: a page-URL assertion once
@@ -312,6 +369,8 @@ class EvidenceStore:
         # model quotes what they pointed at, and the claim is rejected as
         # ungrounded despite being the best-supported one in the run.
         for annotation in self._annotations():
+            if scope and scope != annotation.eventId:
+                continue
             for matched_field, value in (
                 ("text", annotation.text),
                 ("name", annotation.target.name if annotation.target else None),
@@ -322,19 +381,14 @@ class EvidenceStore:
                 probe = value if case_sensitive else value.casefold()
                 if needle not in probe:
                     continue
-                matches.append(
-                    {
-                        **({"eventId": annotation.eventId} if annotation.eventId else {}),
-                        "kind": "annotation",
-                        "matchedField": matched_field,
-                        "annotationKind": annotation.kind.value,
-                        "timestamp": annotation.timestamp,
-                        "text": value,
-                    }
-                )
-
-        matches.sort(key=lambda m: str(m.get("eventId", "")))
-        return matches[:MAX_MATCHES]
+                yield {
+                    **({"eventId": annotation.eventId} if annotation.eventId else {}),
+                    "kind": "annotation",
+                    "matchedField": matched_field,
+                    "annotationKind": annotation.kind.value,
+                    "timestamp": annotation.timestamp,
+                    "text": value,
+                }
 
     def _annotations(self) -> list[TesterAnnotation]:
         """Every annotation, session-level and per-event, deduplicated by id.

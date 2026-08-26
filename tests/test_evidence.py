@@ -123,6 +123,65 @@ def test_find_text_reports_nothing_for_a_string_that_was_never_there(store: Evid
     assert store.find_text("Payment declined") == []
 
 
+def _long_recording(repeats: int) -> EvidenceStore:
+    """A session where the same string appears at every event.
+
+    `MAX_MATCHES` is 40 and matches sort by a zero-padded event id, so any
+    recording with more than 40 hits pushes its LATEST events off the end of
+    `find_text` -- and the latest events are where a test's verdict lives.
+    """
+    events = [
+        f.event(
+            f"evt_{index:03d}",
+            index,
+            at=float(index * 100),
+            after=f.snapshot(
+                root=f.node("0", "main", "Hampers"),
+                live=[f.node("live.0", "status", "Large Wicker Basket")],
+            ),
+        )
+        for index in range(repeats)
+    ]
+    return EvidenceStore(recording=f.recording(events=events, objective="fill the hamper"))
+
+
+def test_a_presence_check_is_not_capped_at_forty_matches():
+    # The failure this fixes, measured on `rec_MT7MXBS9B2VB`: 'Wicker Basket'
+    # was at evt_032, `find_text` returned 40 matches ending at evt_009, and
+    # `assertion_grounding` rejected a true, correctly cited claim as
+    # ungrounded. Both the validator and the binder were right; the index they
+    # were reading stopped partway through the session.
+    store = _long_recording(50)
+    last = f"evt_{49:03d}"
+
+    capped = store.find_text("Large Wicker Basket", case_sensitive=True)
+    assert len(capped) == 40, "the agent-facing tool still bounds its response"
+    assert not any(m.get("eventId") == last for m in capped), "the cap drops the newest events"
+
+    assert store.contains_at("Large Wicker Basket", last, case_sensitive=True)
+    assert last in store.events_containing("Large Wicker Basket", case_sensitive=True)
+
+
+def test_a_presence_check_still_says_no_to_a_string_that_was_never_there():
+    # The negative case. Uncapping must not turn the index into something that
+    # says yes: refusing is the behaviour that stops fabrication.
+    store = _long_recording(50)
+    assert not store.contains_at("Payment declined", "evt_049")
+    assert store.events_containing("Payment declined") == []
+
+
+def test_a_scoped_search_is_scoped_in_every_source(store: EvidenceStore):
+    # `scope` was honoured by the semantic-node loop alone, so a scoped search
+    # still returned every URL, request, console line and annotation in the
+    # session. A per-event search that answers about other events is not a
+    # per-event search, and `contains_at` is built on this.
+    everywhere = store.find_text("/api/orders")
+    assert everywhere, "the string is in the recording"
+
+    for match in store.find_text("/api/orders", scope="evt_001"):
+        assert match.get("eventId") == "evt_001"
+
+
 def test_query_element_returns_the_node_and_its_neighbours(store: EvidenceStore):
     result = store.query_element("evt_002", role="alert")
     assert result["found"]

@@ -125,10 +125,19 @@ def suggestions_quarantined(ctx: ValidationContext) -> Iterable[ValidatorResult]
     # and events are not. Rejecting a suggestion for citing the thing it was
     # shown would be the gate disagreeing with its own pipeline about what
     # evidence looks like.
+    # A network call and a console entry belong for the same reason again, and
+    # this one shipped: `get_network` hands the model requests identified as
+    # `net_0002`, and a suggestion about the boundary of an endpoint naturally
+    # cites the request it saw the endpoint through. The gate then rejected the
+    # run for resting on an observation that is in the recording -- so the rule
+    # was measuring which id the model happened to quote, not whether anybody
+    # observed the thing.
     known = (
         {e.id for e in ctx.recording.events}
         | {c.id for c in ctx.trace.toolCalls}
         | {s.id for c in ctx.ir.testCases for s in c.steps}
+        | {call.id for e in ctx.recording.events for call in e.network}
+        | {entry.id for e in ctx.recording.events for entry in e.console}
     )
     offences = 0
 

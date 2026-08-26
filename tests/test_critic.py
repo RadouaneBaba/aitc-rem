@@ -302,6 +302,45 @@ def test_a_critic_finding_re_runs_naming_and_the_trace_says_so(storage: Storage)
     assert result.trace.metrics.criticFindingsRaised == 1
 
 
+def test_a_finding_with_no_repair_route_is_still_counted(storage: Storage):
+    # `criticFindingsRaised` was read off the REPAIR loop, so a finding with no
+    # row in CRITIC_REPAIR counted zero -- and `coherence` and `state_jump`,
+    # deliberately routeless, are the two most important kinds. The flagship
+    # recording's critic said "this covers three separate upgrade behaviours
+    # and reaches three distinct verdicts" and the run reported 0 findings.
+    #
+    # The critic omits `step` for a coherence finding by design (it is about the
+    # scenario), which is the second, independent reason it could never route.
+    model = scripted(
+        names=["the tester enters a purchase order reference"],
+        findings=[
+            {"kind": "coherence", "finding": "this is three test cases under one heading"}
+        ],
+        later_findings=[],
+    )
+    result = run_pipeline(recording(), model, storage=storage, run_id="run_coh", options=a2())
+
+    assert result.trace.metrics.criticFindingsRaised == 1, "the critic said something"
+    assert not result.repair.attempts, "and nothing could be re-run for it"
+    assert result.trace.metrics.repairAttempts == 0
+    assert result.trace.metrics.repairConvergenceRate == 0.0, (
+        "a finding repair cannot reach is a finding repair did not fix"
+    )
+
+
+def test_one_validator_rejection_is_not_two_critic_findings(storage: Storage):
+    # `mutation_claimed` routes to TWO stages, so one rejection produced two
+    # repair attempts -- and while the metric was read off repair attempts, that
+    # arrived as two critic findings on a run where the critic said nothing.
+    model = scripted(names=["the tester enters a purchase order reference"], findings=[])
+    result = run_pipeline(recording(), model, storage=storage, run_id="run_val", options=a2())
+
+    assert result.trace.metrics.criticFindingsRaised == 0, (
+        "the critic found nothing, whatever the validators did"
+    )
+    assert result.trace.metrics.repairAttempts == result.repair.repairs_attempted
+
+
 def test_a_finding_that_never_resolves_is_surfaced_not_swallowed(storage: Storage):
     # SS9.9 -- "on exhaustion the step is surfaced to the human with the
     # unresolved finding stated plainly, never silently accepted."
@@ -686,8 +725,11 @@ def bug_model(*, literal: str | None) -> ScriptedModelClient:
                     "expected": "the export succeeds and a file is produced",
                     "actual": "the server returned a 500 and no export was created",
                     "literal": literal,
-                    "toolCallId": payload.get("toolCallId"),
-                    "eventId": matches[0]["eventId"],
+                    # Still sent, and deliberately WRONG. The describer no
+                    # longer reads either field: a fabricated citation has to
+                    # be inexpressible here, exactly as it is everywhere else.
+                    "toolCallId": "tc_9999",
+                    "eventId": "evt_9999",
                     "kind": "semantic_node",
                 }
             )
@@ -1397,3 +1439,48 @@ def test_a_step_that_never_had_a_claim_is_not_reverted():
     merged, reverted = _keep_provable(drafted, {"step_002": []}, before, after)
     assert reverted == set()
     assert merged is after
+
+
+def test_a_bug_report_cannot_cite_a_retrieval_it_did_not_make(storage: Storage):
+    # Every other stage was rebuilt so a fabricated citation is INEXPRESSIBLE.
+    # This one still took `toolCallId` and `eventId` from the model and checked
+    # them afterwards -- one tier weaker, on the single sentence a developer
+    # reads before deciding whether to go and reproduce something.
+    #
+    # `bug_model` now answers with tc_9999 / evt_9999, which exist nowhere. The
+    # report must still be written, and must cite the retrieval that actually
+    # contains the literal.
+    result = run_pipeline(
+        failing_recording(),
+        bug_model(literal=SERVER_ERROR),
+        storage=storage,
+        run_id="run_fabricated",
+        options=a2(bug_mode_enabled=True),
+    )
+
+    bug = next(c for c in result.ir.testCases if c.kind == "bug_report")
+    evidence = bug.bug.actualEvidence
+
+    assert evidence.toolCallId != "tc_9999"
+    assert evidence.eventId != "evt_9999"
+    assert any(c.id == evidence.toolCallId for c in result.trace.toolCalls)
+    assert not [
+        r
+        for r in result.report.results
+        if r.validator == ValidatorName.assertion_grounding
+        and r.status == ValidatorStatus.fail
+    ]
+
+
+def test_a_bug_report_quoting_something_never_retrieved_is_not_written(storage: Storage):
+    # The other half. A literal the agent did not retrieve resolves to no call,
+    # and no call means no report -- which is the correct outcome.
+    result = run_pipeline(
+        failing_recording(),
+        bug_model(literal="Payment declined by the acquiring bank"),
+        storage=storage,
+        run_id="run_unretrieved",
+        options=a2(bug_mode_enabled=True),
+    )
+
+    assert not [c for c in result.ir.testCases if c.kind == "bug_report"]

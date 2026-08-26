@@ -159,6 +159,18 @@ class Storage:
         (root / "tools").mkdir(exist_ok=True)
         return RunPaths(recording_id=recording_id, run_id=run_id, root=root)
 
+    def existing_run(self, recording_id: str, run_id: str) -> RunPaths:
+        """The same paths, without creating anything.
+
+        `run()` is for a pipeline about to write; every READ path in the API
+        called it too, so a GET for a run that does not exist left an empty
+        `runs/<rec>/<run>/tools/` behind before returning 404 -- and the review
+        UI lists runs by globbing that directory, so a typo in a URL created a
+        row in it.
+        """
+        root = self.runs_dir / recording_id / run_id
+        return RunPaths(recording_id=recording_id, run_id=run_id, root=root)
+
     def save_artifact(self, run: RunPaths, stage: str, data: Any) -> Path:
         """Stage output. Indented for reading, since these get opened by hand."""
         path = run.artifact(stage)

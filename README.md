@@ -11,6 +11,7 @@ Every claim the system makes is licensed by evidence it went and retrieved.
 | recording a real public site | [TESTING.md](TESTING.md) |
 | changing the code | [CLAUDE.md](CLAUDE.md), then [SPEC.md](SPEC.md) |
 | wondering what is broken or what is next | [STATUS.md](STATUS.md) |
+| asking whether the output actually got better | [docs/GHERKIN_BEFORE_AFTER.md](docs/GHERKIN_BEFORE_AFTER.md) -- the same recordings, before and after |
 
 Phases 1 to 3 are implemented: the recorder, the evidence store, the validation
 gate, the Gherkin renderer, the review UI, narration, bug mode and the ablation

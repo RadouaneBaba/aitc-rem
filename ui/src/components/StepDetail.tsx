@@ -23,6 +23,7 @@ const PROVENANCE_HINT: Record<string, string> = {
 export function StepDetail({
   step,
   recordingId,
+  screens,
   busy,
   onEdit,
   onDelete,
@@ -32,6 +33,7 @@ export function StepDetail({
 }: {
   step: Step;
   recordingId: string;
+  screens: string[];
   busy: boolean;
   onEdit: (text: string) => void;
   onDelete: () => void;
@@ -66,7 +68,7 @@ export function StepDetail({
         The wording is yours to change. Click away to save.
       </p>
 
-      <Screenshot recordingId={recordingId} eventIds={step.eventIds} />
+      <Screenshot recordingId={recordingId} eventIds={step.eventIds} screens={screens} />
 
       {step.escalation && <Escalation question={step.escalation} busy={busy} onAnswer={onAnswer} />}
 

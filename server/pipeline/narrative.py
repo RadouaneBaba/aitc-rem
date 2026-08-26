@@ -127,7 +127,7 @@ def merge_repeats(steps: list[Step]) -> list[Step]:
     """
     out: list[Step] = []
     for step in steps:
-        if out and _normalise(out[-1].text) == _normalise(step.text):
+        if out and normalise(out[-1].text) == normalise(step.text):
             out[-1] = _absorb(out[-1], step)
             continue
         out.append(step)
@@ -286,17 +286,29 @@ def _base_keyword(step: Step) -> str:
 
 
 def _leading_setup_count(steps: list[Step]) -> int:
-    """How many steps at the head are setup -- and only if something follows.
+    """How many steps at the head are preconditions -- and only if something follows.
 
-    A scenario whose every step is setup has no test in it; lifting all of them
-    into `Background` would leave an empty `Scenario`, which parses but says
-    nothing.
+    Defers to `_opening_block`, which is the one positional rule in this module.
+    They used to disagree: this cut on `role != setup` alone, while
+    `_opening_block` also cuts at the first setup step that CARRIES an accepted
+    expected result. `Background` was built from the first and keywords came
+    from the second, so a lifted setup step with an expect was moved into the
+    block and then rendered there as `When` / `Then` -- a block that never
+    asserts, asserting:
+
+        Background:
+          Given the tester signs in
+          When the tester opens the checkout page
+          Then the confirmation banner appears
+
+    Real Gherkin runners reject that and an Xray import chokes on it. Latent
+    only because no run had ever produced two scenarios, which is the same
+    reason `lift_background` had never rendered at all.
+
+    A scenario whose every step is a precondition has no test in it; lifting all
+    of them would leave an empty `Scenario`, which parses but says nothing.
     """
-    count = 0
-    for step in steps:
-        if step.role != SegmentRole.setup:
-            break
-        count += 1
+    count = _opening_block(steps)
     return count if 0 < count < len(steps) else 0
 
 
@@ -389,19 +401,25 @@ def would_collapse(texts: list[str], index: int, replacement: str) -> bool:
     reason `with_subject` is deterministic: the prompt already asks, and a
     prompt that asks is not a guarantee.
     """
-    candidate = _normalise(replacement)
+    candidate = normalise(replacement)
     if not candidate:
         return False
     return any(
-        _normalise(texts[i]) == candidate
+        normalise(texts[i]) == candidate
         for i in (index - 1, index + 1)
         if 0 <= i < len(texts)
     )
 
 
-def _normalise(text: str) -> str:
+def normalise(text: str) -> str:
     """Two sentences are the same step if they differ only in spacing or a
-    trailing full stop. Anything else is left alone."""
+    trailing full stop. Anything else is left alone.
+
+    Public because `split.py` has to refuse a cut between two steps this would
+    merge -- `merge_repeats` runs per scenario, so such a cut would change the
+    step COUNT. A second copy of this rule is how `supports_narrated` nearly
+    came to have two implementations that could disagree.
+    """
     return " ".join((text or "").split()).strip(" .").casefold()
 
 
@@ -414,6 +432,7 @@ __all__ = [
     "Narrative",
     "keeps_parameters",
     "build_narrative",
+    "normalise",
     "keyword_for_role",
     "sync_keywords",
     "dedupe_assertions",

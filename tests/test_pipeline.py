@@ -260,7 +260,7 @@ def storage(tmp_path: Path) -> Storage:
 def test_a_run_produces_every_artifact(storage: Storage):
     result = run_pipeline(recording(), grounded_model(), storage=storage, run_id="run_001")
 
-    for name in ("segments", "draft", "assertions", "ir", "trace"):
+    for name in ("segments", "draft", "split", "assertions", "ir", "trace"):
         assert result.artifacts[name].exists(), f"{name}.json was not written"
     # Each stage reads a file and writes a file, so a wrong output can be
     # traced to the stage that produced it (SS9.1). This is the default
@@ -269,6 +269,7 @@ def test_a_run_produces_every_artifact(storage: Storage):
     assert [s.stage.value for s in result.trace.stages] == [
         "segment",
         "decompose",
+        "split",
         "assert",
         "render",
         "validate",
@@ -345,38 +346,40 @@ def test_the_written_trace_round_trips_through_the_schema(storage: Storage):
 
 def test_a_leaked_secret_prevents_the_feature_file_from_being_written(storage: Storage):
     leaky = ScriptedModelClient(
-        lambda request: answer(
-            drafted(expect=[])
-            if stage_of(request) == "draft"
-            else json.dumps({"findings": [], "suggestions": []})
-        )
-        if stage_of(request) != "draft"
-        else answer(
-            json.dumps(
-                {
-                    "title": "Sign in",
-                    "description": "",
-                    "tags": [],
-                    "scenarios": [
-                        {
-                            "name": "Signing in",
-                            "steps": [
-                                {
-                                    "keyword": "Given",
-                                    "role": "setup",
-                                    "text": "the tester signs in as tester@example.com",
-                                    "eventIds": ["evt_001"],
-                                },
-                                {
-                                    "keyword": "When",
-                                    "role": "test_step",
-                                    "text": "the tester places the order",
-                                    "eventIds": ["evt_002"],
-                                },
-                            ],
-                        }
-                    ],
-                }
+        lambda request: (
+            answer(
+                drafted(expect=[])
+                if stage_of(request) == "draft"
+                else json.dumps({"findings": [], "suggestions": []})
+            )
+            if stage_of(request) != "draft"
+            else answer(
+                json.dumps(
+                    {
+                        "title": "Sign in",
+                        "description": "",
+                        "tags": [],
+                        "scenarios": [
+                            {
+                                "name": "Signing in",
+                                "steps": [
+                                    {
+                                        "keyword": "Given",
+                                        "role": "setup",
+                                        "text": "the tester signs in as tester@example.com",
+                                        "eventIds": ["evt_001"],
+                                    },
+                                    {
+                                        "keyword": "When",
+                                        "role": "test_step",
+                                        "text": "the tester places the order",
+                                        "eventIds": ["evt_002"],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                )
             )
         )
     )
@@ -586,7 +589,9 @@ def test_an_intent_note_becomes_the_step_name_word_for_word():
             DraftedScenario(
                 name="s",
                 steps=[
-                    DraftedStep("step_001", "Given", SegmentRole.setup, "the tester signs in", ["evt_001"]),
+                    DraftedStep(
+                        "step_001", "Given", SegmentRole.setup, "the tester signs in", ["evt_001"]
+                    ),
                     DraftedStep(
                         "step_002",
                         "When",
@@ -629,9 +634,7 @@ def test_a_dictated_step_is_not_the_repair_loops_to_rewrite():
     )
     # Unprotected, the same finding is actionable -- so the guard above is
     # doing the work, not the absence of a route.
-    unprotected = targets(
-        empty, [finding], protected=set(), known_steps={"step_001", "step_002"}
-    )
+    unprotected = targets(empty, [finding], protected=set(), known_steps={"step_001", "step_002"})
     assert [t.step_id for t in unprotected] == ["step_002"]
     assert unprotected[0].stage == PipelineStage.name
     assert unprotected[0].trigger == RepairTrigger.critic
@@ -756,6 +759,54 @@ def test_a_mandatory_search_is_not_evidence_of_investigation():
     # hide exactly the step SS3.4's correlation exists to find -- the hard one.
     investigations.append(investigation("inv_001_r2", ["tc_0003"]))
     assert _calls_per_step(investigations, calls) == {"step_001": 2}
+
+
+def test_the_binders_mandatory_retrieval_is_not_counted_as_effort():
+    # The deterministic binding pass confirms a claim with one mandatory
+    # `get_snapshot`. That is a process-mandated call, not investigation -- the
+    # same thing `ROUTINE_TOOLS` excludes, arriving by a different door, and
+    # `ROUTINE_TOOLS` cannot catch it because it filters by tool NAME and
+    # `get_snapshot` is genuine effort elsewhere.
+    #
+    # It gave every bound claim a floor of exactly 1: 9 of 13 runs read a column
+    # of constant 1s, on a metric whose whole purpose is variance. The step is
+    # still reported -- at zero -- because "this step cost nothing" and "this
+    # step was never looked at" are different facts.
+    from server.models import PipelineStage, StepInvestigation
+    from server.pipeline.run import _calls_per_step
+
+    mandatory = StepInvestigation(
+        id="inv_bind_step_001_001",
+        stepId="step_001",
+        stage=PipelineStage.assert_,
+        initialUncertainty=[],
+        toolCallIds=["tc_0009"],
+        budgetUsed=1,
+        budgetMax=1,
+        stopReason="no_investigation_needed",
+    )
+    contested = StepInvestigation(
+        id="inv_bind_step_002",
+        stepId="step_002",
+        stage=PipelineStage.assert_,
+        initialUncertainty=["which of these is the verdict"],
+        toolCallIds=["tc_0010", "tc_0011", "tc_0012"],
+        budgetUsed=3,
+        budgetMax=6,
+        stopReason="evidence_sufficient",
+    )
+
+    assert _calls_per_step([mandatory, contested], None) == {"step_001": 0, "step_002": 3}
+
+
+def test_the_binders_mandatory_retrieval_is_still_a_real_call():
+    # It costs quota and it is what the claim cites, so `budgetMax` must be
+    # honest too: the review UI and the sidecar both render "used N of M" and
+    # were printing "used 1 of 0".
+    from server.pipeline import bind
+
+    source = (Path(bind.__file__)).read_text(encoding="utf-8")
+    assert "budgetMax=0" not in source
 
 
 def test_a_step_about_a_refused_change_satisfies_mutation_claimed():
@@ -1060,6 +1111,58 @@ def test_a_plain_mutation_claim_still_has_to_prove_itself():
         recording_doc=recording,
     )
     assert [r for r in mutation_claimed(ctx) if r.status == ValidatorStatus.fail]
+
+
+def test_a_rerun_does_not_leave_the_previous_shape_behind(storage: Storage):
+    # A feature filename carries the case id and a case id carries the scenario
+    # NUMBER, so a re-run producing a different number of test cases used to
+    # leave the old files beside the new ones. `checkout` shipped a run
+    # directory holding `tc_..._01.feature` and `tc_..._02.feature` from a
+    # two-scenario run alongside `tc_....feature` from the one-scenario re-run
+    # that replaced it -- three feature files, two of them describing a document
+    # that no longer exists, all downloadable and all indistinguishable.
+    result = run_pipeline(recording(), grounded_model(), storage=storage, run_id="run_shape")
+
+    stale = result.run.root / "tc_left_over_from_before_01.feature"
+    stale.write_text("Feature: a document that no longer exists", encoding="utf-8")
+    (result.run.root / "tc_left_over_from_before_01.trace.md").write_text("x", encoding="utf-8")
+
+    run_pipeline(recording(), grounded_model(), storage=storage, run_id="run_shape")
+
+    assert not stale.exists()
+    assert not (result.run.root / "tc_left_over_from_before_01.trace.md").exists()
+    # And what the run actually produced is still there.
+    assert list(result.run.root.glob("*.feature"))
+    # Never wide enough to reach what the gate re-reads.
+    assert (result.run.root / "ir.json").is_file()
+    assert (result.run.root / "trace.json").is_file()
+
+
+def test_bug_mode_can_actually_be_turned_on():
+    # SS14 is built, verified and was unreachable: `bug_mode_enabled` defaults
+    # to False -- for a reason argued in `PipelineOptions`, that on a commercial
+    # site the uncaught-exception signal fires on third-party advertising -- and
+    # not one caller anywhere set it. The CLI, the API and the ablation all took
+    # the default, so a whole stage could not be run.
+    #
+    # A default is a default. An absence of a switch is a stage that does not
+    # ship.
+    from server.cli import main
+
+    parser_error: list[str] = []
+    try:
+        main(["run", "nonexistent.json", "--bug-mode"])
+    except SystemExit as exc:  # argparse rejects an unknown flag with SystemExit(2)
+        parser_error.append(str(exc))
+    except FileNotFoundError:
+        pass  # the flag parsed; the recording is what is missing
+
+    assert parser_error != ["2"], "--bug-mode is not a recognised flag"
+
+    from server.models import AblationConfig
+
+    options = PipelineOptions.for_config(AblationConfig.A2, bug_mode_enabled=True)
+    assert options.bug_mode_enabled is True
 
 
 def test_a0_makes_no_retrieval_of_any_kind(storage: Storage):

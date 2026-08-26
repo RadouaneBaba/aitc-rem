@@ -296,13 +296,80 @@ Feature: Hamper creation
     assert check(feature)[0].status == ValidatorStatus.pass_
 
 
-def test_the_shape_findings_still_only_warn():
-    # Same posture as every other style finding: refusing to emit a grounded
-    # test case because its shape is wrong would trade the valuable thing for
-    # the cheap one. What this buys is that the shape cannot regress quietly.
-    for result in check(SIX_BEATS):
+def test_an_over_long_scenario_is_rejected_not_merely_noted():
+    # CLAUDE.md, STATUS.md and the drafting prompt all said MAX_BEATS rejects at
+    # the gate. The code warned, so the model was being told to aim at a gate
+    # that could not fail it -- and a real recording shipped three near-duplicate
+    # beats under one heading through thirteen green validators.
+    #
+    # Safe to arm now because `split.py` cuts an over-long scenario before it is
+    # ever rendered, and free of blast radius: no feature file this pipeline has
+    # ever produced reaches five blocks.
+    rejections = [r for r in check(SIX_BEATS) if r.action == ValidatorAction.reject]
+    assert rejections, "shape is not phrasing"
+    assert all(r.status == ValidatorStatus.fail for r in rejections)
+    assert "action/outcome blocks" in rejections[0].message
+
+
+def test_an_over_long_scenario_has_no_repair_route():
+    # Terminal by design. Repairing it means re-drafting, and re-drafting can
+    # change the step COUNT -- which SS3.6 promises it does not.
+    from server.pipeline.repair import VALIDATOR_REPAIR
+
+    assert ValidatorName.gherkin_style not in VALIDATOR_REPAIR
+
+
+def test_a_phrasing_finding_still_only_warns():
+    # The posture that has not changed, and must not. Refusing to emit a
+    # grounded test case because a sentence names a mouse would trade the
+    # valuable thing for the cheap one.
+    feature = """Feature: Checkout
+
+  Scenario: An order is placed
+    When the tester clicks the blue Place order button
+    Then the confirmation banner appears
+"""
+    findings = check(feature)
+    assert findings
+    for result in findings:
         assert result.action == ValidatorAction.warn
         assert result.status == ValidatorStatus.warn
+
+
+def test_a_background_that_asserts_is_rejected():
+    # `_scenarios` skipped the Background under a docstring claiming it never
+    # asserts, which nothing enforced -- and `narrative`'s two cut rules
+    # disagreed in exactly the way that puts a When and a Then inside one.
+    feature = """Feature: Checkout
+
+  Background:
+    Given the tester signs in
+    When the tester opens the checkout page
+    Then the confirmation banner appears
+
+  Scenario: An order is placed
+    When the tester places the order
+    Then the order is confirmed
+"""
+    rejections = [r for r in check(feature) if r.action == ValidatorAction.reject]
+    assert rejections
+    assert "Background" in rejections[0].message
+
+
+def test_a_background_of_only_preconditions_is_not_flagged():
+    # The negative case. A Background is normal and good; what it must not do is
+    # act or assert.
+    feature = """Feature: Checkout
+
+  Background:
+    Given the tester signs in
+    And the tester has an item in the cart
+
+  Scenario: An order is placed
+    When the tester places the order
+    Then the order is confirmed
+"""
+    assert check(feature)[0].status == ValidatorStatus.pass_
 
 
 def test_an_expected_result_that_checks_two_things_is_flagged():
@@ -367,3 +434,70 @@ Feature: Checkout
     Then the page displays "Validating with the finance system..."
 """
     assert "full stop" not in messages(feature)
+
+
+def test_an_expected_result_that_restates_the_scenario_name_adds_no_verdict():
+    # `twoflows` closed on `Then Order requires approval` under a scenario
+    # called "Order requires approval". It bound to a real literal, so every
+    # grounding check passed, and the line proves nothing the heading did not
+    # already say.
+    feature = """Feature: Order approval
+
+  Scenario: Order requires approval
+    When the tester places a large order
+    Then Order requires approval
+"""
+    assert "adds no verdict" in messages(feature)
+
+
+def test_a_scenario_named_from_its_assertion_is_not_a_restatement():
+    # The negative case, and the reason the rule needs BOTH directions to
+    # match: `_scenario_from` legitimately names a scenario after what it
+    # proves, so a `Then` that says more than its heading is correct.
+    feature = """Feature: Order approval
+
+  Scenario: Order requires approval
+    When the tester places a large order
+    Then the order is refused with "Orders over EUR500 require approval"
+"""
+    assert "adds no verdict" not in messages(feature)
+
+
+def test_a_verdict_with_two_passing_states_is_flagged():
+    # Repair hedged a claim it did not need to hedge. "saved or selected" is
+    # satisfied by either, so a run where the save silently failed and the row
+    # merely stayed selected passes -- the exact case the step exists to catch.
+    feature = """Feature: Checkout
+
+  Scenario: The payment method is stored
+    When the tester submits the payment details
+    Then the payment method is displayed as saved or selected
+"""
+    assert "two passing states" in messages(feature)
+
+
+def test_an_or_inside_a_noun_phrase_is_not_a_hedge():
+    # The negative case. The alternatives have to be what the sentence ends on;
+    # "the vendor or supplier field" names one thing.
+    feature = """Feature: Invoices
+
+  Scenario: The supplier is recorded
+    When the tester saves the invoice
+    Then the vendor or supplier field shows "Northwind"
+"""
+    assert "two passing states" not in messages(feature)
+
+
+def test_neither_new_finding_can_reject_a_grounded_test_case():
+    # Both are phrasing, and `gherkin_style` has no row in VALIDATOR_REPAIR --
+    # a rejection here is terminal, which is far too strong for a wording
+    # problem a reviewer can fix in the UI in five seconds.
+    feature = """Feature: Order approval
+
+  Scenario: Order requires approval
+    When the tester places a large order
+    Then Order requires approval
+"""
+    for r in check(feature):
+        assert r.action == ValidatorAction.warn
+        assert r.status != ValidatorStatus.fail

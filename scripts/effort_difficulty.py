@@ -43,6 +43,20 @@ MIN_POINTS = 12
 #: is one reviewer's opinion of one recording.
 MIN_REVIEWED_RUNS = 3
 
+#: Both classes have to be populated, and this was the threshold with no name
+#: and no comment: `edited >= 2`. It declared sufficiency on TWO positives out
+#: of 104 steps, reported r = -0.057 -- noise, pointing against SS3.4's own
+#: thesis -- and printed it as a finding under a script advertised as one that
+#: refuses to overclaim.
+#:
+#: Two points make a perfect line and eight is still small; what eight buys is
+#: that no single reviewer decision can carry the coefficient. The untouched
+#: side needs a floor for the same reason, because a correlation between effort
+#: and edit rate is a statement about the DIFFERENCE between two groups and one
+#: of them being empty is not a weak result, it is no result.
+MIN_EDITED_STEPS = 8
+MIN_UNTOUCHED_STEPS = 8
+
 
 @dataclass(frozen=True)
 class Point:
@@ -142,7 +156,13 @@ def report(points: list[Point], reviewed: int) -> dict:
     size = [p.edit_magnitude for p in points]
     edited = [p for p in points if p.edited]
 
-    enough = len(points) >= MIN_POINTS and reviewed >= MIN_REVIEWED_RUNS and len(edited) >= 2
+    untouched = [p for p in points if not p.edited]
+    enough = (
+        len(points) >= MIN_POINTS
+        and reviewed >= MIN_REVIEWED_RUNS
+        and len(edited) >= MIN_EDITED_STEPS
+        and len(untouched) >= MIN_UNTOUCHED_STEPS
+    )
     return {
         "steps": len(points),
         "reviewedRuns": reviewed,
@@ -150,13 +170,9 @@ def report(points: list[Point], reviewed: int) -> dict:
         "meanEffortEdited": (
             round(sum(p.effort for p in edited) / len(edited), 3) if edited else None
         ),
+        "stepsUntouched": len(untouched),
         "meanEffortUntouched": (
-            round(
-                sum(p.effort for p in points if not p.edited) / max(1, len(points) - len(edited)),
-                3,
-            )
-            if len(points) > len(edited)
-            else None
+            round(sum(p.effort for p in untouched) / len(untouched), 3) if untouched else None
         ),
         "sufficient": enough,
         "pearson": round(pearson(effort, size), 4) if enough and pearson(effort, size) else None,
@@ -167,9 +183,10 @@ def report(points: list[Point], reviewed: int) -> dict:
             None
             if enough
             else (
-                f"{MIN_POINTS} steps from {MIN_REVIEWED_RUNS} reviewed runs with at least two "
-                f"edited steps; have {len(points)} steps from {reviewed} run(s) with "
-                f"{len(edited)} edited. Approve some drafts in the review UI and re-run."
+                f"{MIN_POINTS} steps from {MIN_REVIEWED_RUNS} reviewed runs, with at least "
+                f"{MIN_EDITED_STEPS} edited and {MIN_UNTOUCHED_STEPS} untouched; have "
+                f"{len(points)} steps from {reviewed} run(s) with {len(edited)} edited and "
+                f"{len(untouched)} untouched. Review some drafts in the review UI and re-run."
             )
         ),
         "points": [

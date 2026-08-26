@@ -26,34 +26,42 @@ def parse(text: str):
 
 
 def build_case(**kwargs):
-    """A signed-in tester who adds a widget and submits the order."""
+    """A signed-in tester who adds a widget and submits the order.
+
+    `prefix` renumbers the steps and events. Step ids are document-global in a
+    real run (`draft._scenarios` mints them from one counter), so two cases in
+    one IR never share one -- and a fixture that lets them is a fixture that can
+    build an input the pipeline cannot, which is how a whole test path once ran
+    against a field the recorder never writes.
+    """
+    prefix = kwargs.pop("prefix", "")
     assertion = f.assertion(
-        "asrt_001",
+        f"asrt_{prefix}001",
         "the confirmation banner appears",
-        ev=f.evidence("Order confirmed", "tc_0447", "evt_027", "semantic_node"),
+        ev=f.evidence("Order confirmed", "tc_0447", f"evt_{prefix}027", "semantic_node"),
     )
     steps = kwargs.pop(
         "steps",
         [
             f.step(
-                "step_001",
+                f"step_{prefix}001",
                 'the tester signs in as "<<user_email_1>>"',
                 role="setup",
-                event_ids=["evt_003"],
+                event_ids=[f"evt_{prefix}003"],
                 assertions=[],
             ),
             f.step(
-                "step_002",
+                f"step_{prefix}002",
                 'the tester adds "Blue Widget" to the cart',
                 role="test_step",
-                event_ids=["evt_012", "evt_013"],
+                event_ids=[f"evt_{prefix}012", f"evt_{prefix}013"],
                 assertions=[],
             ),
             f.step(
-                "step_003",
+                f"step_{prefix}003",
                 "the tester submits the order form",
                 role="test_step",
-                event_ids=["evt_027"],
+                event_ids=[f"evt_{prefix}027"],
                 assertions=[assertion],
             ),
         ],
@@ -274,6 +282,56 @@ def test_preconditions_become_a_background_block():
     assert "And the cart is empty" in text
 
 
+def test_a_background_renders_inherited_preconditions_and_lifted_steps():
+    # `_background` returned after the lifted lines, which DELETED
+    # `case.preconditions` -- and `_build_case` fills those for case 2 onwards
+    # with the setup steps of earlier cases, precisely so each scenario is
+    # runnable standalone. So the second test case out of a recording lost the
+    # sign-in the first one performed, whenever its own steps happened to begin
+    # with a setup step.
+    #
+    # `lift_background` turns on only when a document has two scenarios, which
+    # is exactly when preconditions exist -- so the two were never both present
+    # until now, and nothing caught it.
+    second = build_case(
+        ident="tc_rec_test01_02",
+        prefix="2",
+        preconditions=[
+            f.precondition("pre_001", 'the tester is signed in as "<<user_email_1>>"', ["evt_1003"])
+        ],
+    )
+    ir = f.ir_document(test_cases=[build_case(ident="tc_rec_test01_01", prefix="1"), second])
+
+    text = render_test_case(second, ir=ir)
+    parse(text)
+
+    assert "Background:" in text
+    assert 'Given the tester is signed in as "<<user_email_1>>"' in text, (
+        "the inherited precondition must survive the lift"
+    )
+    assert "the tester adds a widget to the cart" not in text.split("Scenario:")[0], (
+        "only preconditions and lifted setup belong above the Scenario"
+    )
+
+
+def test_every_step_of_a_multi_scenario_document_reaches_its_feature_file():
+    # The property `event_coverage` cannot check, because it reads the IR and
+    # not the rendered output -- and a file missing a step still parses. This is
+    # the shape of bug that shipped once already.
+    first = build_case(ident="tc_rec_test01_01", prefix="1")
+    second = build_case(
+        ident="tc_rec_test01_02",
+        prefix="2",
+        preconditions=[f.precondition("pre_001", "the tester is signed in", ["evt_1003"])],
+    )
+    ir = f.ir_document(test_cases=[first, second])
+
+    for case in (first, second):
+        text = render_test_case(case, ir=ir)
+        for step in case.steps:
+            assert step.text in text, f"{step.id} vanished from {case.id}"
+
+
 def test_omitted_work_is_shown_rather_than_hidden():
     # A verbatim transcript is unusable; silent deletion is untrustworthy. The
     # marker is the third option, and it is about completeness rather than
@@ -334,3 +392,56 @@ def test_inline_is_the_default_because_a_tester_reads_top_to_bottom():
     assert "Scenario Outline:" not in text
     assert "Examples:" not in text
     assert 'the tester signs in as "<<user_email_1>>"' in text
+
+
+def test_a_lifted_feature_file_still_round_trips_through_review():
+    # `apply_feature_text` compares the file's step lines against
+    # `build_narrative(case.steps).body`, and a Background carrying INHERITED
+    # preconditions has lines that exist in no narrative of this case -- so
+    # every human edit of a two-scenario feature file was refused with "this
+    # does not line up with the test case it came from". Latent until a
+    # recording produced two scenarios, which none ever had.
+    from server.api.review import apply_feature_text, new_review
+
+    first = build_case(ident="tc_rec_test01_01", prefix="1")
+    second = build_case(
+        ident="tc_rec_test01_02",
+        prefix="2",
+        preconditions=[f.precondition("pre_001", "the tester is signed in", ["evt_1003"])],
+    )
+    ir = f.ir_document(test_cases=[first, second])
+    rendered = render_test_case(second, ir=ir)
+    review = new_review(ir)
+
+    edited = rendered.replace(
+        "the tester submits the order form", "the tester confirms the order", 1
+    )
+    case = apply_feature_text(
+        ir, review, case_id=second.id, text=edited, rendered=rendered
+    )
+
+    assert [s.text for s in case.steps][-1] == "the tester confirms the order"
+    assert [e.kind for e in review.edits] == ["step_text"]
+
+
+def test_editing_an_inherited_precondition_is_refused_by_name():
+    # Refusing is the honest answer, in the same way this function refuses
+    # structure: the sentence belongs to the case that performed it.
+    from server.api.review import ReviewError, apply_feature_text, new_review
+
+    first = build_case(ident="tc_rec_test01_01", prefix="1")
+    second = build_case(
+        ident="tc_rec_test01_02",
+        prefix="2",
+        preconditions=[f.precondition("pre_001", "the tester is signed in", ["evt_1003"])],
+    )
+    ir = f.ir_document(test_cases=[first, second])
+    rendered = render_test_case(second, ir=ir)
+    review = new_review(ir)
+
+    edited = rendered.replace("the tester is signed in", "the tester is logged in", 1)
+
+    with pytest.raises(ReviewError) as excinfo:
+        apply_feature_text(ir, review, case_id=second.id, text=edited, rendered=rendered)
+
+    assert "earlier test case" in str(excinfo.value)

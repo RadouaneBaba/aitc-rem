@@ -148,6 +148,11 @@ export interface RunBody {
   trace: Trace | null;
   review: ReviewDoc;
   feature: Record<string, string>;
+  /** Event ids that actually have a screenshot on disk. Sent with the run so
+   *  the step pane can decide whether to render an `<img>` at all -- asking per
+   *  step produced a 404 per click on every recording without a `screens/`
+   *  directory, which is every imported one. */
+  screens?: string[];
 }
 
 /**

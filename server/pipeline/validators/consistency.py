@@ -5,7 +5,12 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from server.models import ValidatorAction, ValidatorName, ValidatorResult, ValidatorStatus
+from server.models import (
+    ValidatorAction,
+    ValidatorName,
+    ValidatorResult,
+    ValidatorStatus,
+)
 from server.pipeline.segment import MUTATING_METHODS
 from server.pipeline.validators.base import ValidationContext, passed, result, skipped
 
@@ -45,6 +50,27 @@ RESULT_CLAUSE = re.compile(
     re.IGNORECASE,
 )
 
+#: A claim about what is ON SCREEN, where the mutation word is part of what the
+#: screen says rather than the claim's own verb.
+#:
+#: The same conflation `RESULT_CLAUSE` fixes for a step's text, arriving one
+#: level up, and this one is a deadlock rather than merely a bad rejection. The
+#: `hardpaths` recording shows a status message reading "Payment method saved".
+#: `bind._unwitnessed` requires a claim to quote the value it rests on, so every
+#: admissible sentence about that message contains the word "saved" -- and the
+#: only sentence that does not ("a confirmation appears") is refused by
+#: `bind._existence_only`. Between the two rules, nothing could be said at all.
+#:
+#: The discriminator is ORDER, and it is why this is narrow rather than a
+#: loosening: the display verb must come FIRST. "the order is shown as placed"
+#: asserts what the page says. "the order is placed and a confirmation is
+#: shown" asserts persistence and still has to prove a successful request.
+DISPLAY_CLAIM = re.compile(
+    r"\b(is|are|was|were)\s+(display|shown|render)\w*\b"
+    r"|\b(displays?|shows?|reads?|states?|indicates?)\b",
+    re.IGNORECASE,
+)
+
 #: Vocabulary that claims the application changed something. Kept narrow on
 #: purpose: a step saying "opens the order form" must not be read as a mutation
 #: and rejected for lacking a POST.
@@ -65,6 +91,21 @@ MUTATION_WORDS = re.compile(
 )
 
 
+def _asserts_mutation(text: str) -> bool:
+    """Does this expected result claim the application CHANGED something?
+
+    An expected result is a claim about the application by definition, so a
+    mutation word in one counts -- unless a display verb comes first, in which
+    case the mutation word is inside what the page says rather than being the
+    claim. See `DISPLAY_CLAIM`.
+    """
+    mutation = MUTATION_WORDS.search(text)
+    if not mutation:
+        return False
+    display = DISPLAY_CLAIM.search(text)
+    return not (display and display.start() < mutation.start())
+
+
 def mutation_claimed(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     """A step that claims data changed must have a successful mutating request.
 
@@ -82,7 +123,7 @@ def mutation_claimed(ctx: ValidationContext) -> Iterable[ValidatorResult]:
             # action -- see RESULT_CLAUSE.
             asserted = PAST_REFERENCE.sub(" ", " ".join(a.text for a in step.assertions))
             acted = PAST_REFERENCE.sub(" ", step.text)
-            claims = bool(MUTATION_WORDS.search(asserted)) or bool(RESULT_CLAUSE.search(acted))
+            claims = bool(_asserts_mutation(asserted)) or bool(RESULT_CLAUSE.search(acted))
             if not claims:
                 continue
             checked += 1
@@ -185,10 +226,30 @@ def event_coverage(ctx: ValidationContext) -> Iterable[ValidatorResult]:
         yield skipped(ValidatorName.event_coverage, ctx, "the recording has no events")
         return
 
+    # Counted rather than unioned. A set only ever answers "at least once", and
+    # the drafting prompt says every event id appears EXACTLY ONCE: a drafter
+    # that assigns one event to two steps would otherwise pass the net that
+    # exists to make its freedom safe, and ship two steps describing the same
+    # action.
+    #
+    # Scoped to ONE case, which is not a detail. A bug report retraces the same
+    # session on purpose (SS14.2) -- its repro steps are the test case's steps
+    # seen from the developer's side, and carry the same event ids by
+    # construction. A rule reading "no event twice in the IR" turns the fixture
+    # built to contain a 500 into a rejection with nothing wrong in it. The rule
+    # is per document, and two repro steps describing one action is still the
+    # defect, inside the report.
+    claimed_by: dict[str, list[str]] = {}
     covered: set[str] = set()
     for case in ctx.ir.testCases:
+        within: dict[str, list[str]] = {}
         for step in case.steps:
             covered.update(step.eventIds)
+            for event_id in step.eventIds:
+                within.setdefault(event_id, []).append(step.id)
+        for event_id, steps in within.items():
+            if len(steps) > 1:
+                claimed_by[event_id] = steps
         for precondition in case.preconditions:
             covered.update(precondition.eventIds)
         for omitted in case.omitted:
@@ -199,6 +260,29 @@ def event_coverage(ctx: ValidationContext) -> Iterable[ValidatorResult]:
                 )
                 if segment:
                     covered.update(segment.eventIds)
+
+    # Preconditions are excluded on purpose: `_build_case` copies an earlier
+    # case's setup steps in so each scenario is runnable standalone, so the same
+    # event legitimately appears in a step of case 1 and a precondition of case
+    # 2. Two STEPS claiming it is the defect.
+    duplicated = claimed_by
+    if duplicated:
+        shown = "; ".join(
+            f"{event_id} is claimed by {' and '.join(steps)}"
+            for event_id, steps in sorted(duplicated.items())[:4]
+        )
+        yield result(
+            ValidatorName.event_coverage,
+            ValidatorStatus.fail,
+            ValidatorAction.reject,
+            ctx,
+            message=(
+                f"{len(duplicated)} event(s) belong to more than one step: {shown}. "
+                f"An event is one thing the tester did, and two steps describing it "
+                f"are two steps describing the same action."
+            ),
+        )
+        return
 
     missing = [e for e in all_events if e not in covered]
     if missing:

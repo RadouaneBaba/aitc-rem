@@ -743,3 +743,92 @@ def test_an_event_id_cannot_escape_the_screens_directory(client, tmp_path: Path)
 
 def test_an_empty_screenshot_body_is_refused(client):
     assert client.post("/api/recordings/rec_shots/screens/evt_002", content=b"").status_code == 400
+
+
+def test_a_run_whose_recording_is_gone_still_opens_in_the_review_ui(client, storage):
+    # `runs/` outlives `recordings/`: the ablation keeps runs around long after
+    # the recordings are cleared, and an imported run may never have had one.
+    #
+    # This endpoint read the recording through a bare `.read_text()`, so every
+    # such run threw `FileNotFoundError` -- a 500 on first paint and another on
+    # every step click. The panel `.catch`es it and shows nothing, which is why
+    # the app appeared to work while the terminal filled with tracebacks.
+    recording_id, run_id = a_run(client)
+    step_id = first_step(get_run(client, recording_id, run_id))["id"]
+    storage.recording_path(recording_id).unlink()
+
+    response = client.get(f"/api/runs/{recording_id}/{run_id}/steps/{step_id}/narration")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"segments": [], "hasAudio": False}
+
+
+def test_the_run_says_which_events_have_a_picture_rather_than_being_asked(client):
+    # The step pane rendered an `<img>` per step and hid it `onError`, so a
+    # recording with no `screens/` directory -- every imported one -- produced a
+    # 404 per step click, which the browser logs whatever the handler does.
+    recording_id, run_id = a_run(client)
+    assert get_run(client, recording_id, run_id)["screens"] == []
+
+    event_id = first_step(get_run(client, recording_id, run_id))["eventIds"][0]
+    client.post(f"/api/recordings/{recording_id}/screens/{event_id}", content=PNG)
+
+    assert get_run(client, recording_id, run_id)["screens"] == [event_id]
+
+
+def test_asking_for_a_run_that_does_not_exist_does_not_create_one(client, storage):
+    # `Storage.run()` mkdirs, because it is for a pipeline about to write. Every
+    # READ path called it too, and the review UI lists runs by globbing that
+    # directory -- so a typo in a URL returned 404 and left a row in the run
+    # list behind it.
+    recording_id, _ = a_run(client)
+    before = client.get("/api/runs").json()["runs"]
+
+    assert client.get(f"/api/runs/{recording_id}/run_999").status_code == 404
+
+    assert not (storage.runs_dir / recording_id / "run_999").exists()
+    assert client.get("/api/runs").json()["runs"] == before
+
+
+def test_every_pipeline_stage_has_something_to_show_a_watching_tester():
+    # The run takes minutes, deliberately (SS9.11) -- but "deliberately slow"
+    # and "hung" look identical to someone watching a browser tab. A stage with
+    # no line here shows its enum name, which is not a sentence.
+    from server.api.app import STAGE_DETAIL
+    from server.models import PipelineStage
+
+    # `library` is the one stage the pipeline never announces -- the per-step
+    # search went with the naming stage -- so it is the only permitted gap.
+    missing = {stage for stage in PipelineStage if stage not in STAGE_DETAIL}
+    assert missing == {PipelineStage.library}, missing
+
+
+def test_a_run_that_leaked_a_secret_cannot_be_exported(client, tmp_path):
+    # `no_placeholder_leak` is the only hard fail, and the pipeline erases the
+    # `.feature`, the sidecar and the bug report when it fires. The IR survives
+    # -- that validator scans `case.model_dump()`, so the leaked value is inside
+    # it by definition -- and every exporter reads a finished IRDocument.
+    #
+    # So this endpoint would have written the secret into an xlsx and a Jira
+    # issue through the one path SS7.1 exists to make impossible. It had no
+    # check at all; the CLI's was there and unconditional.
+    import json as _json
+
+    recording_id, run_id = a_run(client)
+    root = client.app.state.storage.run(recording_id, run_id).root
+    trace = _json.loads((root / "trace.json").read_text(encoding="utf-8"))
+    trace["validatorResults"].append(
+        {
+            "validator": "no_placeholder_leak",
+            "status": "fail",
+            "action": "hard_fail",
+            "attempt": 1,
+            "message": "the step text contains tester@example.com",
+        }
+    )
+    (root / "trace.json").write_text(_json.dumps(trace), encoding="utf-8")
+
+    response = client.post(f"/api/runs/{recording_id}/{run_id}/export", json={"formats": ["xlsx"]})
+
+    assert response.status_code == 409, response.text
+    assert "redaction" in response.text

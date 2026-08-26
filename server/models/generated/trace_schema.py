@@ -22,6 +22,7 @@ class AblationConfig(StrEnum):
 class PipelineStage(StrEnum):
     segment = "segment"
     decompose = "decompose"
+    split = "split"
     name = "name"
     assert_ = "assert"
     library = "library"
@@ -224,6 +225,7 @@ class ValidatorName(StrEnum):
     selector_resolvable = "selector_resolvable"
     no_pruned_assertion = "no_pruned_assertion"
     suggestions_quarantined = "suggestions_quarantined"
+    evidence_discriminates = "evidence_discriminates"
 
 
 class ValidatorStatus(StrEnum):
@@ -337,7 +339,15 @@ class RunMetrics(StrictModel):
     """
     criticFindingsRaised: int | None = None
     """
-    The denominator of repairConvergenceRate, and it never ships without it. A convergence rate over zero findings is vacuously 1.0, exactly the way groundingRate is vacuously 1.0 for a configuration that abstains.
+    How much the critic had to say: distinct findings across every critique in the run. The denominator of repairConvergenceRate, and it never ships without it. A convergence rate over zero findings is vacuously 1.0, exactly the way groundingRate is vacuously 1.0 for a configuration that abstains. Counted from the critic's own findings, NOT from repair attempts: reading it off the repair loop counted a two-stage validator rejection as two critic findings and counted a coherence finding -- which has no repair route -- as none, so it was wrong in 10 of 13 runs, in both directions.
+    """
+    criticFindingsResolved: int | None = None
+    """
+    How many of those the repair loop resolved within budget. A finding with no repair route (coherence, state_jump) is never resolved, and that is the honest reading of SS9.9 rather than an omission.
+    """
+    repairAttempts: int | None = None
+    """
+    Distinct (stage, step, finding) repairs attempted. A different fact from criticFindingsRaised -- most repairs are triggered by a validator, not by the critic -- and worth keeping now that the two are no longer conflated.
     """
     toolCallsTotal: int | None = None
     toolCallsPerStep: dict[str, int] | None = None

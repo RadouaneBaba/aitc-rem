@@ -203,6 +203,20 @@ def cmd_run(args: argparse.Namespace) -> int:
     check_origins(recording, allow=args.allow_any_origin, policy=project.origin_policy)
 
     storage = Storage()
+
+    # Keep the input beside the output. The API has always done this on every
+    # posted recording; the CLI did it only on `import`, so a run made from a
+    # file on disk left `runs/<id>/` with nothing to read it against -- and the
+    # review UI needs the recording for narration and for screenshots. That is
+    # what made `steps/{id}/narration` a 500 on most runs: the endpoint was not
+    # wrong to look, the run had simply never saved what it was made from.
+    #
+    # Written after `attach_narration`, so a transcript supplied with
+    # `--narration` is part of what a reviewer can see. `save_recording` takes
+    # the model rather than a dict because `by_alias=True` is load-bearing.
+    if not storage.recording_path(recording.id).is_file():
+        storage.save_recording(recording)
+
     model = build_model(model=args.model, offline=args.offline, rpm=args.rpm)
     options = PipelineOptions.for_config(
         AblationConfig(args.config),
@@ -210,6 +224,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         budget=args.budget,
         project=project,
         library=StepLibrary(library_path()),
+        bug_mode_enabled=args.bug_mode,
     )
 
     result = run_pipeline(recording, model, storage=storage, run_id=args.run_id, options=options)
@@ -231,16 +246,27 @@ def cmd_run(args: argparse.Namespace) -> int:
     for warning in getattr(model, "warnings", []):
         print(f"\nBUDGET: {warning}")
 
-    exports = export_all(
-        result.ir,
-        out_dir=result.run.root,
-        config=project,
-        names=args.export.split(",") if args.export else None,
-    )
-    for export in exports:
-        print(f"Exported:       {export}")
-        for warning in export.warnings:
-            print(f"                - {warning}")
+    # A hard fail is a redaction hole (SS7.1), and the pipeline has already
+    # erased the `.feature`, the sidecar and the bug report. The IR survives --
+    # `no_placeholder_leak` scans `case.model_dump()`, so the leaked value is in
+    # it by definition -- and every exporter reads a finished IRDocument. So
+    # exporting here would write the secret to an xlsx and a Jira issue through
+    # the one path SS7.1 exists to make impossible. Latent only because
+    # `exports: []` is the default, which is luck rather than design.
+    if result.report.hard_failed:
+        print()
+        print("Not exported: the run hard-failed, and every export reads the same IR.")
+    else:
+        exports = export_all(
+            result.ir,
+            out_dir=result.run.root,
+            config=project,
+            names=args.export.split(",") if args.export else None,
+        )
+        for export in exports:
+            print(f"Exported:       {export}")
+            for warning in export.warnings:
+                print(f"                - {warning}")
 
     if result.rendered:
         print()
@@ -267,6 +293,13 @@ def cmd_ablate(args: argparse.Namespace) -> int:
         recordings.append(recording)
 
     storage = Storage()
+    # The same reason as `cmd_run`: a run the review UI cannot read the
+    # recording for is a run whose narration panel and screenshots are silently
+    # empty. Written after `attach_narration`, so the transcript is part of it.
+    for recording in recordings:
+        if not storage.recording_path(recording.id).is_file():
+            storage.save_recording(recording)
+
     # SS9.12 -- the ablation pins one provider and one model and disables
     # fallback, or it measures provider variance instead of architecture.
     model = build_model(model=args.model, offline=args.offline, fallback=False, rpm=args.rpm)
@@ -406,8 +439,7 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
         # a fact about the output rather than an internal detail.
         weak = (
             "  (too unsure to rank)"
-            if segment.confidence is not None
-            and segment.confidence < settings.min_confidence
+            if segment.confidence is not None and segment.confidence < settings.min_confidence
             else ""
         )
         print(f"  {segment.startMs / 1000:7.1f}s  {segment.text}{confidence}{weak}")
@@ -503,6 +535,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         budget=args.budget,
         project=project,
         library=StepLibrary(library_path()),
+        bug_mode_enabled=args.bug_mode,
     )
     app = create_app(
         storage=storage,
@@ -513,9 +546,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     ui = REPO_ROOT / "ui" / "dist"
     print(f"aitc-rem on http://{args.host}:{args.port}")
-    if not ui.exists():
-        print("The review UI is not built yet. Run: pnpm --filter @aitc-rem/ui build")
     print("Point the recorder at this address and press Stop when you are done.")
+
+    # Not a refusal, deliberately: the recorder posts to this server, and a
+    # tester who cannot record because the review UI is unbuilt is worse off
+    # than one who records now and reviews after a build. But it is the last
+    # thing printed, because it used to be a line in the middle of the banner
+    # and the symptom is a page that does nothing.
+    if not ui.exists():
+        print()
+        print("  The review UI is NOT built. / will answer 503 until you run:")
+        print("      pnpm --filter @aitc-rem/ui build")
     print()
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
@@ -544,6 +585,19 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-any-origin",
         action="store_true",
         help="send even when an origin is not on the allowlist; overrides origin_policy",
+    )
+    # SS14. Off by default and that default is argued in `PipelineOptions`: on a
+    # commercial site the uncaught-exception signal fires on third-party
+    # advertising scripts, and one bug report that sends a developer to
+    # reproduce somebody else's JavaScript costs more trust than fifty good test
+    # cases earn. But nothing anywhere set the flag, so a whole built stage was
+    # unreachable from every entry point -- a default is a default, not an
+    # absence of a switch.
+    common.add_argument(
+        "--bug-mode",
+        action="store_true",
+        help="write a repro report when the recording contains a 5xx, an uncaught "
+        "exception, or the tester's bug marker (SS14)",
     )
 
     # SS6.6. A transcript from anywhere -- OS dictation, a voice memo, or typed
@@ -609,7 +663,9 @@ def main(argv: list[str] | None = None) -> int:
 
     tr = sub.add_parser("transcribe", help="turn narration audio into narration on a recording")
     tr.add_argument("recording")
-    tr.add_argument("--audio", default=None, help="defaults to the audio found beside the recording")
+    tr.add_argument(
+        "--audio", default=None, help="defaults to the audio found beside the recording"
+    )
     tr.add_argument("--in-place", action="store_true", help="write the narration back into it")
     tr.add_argument("--out", default=None, metavar="FILE", help="write a copy here instead")
     tr.add_argument(

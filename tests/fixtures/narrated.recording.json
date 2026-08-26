@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.0",
-  "id": "rec_MT8TF5SO6S71",
+  "id": "rec_MTA1OK3S1NX1",
   "projectId": "local",
   "ownerId": "local",
-  "createdAt": "2026-08-25T15:24:03.480Z",
+  "createdAt": "2026-08-26T12:03:05.032Z",
   "objective": "Check that an order over EUR500 requires approval",
   "metadata": {
-    "capturedAt": "2026-08-25T15:24:03.480Z",
-    "durationMs": 6272,
+    "capturedAt": "2026-08-26T12:03:05.032Z",
+    "durationMs": 6349,
     "browser": "Chrome/151.0.0.0",
     "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
     "viewport": {
@@ -19,7 +19,7 @@
       "http://localhost:5173"
     ],
     "recorderVersion": "0.1.0",
-    "audioOffsetMs": 60,
+    "audioOffsetMs": 47,
     "fidelitySummary": {
       "rapid_sequence": 2,
       "closed_shadow_root": 2
@@ -29,7 +29,7 @@
     {
       "id": "evt_001",
       "seq": 0,
-      "timestamp": 554,
+      "timestamp": 610,
       "type": "input",
       "url": "http://localhost:5173/",
       "target": {
@@ -45,7 +45,7 @@
         "value": "<<user_email_1>>"
       },
       "before": {
-        "capturedAt": 554,
+        "capturedAt": 610,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -92,7 +92,7 @@
         }
       },
       "after": {
-        "capturedAt": 862,
+        "capturedAt": 918,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -177,7 +177,7 @@
     {
       "id": "evt_002",
       "seq": 1,
-      "timestamp": 1026,
+      "timestamp": 1088,
       "type": "input",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -193,7 +193,7 @@
         "value": "<<password>>"
       },
       "before": {
-        "capturedAt": 1026,
+        "capturedAt": 1088,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -240,7 +240,185 @@
         }
       },
       "after": {
-        "capturedAt": 1036,
+        "capturedAt": 1099,
+        "url": "http://localhost:5173/catalog",
+        "title": "Northwind Orders",
+        "scope": "scoped",
+        "root": {
+          "ref": "0",
+          "role": "form",
+          "name": "",
+          "landmark": "form",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "text",
+              "name": "Email address"
+            },
+            {
+              "ref": "0.1",
+              "role": "textbox",
+              "name": "",
+              "value": "<<user_email_1>>"
+            },
+            {
+              "ref": "0.2",
+              "role": "text",
+              "name": "Password"
+            },
+            {
+              "ref": "0.3",
+              "role": "textbox",
+              "name": "",
+              "value": "<<password>>"
+            },
+            {
+              "ref": "0.4",
+              "role": "button",
+              "name": "Signing in...",
+              "state": [
+                "disabled"
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
+      },
+      "diff": {
+        "added": [
+          {
+            "ref": "0.1",
+            "role": "textbox",
+            "name": "",
+            "value": "<<user_email_1>>",
+            "path": "form"
+          },
+          {
+            "ref": "0.3",
+            "role": "textbox",
+            "name": "",
+            "value": "<<password>>",
+            "path": "form"
+          },
+          {
+            "ref": "0.4",
+            "role": "button",
+            "name": "Signing in...",
+            "state": [
+              "disabled"
+            ],
+            "path": "form"
+          }
+        ],
+        "removed": [
+          {
+            "ref": "0.1",
+            "role": "textbox",
+            "name": "Email address",
+            "value": "<<user_email_1>>",
+            "path": "form"
+          },
+          {
+            "ref": "0.3",
+            "role": "textbox",
+            "name": "Password",
+            "value": "<<password>>",
+            "path": "form"
+          },
+          {
+            "ref": "0.4",
+            "role": "button",
+            "name": "Sign in",
+            "path": "form"
+          }
+        ],
+        "changed": [],
+        "urlChanged": {
+          "from": "http://localhost:5173/",
+          "to": "http://localhost:5173/catalog"
+        }
+      },
+      "settle": {
+        "reason": "url_change",
+        "waitedMs": 11,
+        "mutationCount": 4,
+        "inFlightAtEnd": 0
+      },
+      "network": [],
+      "console": [],
+      "fidelity": []
+    },
+    {
+      "id": "evt_003",
+      "seq": 2,
+      "timestamp": 1089,
+      "type": "click",
+      "url": "http://localhost:5173/catalog",
+      "target": {
+        "role": "button",
+        "name": "Sign in",
+        "tagName": "button",
+        "selectors": {
+          "css": "button.primary",
+          "role": "getByRole('button', { name: \"Sign in\" })",
+          "text": "Sign in"
+        },
+        "frame": []
+      },
+      "before": {
+        "capturedAt": 1089,
+        "url": "http://localhost:5173/",
+        "title": "Northwind Orders",
+        "scope": "scoped",
+        "root": {
+          "ref": "0",
+          "role": "form",
+          "name": "",
+          "landmark": "form",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "text",
+              "name": "Email address"
+            },
+            {
+              "ref": "0.1",
+              "role": "textbox",
+              "name": "Email address",
+              "value": "<<user_email_1>>"
+            },
+            {
+              "ref": "0.2",
+              "role": "text",
+              "name": "Password"
+            },
+            {
+              "ref": "0.3",
+              "role": "textbox",
+              "name": "Password",
+              "value": "<<password>>"
+            },
+            {
+              "ref": "0.4",
+              "role": "button",
+              "name": "Sign in"
+            }
+          ]
+        },
+        "liveRegions": [],
+        "scopeRoot": {
+          "role": "form",
+          "name": "",
+          "landmark": "form"
+        }
+      },
+      "after": {
+        "capturedAt": 1100,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -349,195 +527,17 @@
         "mutationCount": 4,
         "inFlightAtEnd": 0
       },
-      "network": [],
-      "console": [],
-      "fidelity": []
-    },
-    {
-      "id": "evt_003",
-      "seq": 2,
-      "timestamp": 1027,
-      "type": "click",
-      "url": "http://localhost:5173/catalog",
-      "target": {
-        "role": "button",
-        "name": "Sign in",
-        "tagName": "button",
-        "selectors": {
-          "css": "button.primary",
-          "role": "getByRole('button', { name: \"Sign in\" })",
-          "text": "Sign in"
-        },
-        "frame": []
-      },
-      "before": {
-        "capturedAt": 1027,
-        "url": "http://localhost:5173/",
-        "title": "Northwind Orders",
-        "scope": "scoped",
-        "root": {
-          "ref": "0",
-          "role": "form",
-          "name": "",
-          "landmark": "form",
-          "children": [
-            {
-              "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
-              "name": "Email address",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "Password",
-              "value": "<<password>>"
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Sign in"
-            }
-          ]
-        },
-        "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
-      },
-      "after": {
-        "capturedAt": 1036,
-        "url": "http://localhost:5173/catalog",
-        "title": "Northwind Orders",
-        "scope": "scoped",
-        "root": {
-          "ref": "0",
-          "role": "form",
-          "name": "",
-          "landmark": "form",
-          "children": [
-            {
-              "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
-              "name": "",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "",
-              "value": "<<password>>"
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Signing in...",
-              "state": [
-                "disabled"
-              ]
-            }
-          ]
-        },
-        "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
-      },
-      "diff": {
-        "added": [
-          {
-            "ref": "0.1",
-            "role": "textbox",
-            "name": "",
-            "value": "<<user_email_1>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.3",
-            "role": "textbox",
-            "name": "",
-            "value": "<<password>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.4",
-            "role": "button",
-            "name": "Signing in...",
-            "state": [
-              "disabled"
-            ],
-            "path": "form"
-          }
-        ],
-        "removed": [
-          {
-            "ref": "0.1",
-            "role": "textbox",
-            "name": "Email address",
-            "value": "<<user_email_1>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.3",
-            "role": "textbox",
-            "name": "Password",
-            "value": "<<password>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.4",
-            "role": "button",
-            "name": "Sign in",
-            "path": "form"
-          }
-        ],
-        "changed": [],
-        "urlChanged": {
-          "from": "http://localhost:5173/",
-          "to": "http://localhost:5173/catalog"
-        }
-      },
-      "settle": {
-        "reason": "url_change",
-        "waitedMs": 8,
-        "mutationCount": 4,
-        "inFlightAtEnd": 0
-      },
       "network": [
         {
           "id": "net_0001",
           "method": "POST",
           "url": "http://localhost:5173/api/login",
-          "startTime": 1028,
+          "startTime": 1091,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 1032,
+          "endTime": 1095,
           "durationMs": 4,
           "status": 200,
           "requestBody": "{\"email\":\"<<user_email_1>>\",\"password\":\"<<password>>\"}",
@@ -556,7 +556,7 @@
     {
       "id": "evt_004",
       "seq": 3,
-      "timestamp": 1513,
+      "timestamp": 1568,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -571,7 +571,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 1513,
+        "capturedAt": 1568,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -626,7 +626,7 @@
         }
       },
       "after": {
-        "capturedAt": 1519,
+        "capturedAt": 1575,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -732,7 +732,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 6,
+        "waitedMs": 7,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
@@ -744,7 +744,7 @@
     {
       "id": "evt_005",
       "seq": 4,
-      "timestamp": 6270,
+      "timestamp": 6346,
       "type": "input",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -760,7 +760,7 @@
         "value": "750"
       },
       "before": {
-        "capturedAt": 6270,
+        "capturedAt": 6346,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -917,7 +917,7 @@
         }
       },
       "after": {
-        "capturedAt": 6596,
+        "capturedAt": 6672,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -1092,7 +1092,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 325,
+        "waitedMs": 324,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
@@ -1102,7 +1102,7 @@
         "closed_shadow_root"
       ],
       "transient": {
-        "capturedAt": 6279,
+        "capturedAt": 6358,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -1268,7 +1268,7 @@
     {
       "id": "evt_006",
       "seq": 5,
-      "timestamp": 6272,
+      "timestamp": 6349,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -1283,7 +1283,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 6272,
+        "capturedAt": 6349,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -1440,7 +1440,7 @@
         }
       },
       "after": {
-        "capturedAt": 6598,
+        "capturedAt": 6674,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",
@@ -1615,7 +1615,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 325,
+        "waitedMs": 324,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
@@ -1624,12 +1624,12 @@
           "id": "net_0002",
           "method": "POST",
           "url": "http://localhost:5173/api/orders",
-          "startTime": 6273,
+          "startTime": 6351,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 6276,
+          "endTime": 6354,
           "durationMs": 3,
           "status": 409,
           "requestBody": "{\"total\":750,\"approved\":false,\"poNumber\":\"\",\"speed\":\"standard\"}",
@@ -1646,7 +1646,7 @@
         "closed_shadow_root"
       ],
       "transient": {
-        "capturedAt": 6280,
+        "capturedAt": 6360,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "scoped",

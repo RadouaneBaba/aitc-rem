@@ -374,8 +374,14 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             "search_step_library",
+            # A capability statement, not a directive. This used to read
+            # "Search before inventing new wording", which was an instruction
+            # from the deleted naming stage left loose in every agent's tool
+            # list. Mandating it per step is measured: calls/step 1.56 -> 2.17
+            # and SS3.3's Spread collapsed from 1.08 to 0.16, which reads as an
+            # agent that stopped adapting when nothing had changed.
             "Approved step phrasing from earlier recordings in this project. "
-            "Search before inventing new wording.",
+            "Advice about wording; never evidence, and never required.",
             _schema({"query": _STR, "limit": _INT}, ["query"]),
             search_step_library,
         ),

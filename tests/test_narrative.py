@@ -212,6 +212,58 @@ def test_leading_setup_lifts_into_a_background_when_asked():
     assert keywords(narrative) == ["When"]
 
 
+def test_a_lifted_background_never_contains_a_when_or_a_then():
+    # STATUS.md's reproduction. `_leading_setup_count` cut on `role != setup`
+    # while `_opening_block` -- which assigns the keywords -- also cut at the
+    # first setup step carrying an ACCEPTED expected result. So a setup step
+    # with an expect was lifted into the block and then rendered inside it as
+    # `When` / `Then`: a block that never asserts, asserting. Real Gherkin
+    # runners reject it and an Xray import chokes on it.
+    #
+    # Latent only because no run had ever produced two scenarios, which is the
+    # same reason `lift_background` had never rendered at all.
+    steps = [
+        step("s1", "the tester signs in", "setup"),
+        step(
+            "s2",
+            "the tester opens the checkout page",
+            "setup",
+            assertions=[f.assertion("a1", "the confirmation banner appears")],
+        ),
+        step("s3", "the tester places the order", "test_step"),
+    ]
+
+    narrative = build_narrative(steps, lift_background=True)
+
+    assert [line.keyword for line in narrative.background] == ["Given"]
+    assert not any(line.keyword in {"When", "Then"} for line in narrative.background)
+
+
+def test_lifting_a_background_does_not_change_any_steps_keyword():
+    # The invariant that lets `sync_keywords`, the sidecar and every exporter
+    # keep the unlifted layout: lifting only decides WHERE the line is printed,
+    # never what it says. If this breaks, a reviewer sees `Given` in the UI and
+    # `And` in the file -- the exact drift `sync_keywords` exists to prevent.
+    steps = [
+        step("s1", "the tester signs in", "setup"),
+        step("s2", "the tester opens the cart", "setup"),
+        step(
+            "s3",
+            "the tester places the order",
+            "test_step",
+            assertions=[f.assertion("a1", "the order is confirmed")],
+        ),
+    ]
+
+    flat = build_narrative(steps)
+    lifted = build_narrative(steps, lift_background=True)
+
+    def shape(n):
+        return [(line.keyword, line.text) for line in [*n.background, *n.body]]
+
+    assert shape(flat) == shape(lifted)
+
+
 def test_an_all_setup_scenario_keeps_its_steps():
     # Lifting every step would leave an empty Scenario, which parses and says
     # nothing.

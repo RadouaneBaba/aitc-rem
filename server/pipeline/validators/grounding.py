@@ -56,12 +56,16 @@ def bug_claim(case) -> tuple | None:
     step = next((s for s in case.steps if s.id == bug.failureStepId), None)
     if step is None:
         return None
-    return case, step, Assertion(
-        id=f"{case.id}_actual",
-        text=bug.actual,
-        provenance=Provenance.inferred,
-        evidence=bug.actualEvidence,
-        accepted=True,
+    return (
+        case,
+        step,
+        Assertion(
+            id=f"{case.id}_actual",
+            text=bug.actual,
+            provenance=Provenance.inferred,
+            evidence=bug.actualEvidence,
+            accepted=True,
+        ),
     )
 
 
@@ -198,9 +202,14 @@ def assertion_grounding(ctx: ValidationContext) -> Iterable[ValidatorResult]:
             )
             continue
 
-        matches = ctx.store.find_text(evidence.literal, case_sensitive=True)
-        if not any(m.get("eventId") == evidence.eventId for m in matches):
-            where = sorted({str(m.get("eventId")) for m in matches if m.get("eventId")})
+        # `contains_at` rather than `find_text`: the tool caps at 40 matches and
+        # sorts by a zero-padded id, so it discards the LATEST events -- which is
+        # where a verdict lives. Asking the capped list whether a string is
+        # present answered "no" for strings that really were there, and rejected
+        # true, correctly cited claims as ungrounded on any recording long
+        # enough to reach the cap.
+        if not ctx.store.contains_at(evidence.literal, evidence.eventId, case_sensitive=True):
+            where = ctx.store.events_containing(evidence.literal, case_sensitive=True)
             elsewhere = f" (it does appear at {', '.join(where[:5])})" if where else " at all"
             yield result(
                 ValidatorName.assertion_grounding,
@@ -266,6 +275,81 @@ def element_exists(ctx: ValidationContext) -> Iterable[ValidatorResult]:
         yield passed(ValidatorName.element_exists, ctx, f"{checked} reference(s) resolved")
 
 
+def evidence_discriminates(ctx: ValidationContext) -> Iterable[ValidatorResult]:
+    """One literal may not be the whole evidence for two different claims.
+
+    **Grounding proves a claim points at a retrieval. It cannot prove the
+    retrieval is about that claim rather than the one next to it**, and this is
+    the cheapest test of the difference there is: if the same string is the
+    entire evidence for two claims that say different things, it discriminates
+    between neither, and at least one of them is resting on something that would
+    be equally true if it were false.
+
+    Found on a real recording of a French storefront -- 15 events, filters and
+    a sort dropdown, thirteen validators green:
+
+        the product list is filtered to show only available items
+          <- "Results updated."
+        the product list updates to show items matching the selected processors
+          <- "Results updated."
+
+    An aria-live region announcing that *something* changed. It is genuinely in
+    the recording and genuinely retrieved, so `evidence_retrieved` and
+    `assertion_grounding` are both right and both useless here. It is the bare
+    number of `_Candidate.conclusive` in another costume -- a literal that
+    supports any claim of its shape whatsoever.
+
+    `_unwitnessed` cannot see it either: these claims quote nothing and contain
+    no digits, so there is no checkable content for it to compare. Prose framing
+    is deliberately untouched there, and this is what that costs.
+
+    **A warning, not a rejection.** The check says two claims cannot both be
+    right about this evidence; it cannot say which. On `twoflows` one of the two
+    was a good claim and the other restated the scenario name -- rejecting the
+    run would have punished both. Naming both and letting a reviewer choose is
+    the honest action, and it is what the review UI is for.
+    """
+    accepted: dict[str, list[str]] = {}
+    for _case, _step, assertion in _assertions(ctx):
+        if not assertion.accepted:
+            continue
+        literal = " ".join((assertion.evidence.literal or "").split())
+        if not literal:
+            continue
+        texts = accepted.setdefault(literal, [])
+        normalised = " ".join(assertion.text.split()).casefold()
+        if normalised not in [" ".join(t.split()).casefold() for t in texts]:
+            texts.append(assertion.text)
+
+    if not accepted:
+        yield skipped(
+            ValidatorName.evidence_discriminates, ctx, "this run accepted no expected result"
+        )
+        return
+
+    shared = {lit: texts for lit, texts in accepted.items() if len(texts) > 1}
+    for literal, texts in sorted(shared.items()):
+        yield result(
+            ValidatorName.evidence_discriminates,
+            ValidatorStatus.warn,
+            ValidatorAction.warn,
+            ctx,
+            message=(
+                f"{len(texts)} expected results rest on the same evidence, {literal!r}, so it "
+                f"tells them apart from nothing: "
+                + "; ".join(repr(t) for t in texts)
+                + ". Keep the one this evidence is actually about."
+            ),
+        )
+
+    if not shared:
+        yield passed(
+            ValidatorName.evidence_discriminates,
+            ctx,
+            f"{len(accepted)} literal(s) each support one claim",
+        )
+
+
 def no_pruned_assertion(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     """No assertion may rest on a segment that was pruned from the narrative.
 
@@ -273,24 +357,31 @@ def no_pruned_assertion(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     in the trace (SS9.3). An assertion grounded in one would cite evidence the
     reader cannot see, which is worse than no assertion.
     """
+    # An omission names its events directly. This used to resolve
+    # `omitted.segmentId` against `ctx.segments`, which was right while a step
+    # was a segment -- under draft-then-bind nothing sets `segmentId`, so
+    # `pruned_events` was always empty and this validator returned early on
+    # every run it has ever been part of: 0 pass, 13 skip, under a skip message
+    # that still described a phase which had already shipped. `event_coverage`
+    # received exactly this migration (`consistency.py`); this sibling was
+    # missed. The segment path stays for omissions written the old way.
     pruned_events: dict[str, str] = {}
     for case in ctx.ir.testCases:
         for omitted in case.omitted:
-            segment = None
-            if ctx.segments:
+            for event_id in omitted.eventIds or []:
+                pruned_events[event_id] = omitted.reason.value
+            if omitted.segmentId and ctx.segments:
                 segment = next(
                     (s for s in ctx.segments.segments if s.id == omitted.segmentId), None
                 )
-            for event_id in segment.eventIds if segment else []:
-                pruned_events[event_id] = omitted.reason.value
+                for event_id in segment.eventIds if segment else []:
+                    pruned_events[event_id] = omitted.reason.value
 
     if not pruned_events:
-        # Real logic behind the guard, no subject yet: decomposition arrives in
-        # Phase 2, and until then nothing is ever pruned.
         yield skipped(
             ValidatorName.no_pruned_assertion,
             ctx,
-            "no segments were pruned (decomposition is Phase 2)",
+            "nothing was pruned from this recording",
         )
         return
 
@@ -305,8 +396,9 @@ def no_pruned_assertion(ctx: ValidationContext) -> Iterable[ValidatorResult]:
                 ValidatorAction.reject,
                 ctx,
                 message=(
-                    f"assertion is grounded in {assertion.evidence.eventId}, which belongs "
-                    f"to a segment pruned as {reason}. The reader cannot see that evidence."
+                    f"assertion is grounded in {assertion.evidence.eventId}, which was "
+                    f"pruned from the narrative as {reason}. The reader cannot see "
+                    f"that evidence."
                 ),
                 test_case_id=case.id,
                 step_id=step.id,
