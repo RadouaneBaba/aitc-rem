@@ -102,4 +102,84 @@ def review_warnings(ir: IRDocument) -> list[str]:
     return out
 
 
-__all__ = ["ExportResult", "Exporter", "case_stem", "review_warnings", "test_cases"]
+@dataclass(frozen=True)
+class EvidenceRow:
+    """One accepted claim, with the retrieval that proved it.
+
+    Every field is read off the `IRDocument` -- no exporter reaches into the run
+    directory for it -- which is what lets the audit trail travel with a file
+    somebody emailed.
+    """
+
+    case_id: str
+    case_title: str
+    step_number: int
+    step_text: str
+    claim: str
+    literal: str
+    tool_call_id: str
+    event_id: str
+    provenance: str
+
+
+def evidence_rows(ir: IRDocument) -> list[EvidenceRow]:
+    """The `.trace.md` evidence table, for exporters that leave the run directory.
+
+    `runs/` is local and gets cleared; a workbook in somebody's Downloads and a
+    Jira issue in somebody's browser both outlive it. Carrying `evt_004` alone
+    makes the claim's provenance unresolvable the moment the artifact travels,
+    which is the one property this project has that a test-case generator does
+    not -- so the literal and the retrieval go WITH the export.
+
+    Deliberately not the step grid. SS11.2's reasoning still holds: `tc_0447` in
+    front of a tester executing a step is noise at the wrong moment. This is a
+    second surface, for the person deciding whether to BELIEVE the test rather
+    than the person running it.
+    """
+    return [row for case in ir.testCases for row in case_evidence_rows(case)]
+
+
+def case_evidence_rows(case: TestCaseIR) -> list[EvidenceRow]:
+    """`evidence_rows` for one test case. Jira builds an issue at a time."""
+    from server.pipeline.narrative import build_narrative
+
+    numbers: dict[str, tuple[int, str]] = {}
+    number = 0
+    for line in build_narrative(case.steps).body:
+        if line.is_assertion:
+            continue
+        number += 1
+        numbers[line.step.id] = (number, line.text)
+
+    rows: list[EvidenceRow] = []
+    for step in case.steps:
+        position, text = numbers.get(step.id, (0, step.text))
+        for assertion in step.assertions:
+            if not assertion.accepted:
+                continue
+            rows.append(
+                EvidenceRow(
+                    case_id=case.id,
+                    case_title=case.scenarioName or case.title,
+                    step_number=position,
+                    step_text=text,
+                    claim=assertion.text,
+                    literal=assertion.evidence.literal,
+                    tool_call_id=assertion.evidence.toolCallId,
+                    event_id=assertion.evidence.eventId,
+                    provenance=assertion.provenance.value,
+                )
+            )
+    return rows
+
+
+__all__ = [
+    "EvidenceRow",
+    "ExportResult",
+    "Exporter",
+    "case_evidence_rows",
+    "case_stem",
+    "evidence_rows",
+    "review_warnings",
+    "test_cases",
+]

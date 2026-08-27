@@ -34,22 +34,15 @@ header: true
 # Extra formats written alongside the .feature file. The feature and its
 # evidence sidecar are always produced -- the validators read them.
 #   xlsx  -> one workbook per run, a sheet per test case, plus preconditions,
-#            parameters and warnings sheets
+#            parameters, evidence and warnings sheets
 #   jira  -> one issue payload per test case, in Atlassian Document Format.
 #            Built and written to disk, never posted: sending needs a site,
 #            a project key and an API token.
-#   qase  -> one bulk-create body per run for Qase. Built and written to disk,
-#            never posted; the export prints the exact curl command.
-exports: []
-
-# Qase (https://qase.io). The one test-management tool with a free tier that
-# includes API access, so this is the integration you can actually try.
-qase:
-  # classic -> the action/expected grid the Qase UI shows a manual tester.
-  # gherkin -> the scenario as it stands, using Qase's native gherkin type.
-  steps: classic
-  project_code: ""     # the code in your Qase URL, e.g. DEMO
-  suite: ""            # defaults to "aitc-rem"
+#
+# xlsx is on by default. The larger half of SS2.2's wedge does not write
+# Gherkin, and the workbook -- with its Pass / Fail column and its Evidence
+# sheet -- is the file that half actually opens.
+exports: [xlsx]
 
 # Xray (a Jira app). There is no exporter, because your .feature file IS the
 # import format:

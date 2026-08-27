@@ -33,9 +33,10 @@ from typing import Any
 from server.config import ProjectConfig
 from server.models import IRDocument, TestCaseIR
 from server.pipeline.narrative import build_narrative
-from server.renderers.base import ExportResult, case_stem, review_warnings
+from server.renderers.base import ExportResult, case_evidence_rows, case_stem, review_warnings
 
 STEP_TABLE_HEADERS = ("#", "Step", "Expected result")
+EVIDENCE_TABLE_HEADERS = ("#", "Expected result", "Proved by this literal", "Retrieved by")
 
 
 class JiraExporter:
@@ -132,6 +133,22 @@ def _description(case: TestCaseIR) -> dict[str, Any]:
     content.append(_heading("Steps"))
     content.append(_steps_table(case))
 
+    # The issue outlives the run directory that `tc_0447` resolves in, so the
+    # literal travels with it. Its own section rather than a fourth column on
+    # the steps table: whoever executes this test should not have to read past
+    # a tool call id to find what to check.
+    evidence = _evidence_table(case)
+    if evidence is not None:
+        content.append(_heading("Evidence"))
+        content.append(
+            _paragraph(
+                "Each row resolved at generation time: the tool call was looked up in the "
+                "run's trace, its stored response re-hashed, and the literal confirmed to "
+                "occur in it. A row that did not resolve was never written."
+            )
+        )
+        content.append(evidence)
+
     if case.parameters:
         content.append(_heading("Parameters"))
         content.append(_paragraph("Supply a real value for each of these before running the test."))
@@ -178,6 +195,26 @@ def _steps_table(case: TestCaseIR) -> dict[str, Any]:
         "type": "table",
         "attrs": {"isNumberColumnEnabled": False, "layout": "default"},
         "content": rows,
+    }
+
+
+def _evidence_table(case: TestCaseIR) -> dict[str, Any] | None:
+    """One row per accepted claim, naming the retrieval that proved it."""
+    rows = case_evidence_rows(case)
+    if not rows:
+        return None
+
+    out = [_table_row(EVIDENCE_TABLE_HEADERS, header=True)]
+    for entry in rows:
+        out.append(
+            _table_row(
+                [str(entry.step_number), entry.claim, entry.literal, entry.tool_call_id]
+            )
+        )
+    return {
+        "type": "table",
+        "attrs": {"isNumberColumnEnabled": False, "layout": "default"},
+        "content": out,
     }
 
 

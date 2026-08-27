@@ -5,13 +5,19 @@ testers write test cases in Excel, Jira or Gherkin and execute them by hand, and
 they are served badly or not at all -- so a `.feature` file is the proof of the
 architecture and this is the thing a tester opens on Monday.
 
-    One sheet per test case, plus a preconditions sheet, a parameters sheet
-    and a warnings sheet.
+    One sheet per test case, plus a preconditions sheet, a parameters sheet,
+    an evidence sheet and a warnings sheet.
 
-The evidence column carries event ids rather than tool call ids. A spreadsheet
-is where somebody *runs* the test; the audit trail for whether to believe it
-lives in the trace sidecar and the review UI, and putting `tc_0447` in front of
+The step grid's evidence column carries event ids rather than tool call ids. A
+spreadsheet is where somebody *runs* the test, and putting `tc_0447` in front of
 a tester executing a step would be noise at exactly the wrong moment.
+
+The audit trail is a SECOND surface, for the person deciding whether to believe
+the test rather than the person running it -- and it is in this file rather than
+only in the sidecar and the review UI, because a workbook gets emailed and
+`runs/` is local and gets cleared. `Evidence` carries the literal and the
+retrieval that proved each accepted claim, which is what keeps SS3.2's guarantee
+attached to the artifact after it leaves this machine.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from server.config import ProjectConfig
 from server.models import IRDocument, TestCaseIR
 from server.pipeline.narrative import build_narrative
-from server.renderers.base import ExportResult, review_warnings, test_cases
+from server.renderers.base import ExportResult, evidence_rows, review_warnings, test_cases
 
 #: Excel rejects these in a sheet name, and silently truncates past 31 chars.
 FORBIDDEN = re.compile(r"[\[\]:*?/\\]")
@@ -84,6 +90,7 @@ class ExcelExporter:
 
         _write_preconditions(workbook.create_sheet("Preconditions"), ir)
         _write_parameters(workbook.create_sheet("Parameters"), ir)
+        _write_evidence(workbook.create_sheet("Evidence"), ir)
         _write_warnings(workbook.create_sheet("Warnings"), ir)
         _write_suggestions(workbook, ir)
 
@@ -119,7 +126,14 @@ def _write_case(sheet: Worksheet, case: TestCaseIR) -> None:
             # An expected result belongs beside the action that produced it,
             # not on a row of its own: a tester executing step 4 needs to see
             # what to check without scrolling to find it.
-            cell = sheet.cell(row=row - 1, column=4)
+            #
+            # Guarded because `row - 1` is the HEADER until a step has been
+            # written. `build_narrative` cannot open a body with an assertion
+            # today, and a future one that could would otherwise write a claim
+            # into the column titles instead of raising.
+            if row == 6:
+                continue
+            cell = sheet.cell(row=row - 1, column=COL_EXPECTED)
             cell.value = f"{cell.value}\n{line.text}" if cell.value else line.text
             continue
 
@@ -229,6 +243,58 @@ def _write_parameters(sheet: Worksheet, ir: IRDocument) -> None:
             row += 1
     if row == 4:
         sheet.cell(row=4, column=1, value="This test needs no parameters.").font = MUTED
+
+
+def _write_evidence(sheet: Worksheet, ir: IRDocument) -> None:
+    """Why each expected result is believable, in the file itself.
+
+    The step grid stays clean -- SS11.2 is right that `tc_0447` in front of
+    somebody executing a step is noise. But a workbook gets emailed, and the
+    `runs/` directory that `tc_0447` resolves in is local and gets cleared. A
+    reviewer opening this file next month has the literal and the retrieval that
+    produced it here, or they have nothing.
+    """
+    _header(
+        sheet,
+        row=1,
+        columns=[
+            ("Test case", 28),
+            ("#", 5),
+            ("Expected result", 44),
+            ("Proved by this literal", 30),
+            ("Retrieved by", 14),
+            ("Event", 12),
+            ("Provenance", 13),
+        ],
+    )
+
+    rows = evidence_rows(ir)
+    if not rows:
+        sheet.cell(row=2, column=1, value="No expected result was accepted in this run.").font = (
+            MUTED
+        )
+        return
+
+    for index, entry in enumerate(rows, start=2):
+        sheet.cell(row=index, column=1, value=entry.case_title)
+        sheet.cell(row=index, column=2, value=entry.step_number)
+        sheet.cell(row=index, column=3, value=entry.claim)
+        sheet.cell(row=index, column=4, value=entry.literal)
+        sheet.cell(row=index, column=5, value=entry.tool_call_id)
+        sheet.cell(row=index, column=6, value=entry.event_id)
+        sheet.cell(row=index, column=7, value=entry.provenance)
+
+    note = index + 2
+    sheet.cell(
+        row=note,
+        column=1,
+        value=(
+            "Each row resolved at generation time: the tool call was looked up in the run's "
+            "trace, its stored response re-hashed, and the literal confirmed to occur in it. "
+            "A row that did not resolve was never written."
+        ),
+    ).font = MUTED
+    sheet.freeze_panes = "A2"
 
 
 def _write_warnings(sheet: Worksheet, ir: IRDocument) -> None:

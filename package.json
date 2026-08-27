@@ -5,6 +5,8 @@
   "description": "Recorded browser session -> structured, formal test case",
   "type": "module",
   "scripts": {
+    "bootstrap": "bash scripts/setup.sh",
+    "start": "bash scripts/start.sh",
     "codegen": "bash schema/codegen.sh",
     "codegen:check": "bash schema/codegen.sh --check",
     "build": "pnpm -r build",

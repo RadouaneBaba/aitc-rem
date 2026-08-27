@@ -267,75 +267,98 @@ def test_every_registered_exporter_satisfies_the_interface(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------
-# Qase (SS11)
+# Evidence travels with the export (SS3.2, SS11)
 # --------------------------------------------------------------------------
 
 
-def test_qase_builds_the_payload_and_does_not_send_it(tmp_path: Path):
-    # Same bargain as Jira, for the same reason: a run that silently required an
-    # API token would be a run most people cannot make. The warning carries the
-    # exact command so nobody has to go and find it.
-    from server.renderers.qase import QaseExporter
-
-    result = QaseExporter().export(f.ir_document(), out_dir=tmp_path, config=ProjectConfig())
-    assert result.files and result.files[0].suffix == ".json"
-    assert any("curl -X POST" in w for w in result.warnings)
-    assert any("not sent" in w for w in result.warnings)
-
-
-def test_qase_sends_one_request_for_the_whole_run(tmp_path: Path):
-    # Qase takes an array. N separate calls would be N chances to half-import a
-    # suite and leave somebody reconciling it by hand.
-    from server.renderers.qase import QaseExporter
-
-    ir = f.ir_document(test_cases=[f.test_case("tc_1"), f.test_case("tc_2")])
-    result = QaseExporter().export(ir, out_dir=tmp_path, config=ProjectConfig())
-    assert len(result.files) == 1
-    assert len(result.payload["cases"]) == 2
-
-
-def test_an_expected_result_lands_on_the_row_that_produced_it(tmp_path: Path):
-    # The classic grid is what a manual tester reads in the Qase UI, and it is
-    # built from the same narrative as the feature file, so the two cannot
-    # drift. An expected result is not an action and does not get its own row.
-    from server.renderers.qase import build_case
-
-    case = f.test_case(
+def _bound_case():
+    return f.test_case(
         steps=[
             f.step("s1", "the tester signs in", role="setup", assertions=[]),
             f.step(
                 "s2",
                 "the tester places the order",
                 role="test_step",
-                assertions=[f.assertion("a1", "the confirmation appears")],
+                assertions=[
+                    f.assertion(
+                        "a1",
+                        "the confirmation banner appears",
+                        ev=f.evidence("Order confirmed", "tc_0447", "evt_009"),
+                    )
+                ],
             ),
         ]
     )
-    body = build_case(case, ProjectConfig())
-    assert body["steps_type"] == "classic"
-    assert [s["position"] for s in body["steps"]] == [1, 2]
-    assert body["steps"][0]["expected_result"] == ""
-    assert body["steps"][1]["expected_result"] == "the confirmation appears"
 
 
-def test_qase_gherkin_mode_sends_the_scenario_without_our_front_matter(tmp_path: Path):
-    from server.renderers.qase import build_case
+def test_the_workbook_carries_the_literal_that_proved_each_claim(tmp_path: Path):
+    # `runs/` is local and gets cleared; a workbook in somebody's Downloads
+    # outlives it. An Evidence column holding only `evt_009` makes the one
+    # property this project has -- a claim that can point at its retrieval --
+    # unresolvable the moment the file travels.
+    ir = f.ir_document(test_cases=[_bound_case()])
+    result = export(ExcelExporter(), tmp_path, ir)
 
+    evidence = cells(sheet_rows(result.files[0], "Evidence"))
+    assert "Order confirmed" in evidence
+    assert "tc_0447" in evidence
+    assert "the confirmation banner appears" in evidence
+
+
+def test_the_tool_call_id_stays_out_of_the_step_grid(tmp_path: Path):
+    # SS11.2 -- the grid is where somebody RUNS the test. `tc_0447` in front of
+    # a tester executing a step is noise at exactly the wrong moment, so the
+    # audit trail gets its own sheet rather than a fourth column.
+    ir = f.ir_document(test_cases=[_bound_case()])
+    result = export(ExcelExporter(), tmp_path, ir)
+
+    assert "tc_0447" not in cells(sheet_rows(result.files[0]))
+
+
+def test_an_unaccepted_candidate_is_not_offered_as_evidence(tmp_path: Path):
+    # A rejected candidate is in `ir.json` for the reviewer. Putting it in an
+    # export would read as a second proved claim.
+    case = f.test_case(
+        steps=[
+            f.step(
+                "s1",
+                "the tester places the order",
+                assertions=[
+                    f.assertion("a1", "the banner appears", ev=f.evidence("Order confirmed")),
+                    f.assertion(
+                        "a2",
+                        "the basket empties",
+                        ev=f.evidence("Basket (0)", "tc_0448"),
+                        accepted=False,
+                    ),
+                ],
+            )
+        ]
+    )
+    result = export(ExcelExporter(), tmp_path, f.ir_document(test_cases=[case]))
+
+    evidence = cells(sheet_rows(result.files[0], "Evidence"))
+    assert "Order confirmed" in evidence
+    assert "tc_0448" not in evidence
+
+
+def test_the_jira_issue_carries_its_own_evidence():
+    # The issue outlives the run directory too, and whoever triages it has no
+    # access to the machine that produced it.
+    issue = build_issue(_bound_case(), ProjectConfig())
+    body = json.dumps(issue["fields"]["description"])
+
+    assert "Evidence" in body
+    assert "Order confirmed" in body
+    assert "tc_0447" in body
+
+
+def test_a_case_that_proved_nothing_gets_no_evidence_table():
+    # An empty table under an Evidence heading reads as "checked, found none".
     case = f.test_case(steps=[f.step("s1", "the tester signs in", assertions=[])])
-    body = build_case(case, ProjectConfig(qase_steps="gherkin"))
-    assert body["steps_type"] == "gherkin"
-    assert "Scenario:" in body["steps"]
-    # Our header comment and tag line are ours, not Qase's.
-    assert "aitc-rem" not in body["steps"]
-    assert not body["steps"].lstrip().startswith("@")
+    body = json.dumps(build_issue(case, ProjectConfig())["fields"]["description"])
 
-
-def test_a_generated_case_is_not_reported_as_automated(tmp_path: Path):
-    # It is a manual test case until somebody automates it. Saying otherwise in
-    # the tool of record would misreport the suite's coverage.
-    from server.renderers.qase import build_case
-
-    assert build_case(f.test_case(), ProjectConfig())["automation"] == 0
+    assert "Evidence" not in body
 
 
 # --------------------------------------------------------------------------

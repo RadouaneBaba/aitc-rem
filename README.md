@@ -39,28 +39,48 @@ express. See [docs/archive/CRITIQUE.md](docs/archive/CRITIQUE.md) for the read t
 ## Setup
 
 ```bash
-pnpm install
-python -m venv .venv
-.venv/Scripts/python -m pip install -e ".[dev]"     # .venv/bin/python on macOS/Linux
+pnpm start
 ```
 
-Optional, and only needed once you want to call a real model:
+That is the whole first run. It creates the venv, installs the Python and node
+dependencies, builds the review UI and the recorder, and starts the server at
+<http://127.0.0.1:8000>. A couple of minutes once; after that `pnpm start` is
+just the server, in about a second.
 
 ```bash
-.venv/Scripts/python -m pip install -e ".[models]"
-echo "GEMINI_API_KEY=..." > .env    # aistudio.google.com/apikey
+pnpm start --demo            # also runs the fixture app on http://localhost:5173
+pnpm start --offline --port 8100    # anything else goes to `server.cli serve`
+```
+
+Only the Chrome side is manual, and only once: `chrome://extensions` ->
+Developer mode -> *Load unpacked* -> `extension/dist`.
+
+The one thing setup cannot do for you is the key. Put it in `.env` (created for
+you from `.env.example`, and gitignored):
+
+```
+GEMINI_API_KEY=...          # aistudio.google.com/apikey
 ```
 
 Everything up to and including the validation gate runs with no API key at all.
 
+To bootstrap without launching -- on CI, or to skip an extra:
+
+```bash
+pnpm run bootstrap                        # what `pnpm start` runs for you
+pnpm run bootstrap --no-models            # no google-genai; no real model calls
+pnpm run bootstrap --with-transcription   # + faster-whisper for narration audio
+```
+
+It is idempotent: run it again after a pull and it installs what changed.
+
 ## Record something
 
 ```bash
-pnpm demo                        # the fixture app on http://localhost:5173
-pnpm --filter @aitc-rem/extension build
+pnpm start --demo                # server, review UI, and the fixture app on :5173
 ```
 
-Then load `extension/dist` at `chrome://extensions` (Developer mode → *Load
+With `extension/dist` loaded at `chrome://extensions` (Developer mode → *Load
 unpacked*), open the app, click the extension, state what you are checking, and
 press **Start recording**. **Stop & export** writes `recording.json` and the
 screenshots to your Downloads folder, after showing you exactly what will leave
@@ -72,10 +92,7 @@ is the normal case.
 
 ## The zero-terminal path
 
-```bash
-pnpm --filter @aitc-rem/ui build
-.venv/Scripts/python -m server.cli serve
-```
+`pnpm start` is already this: the server and the review UI, on one port.
 
 Then record as above and press **Send to aitc-rem** on the export page. The
 pipeline runs as a background job and the draft opens at

@@ -13,13 +13,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
-  PYTHON="$ROOT/.venv/Scripts/python.exe"
-elif [ -x "$ROOT/.venv/bin/python" ]; then
-  PYTHON="$ROOT/.venv/bin/python"
-else
-  PYTHON="python"
-fi
+# shellcheck source=scripts/_python.sh
+source "$ROOT/scripts/_python.sh"
+PYTHON="$(venv_python_or_system)"
 
 failures=()
 

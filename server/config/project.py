@@ -33,7 +33,6 @@ KNOWN_VOICES = ("the tester", "the user", "I", "the admin")
 
 TRACE_MODES = ("sidecar", "none")
 PARAMETER_MODES = ("inline", "outline")
-QASE_STEP_MODES = ("classic", "gherkin")
 
 #: What to do when a recording touches an origin that is not on the allowlist
 #: (SS7.3). The allowlist exists because FREE-TIER prompts are training-eligible
@@ -96,13 +95,6 @@ class ProjectConfig:
     #: suite rather than the person who can fix it.
     jira_bug_issue_type: str = "Bug"
     jira_project_key: str = ""
-
-    #: SS11 -- Qase. `classic` is the action/expected grid the Qase UI shows a
-    #: manual tester; `gherkin` sends the scenario as it stands. Classic by
-    #: default because the point of an export is to meet a team where they are.
-    qase_steps: str = "classic"
-    qase_project_code: str = ""
-    qase_suite: str = ""
 
     #: SS11 -- Xray. Its feature-file import takes the `.feature` this project
     #: already produces, so there is no exporter to write; what it needs is the
@@ -183,15 +175,6 @@ def load_project_config(path: Path | None = None) -> ProjectConfig:
         fields["exports"] = tuple(str(e).strip().lower() for e in data["exports"] if str(e).strip())
     if data.get("origin_policy") in ORIGIN_POLICIES:
         fields["origin_policy"] = data["origin_policy"]
-
-    qase = data.get("qase")
-    if isinstance(qase, dict):
-        if qase.get("steps") in QASE_STEP_MODES:
-            fields["qase_steps"] = qase["steps"]
-        if isinstance(qase.get("project_code"), str):
-            fields["qase_project_code"] = qase["project_code"].strip()
-        if isinstance(qase.get("suite"), str):
-            fields["qase_suite"] = qase["suite"].strip()
 
     xray = data.get("xray")
     if isinstance(xray, dict) and isinstance(xray.get("test_key"), str):

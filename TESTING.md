@@ -15,12 +15,12 @@ about what to do when you find something anyway.
 ## 0. Once, before you start
 
 ```bash
-pnpm install
-pnpm --filter @aitc-rem/extension build
+pnpm run bootstrap
 ```
 
-The build writes `extension/dist/`. Rebuild after any change to
-`extension/src/`.
+Installs everything and writes `extension/dist/`, which is what Chrome loads.
+After a change to `extension/src/`, rebuild just that:
+`pnpm --filter @aitc-rem/extension build`.
 
 Check the key is in place (it is read from `.env`, never committed):
 

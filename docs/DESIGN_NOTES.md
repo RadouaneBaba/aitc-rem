@@ -38,7 +38,7 @@ server/
                  investigate.py = the shared decide-retrieve-observe loop
                  transcribe.py = narration audio -> text, before any of it
   renderers/     gherkin.py + trace_md.py (sidecar) + bug_md.py are always
-                 written; xlsx/jira/qase opt in behind base.py's Exporter seam
+                 written; xlsx/jira opt in behind base.py's Exporter seam
   ablation/      A0/A1/A2 and the metrics table
   llm/           ModelClient seam: gemini, cassette, chain, scripted
   library/       SS12's approved phrasing, on rapidfuzz + one SQLite file

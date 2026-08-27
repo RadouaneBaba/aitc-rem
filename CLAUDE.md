@@ -20,8 +20,11 @@ yourself making that easier to satisfy, stop: it is the product.
 ## Commands
 
 ```bash
+pnpm start                     # venv + deps + both builds if needed, then server
+                               # + review UI on :8000. The whole first run.
+pnpm start --demo              # the same, plus the fixture app on :5173
+pnpm run bootstrap             # setup without launching (scripts/setup.sh; CI)
 bash scripts/check.sh          # drift + ruff + pytest + vitest + ui types. Run before finishing.
-.venv/Scripts/python -m server.cli serve   # local server + review UI on :8000
 pnpm e2e                       # Playwright drives the real extension (headed, ~20s)
 pnpm demo                      # fixture app on :5173
 pnpm codegen                   # regenerate from schema/ after editing a .schema.json
@@ -36,14 +39,16 @@ pnpm codegen                   # regenerate from schema/ after editing a .schema
 # supplied from anywhere, which is how an imported recording reaches `narrated`.
 .venv/Scripts/python -m server.cli transcribe <recording.json> --in-place
 .venv/Scripts/python -m server.cli run <recording.json> --narration notes.vtt --narration-offset 0
-pip install -e ".[transcription]"          # faster-whisper; the run says so if it is absent
+pnpm run bootstrap --with-transcription    # faster-whisper; the run says so if it is absent
 powershell -File scripts/make_narration_wav.ps1   # the committed fixture audio, once
 
 # Replay needs the demo app running (`pnpm demo`) and the test's parameters:
 .venv/Scripts/python -m server.cli ablate tests/fixtures/*.recording.json --replay     --replay-param user_email_1=tester@example.com --replay-param password=hunter2
 ```
 
-Windows paths: the venv binary is `.venv/Scripts/python.exe`. Bash and
+Windows paths: the venv binary is `.venv/Scripts/python.exe`. Never resolve it
+by hand in a script -- `scripts/_python.sh` is the one implementation, sourced by
+`check.sh`, `setup.sh` and `start.sh`. Bash and
 PowerShell are both available; Bash heredocs mangle backslash escapes in this
 environment, so use the Write/Edit tools for files containing regexes.
 
@@ -150,14 +155,15 @@ server/
                  investigate.py = the shared decide-retrieve-observe loop
                  transcribe.py = narration audio -> text, before any of it
   renderers/     gherkin.py + trace_md.py (sidecar) + bug_md.py are always
-                 written; xlsx/jira/qase opt in behind base.py's Exporter seam
+                 written; xlsx/jira opt in behind base.py's Exporter seam
   ablation/      A0/A1/A2 and the metrics table
   llm/           ModelClient seam: gemini, cassette, chain, scripted
   library/       SS12's approved phrasing, on rapidfuzz + one SQLite file
   runners/       does the generated test case actually run? base.py + playwright.py
   importers/     devtools.py = a Chrome Recorder export; transcript.py = a
                  WebVTT/SRT/JSON transcript as narration
-scripts/         check.sh, prove_grounding.py, effort_difficulty.py, replay.mjs,
+scripts/         setup.sh + start.sh (one command each, _python.sh shared),
+                 check.sh, prove_grounding.py, effort_difficulty.py, replay.mjs,
                  snapshot_features.py (before/after), compare_features.py (A0/A1/A2)
 docs/            RECORDING.md (for the tester, no terminal), DESIGN_NOTES.md
                  (why every rule exists), archive/
