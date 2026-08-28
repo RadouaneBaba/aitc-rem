@@ -24,7 +24,7 @@ PY_REL="server/models/generated"
 TS_REL="extension/src/types"
 ZOD_REL="extension/src/schemas"
 
-SCHEMAS=(common recording ir trace segments review)
+SCHEMAS=(common recording ir trace segments review expectations)
 
 CHECK=0
 if [ "${1:-}" = "--check" ]; then CHECK=1; fi

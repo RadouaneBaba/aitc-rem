@@ -43,3 +43,8 @@ Thumbs.db
 test-results/
 playwright-report/
 .playwright-profile/
+
+# Saved Playwright sessions for replay (scripts/login_once.mjs). A live
+# session -- same treatment as .env, and never committed.
+.auth/
+*.storage-state.json

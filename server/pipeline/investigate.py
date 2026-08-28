@@ -109,13 +109,19 @@ def investigate(
     temperature: float = 0.0,
     step_id: str | None = None,
     segment_id: str | None = None,
+    tool_names: list[str] | None = None,
 ) -> Investigation:
-    """Run one investigation to an answer, retrieving as the model asks."""
+    """Run one investigation to an answer, retrieving as the model asks.
+
+    `tool_names` narrows what this stage may reach for. More tools measurably
+    means worse tool choice, and a stage that needs six should not be handed
+    twelve and trusted to ignore the rest.
+    """
     messages = [
         Message(role="system", content=system_prompt),
         Message(role="user", content=user_prompt),
     ]
-    tools = runner.tool_definitions() if tools_enabled else []
+    tools = runner.tool_definitions(tool_names) if tools_enabled else []
     out = Investigation()
 
     turn = 0
@@ -225,6 +231,11 @@ def investigate(
                     name=invocation.name,
                     tool_call_id=call_id,
                     content=canonical_json({"toolCallId": call_id, "result": tool_response}),
+                    # A tool that answers with a picture attaches it here. What
+                    # was hashed and stored is still the text description, so a
+                    # citation resolves to exactly one image; the bytes are for
+                    # the model's eyes and go no further.
+                    images=[image] if (image := runner.image_for(tool_response)) else [],
                 )
             )
 

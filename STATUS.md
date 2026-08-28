@@ -6,7 +6,20 @@ this is the list of things that are wrong right now and the things not yet
 built. It replaces `PLAN.md`, whose milestones are all closed and whose build
 order stopped at Phase 3.
 
-Last updated 2026-08-26.
+Last updated 2026-08-26. **Superseded on 2026-08-28 by
+[docs/REBUILD_PLAN.md](docs/REBUILD_PLAN.md).**
+
+> An architecture review found the cause underneath most of what is listed
+> below: **the recorder never captures the page**, only the landmark around the
+> clicked element. Every empty diff, every "grounded and vacuous" claim, and
+> every scenario that ships without a verdict traces back to it. The evidence is
+> in [docs/REBUILD_FINDINGS.md](docs/REBUILD_FINDINGS.md); the replacement
+> architecture is in [docs/REBUILD_PLAN.md](docs/REBUILD_PLAN.md).
+>
+> **Read the defects below as symptoms, not as a work list.** Several were fixed
+> correctly and were still fighting downstream of the real cause; several of the
+> stages they fix are being deleted. This file stays because the reasoning in it
+> is the record of how the cause was finally found.
 
 **Every defect listed here was found by reading the code against real runs, and
 every one carries the evidence that proves it.** That matters more than the
@@ -17,6 +30,266 @@ without one is an opinion. Where a claim here is not yet measured, it says so.
 itself, the same recordings before and after. `runs/` is gitignored and is
 cleared between milestones, so that file is the only durable record of what the
 pipeline produced.
+
+---
+
+## Part 0 · Rebuild progress
+
+### Stage 0 — capture — **done, 2026-08-28**
+
+The recorder captures the page. What was actually built, and what it cost:
+
+| | |
+|---|---|
+| full-page capture, one root for `before` and `after` | `content/snapshot.ts` |
+| `MAX_NODES` 400 → 3000, `nodeCount` on every snapshot | ditto, and the schema |
+| root node pinned (it was hoisted when `body` had one child) | ditto |
+| page content no longer pattern-scanned; exact known secrets are | `redaction/redact.ts` |
+| parameters that point at nothing are dropped | `export/export.ts` |
+| the last action survives an immediate Stop | `content/index.ts`, `serviceWorker.ts`, `export.ts` |
+| `get_diff` ranks and counts; `get_full_snapshot` deleted | `evidence/tools.py`, `store.py` |
+| `scripts/capture_cost.py` | the gate, re-runnable |
+
+**The proof is a run, not an assertion.** `fixtures/demo-app/src/pages/Storefront.tsx`
+reproduces the defect exactly: a filter checkbox inside its own `region`, and a
+results count outside it. Under the old capture that click produced an empty
+diff. The pipeline on `tests/fixtures/keyhole.recording.json` now produces:
+
+```gherkin
+When the tester applies the "In stock" filter to the product list
+Then the product list updates to display 9 items
+
+When the tester filters the list by the brand "Kestrel"
+Then the list of products updates to show 3 items from the brand Kestrel
+```
+
+resting on `"Showing 9 of 24 products"` and `"Showing 3 of 24 products"` —
+literals that **did not exist anywhere in the recording** before. Break the
+filter and both fail, which is `evals/RUBRIC.md`'s first check.
+
+**Cost, measured rather than inferred:** 5.5–10.7 KB per event across the
+regenerated corpus, nothing truncated. The old *scoped* capture was 37–56 KB per
+event because it was hitting its cap. A commercial page is still unmeasured.
+
+### What Stage 0 turned up that was not in the plan
+
+**`mutation_claimed` now fails on correct output.** Both keyhole assertions are
+grounded, discriminating and would fail on a broken build, and the validator
+rejects them because no mutating request is attributed — the filter is
+client-side. It assumes a state change arrives over the network. This is
+corroboration for the plan's cut of 10 of 14 validators, not a new decision, and
+it is deliberately **not** being weakened in the meantime.
+
+**The e2e suite was green on a path that had never run.** `annotate()` in
+`tests/e2e/record.spec.ts` answered a `window.prompt` that the popup stopped
+using when the intent note got its own textarea, so `intent_note` was never
+saved and the assertion below it passed on an empty list. `pnpm e2e` is not part
+of `scripts/check.sh`, which is how it stayed hidden. Same shape as the
+`scenario_break` factory trap already in CLAUDE.md.
+
+**A checkbox or radio is already toggled in its own `before` snapshot.** The
+HTML spec's pre-click activation steps set checkedness *before* the click event
+is dispatched, so a capture-phase listener can never see the pre-state. Three
+`hardpaths` events record no observed change and this is one of them — verified
+pre-existing, not a Stage 0 regression (the other two are the closed shadow root
+and the canvas, both documented as uninspectable). Deliberately **not** fixed:
+the control's own checkedness is the tester's INPUT, which `bind._own_input`
+refuses as evidence of an outcome anyway. The outcome is what the toggle caused
+elsewhere on the page, and that is what full capture now records.
+
+**`setSession` has a lost-update race.** `ingest` reads the session, awaits
+`framePathFor`, `putEvent` and a screenshot, then writes the whole stale object
+back — so anything added meanwhile (an annotation, a parameter) can be silently
+dropped. Seen as `eventCount` reporting 3 while four events existed. Not yet
+fixed; it wants one serialised read-modify-write for every session mutation.
+
+### Stage 1 — the oracle — **done, 2026-08-28**
+
+The pipeline can now say what SHOULD have happened, which is the thing neither
+of its two inputs contained.
+
+| | |
+|---|---|
+| `expectations.json` beside the recording | `schema/expectations.schema.json` |
+| one model call, no retrieval, over the digest | `pipeline/expectations.py` |
+| `GET`/`POST /api/recordings/{id}/expectations` | `api/app.py` |
+| the confirmation screen — `Right` / `Not right` / `Edit` over the screenshot | `ui/src/components/Confirm.tsx` |
+| the export page links straight to it | `extension/src/export/export.ts` |
+
+**Two jobs, not a paused one.** `POST /api/recordings` guesses, runs, and
+produces a draft on the guesses alone; answering the screen enqueues a *second*
+run. The skip path is the tested one, because it is what happens when nobody
+clicks. A guess nobody looks at stays `inferred`.
+
+**Layer 1 was already built** — `popup/objective.ts` has coached the objective
+live since before the rebuild, with a measured four-of-four-vague ablation in its
+own docstring. The plan listed it as work.
+
+Measured on `checkout`: three expectations, each checkable, each with what was
+observed beside it.
+
+### Stage 2 — one author — **done, 2026-08-28**
+
+`author.py` replaced `draft.py` + `bind.py` + `split.py` + `_second_chance` +
+`bugmode.py`, and the critic, the repair loop and the step library went with
+them. 1855 lines of `run.py` became 1124; six tools instead of twelve; five
+validators instead of fourteen.
+
+**What is new rather than merely smaller:**
+
+* **Refusal is written, not done.** `Step.whyNot` says *why* a step has no
+  verdict, in language a tester can act on. Verified live: the author claimed
+  *"the count drops from 9 to 3"* — true — and it was refused with
+  *"nothing this run retrieved contains 'Showing 3 of 24 products'"*.
+* **`see(eventId)`.** Screenshots reach the model. Needed image parts on
+  `Message`, an image path in the Gemini adapter (a function response cannot
+  carry bytes, so the picture follows as its own turn) and a cassette key that
+  hashes by digest. **The screenshot decides; the text still cites.**
+* **`Scenario Outline` the author asked for.** `TestCaseIR.examples`, distinct
+  from the `parameters: outline` rendering setting.
+* **A bug report is a failed expectation.** A rejected expectation is stamped
+  onto its step deterministically, the way an intent note is.
+* **The ablation arms mean something again.** A0 no retrieval no oracle, A1
+  retrieval, A2 retrieval and oracle — so A1 vs A2 measures what *asking* is
+  worth, which this project has never been able to measure.
+
+**Effort attribution had to change or it would have died silently.** With one
+investigation, `StepInvestigation.stepId` puts every retrieval in one bucket and
+SS3.4's x-axis becomes a constant. `_calls_per_step` now attributes by the
+**event a call asked about**, which works because every tool takes an `eventId`
+and `event_coverage` guarantees every event belongs to one step. Live on
+`checkout`: `{step_001: 0, step_002: 2, step_003: 1, step_004: 0, step_005: 1}` —
+SS3.3's signature, from a real run.
+
+**One live-run finding worth keeping.** The first author run refused a true
+claim because it quoted a literal from the session INDEX rather than from a
+retrieval. The index is context, not evidence. The prompt now says so in as many
+words, and the second run produced both verdicts. That rule is the single
+highest-leverage line in the prompt.
+
+**Cost:** `checkout` runs in 67s with 4 tool calls; `keyhole` in 15s with 3.
+Against 189s and 7 for the old pipeline on `keyhole`.
+
+### Stages 3–6a — execute, judge, revise — **done, 2026-08-28**
+
+**Stage 3 was five validators and a missing sentence.** *"Failures go straight
+back to the author"* was never implemented: `ValidatorAction.reject` was emitted
+at eight sites and acted on nowhere. It is one trigger with the judge's now.
+
+**Stage 6a ran, for the first time.** `server/runners/playwright.py` and
+`scripts/replay.mjs` were complete, wired to `ablate --replay`, and had never
+executed — every `executionRate` in the repo was `0.0` and read as a
+measurement. All eight local fixtures are `click` + `input` at
+`localhost:5173`, exactly what the runner drives, so the first number was one
+command away.
+
+**It immediately found a defect all five validators passed**, which is the
+argument for the whole stage:
+
+> `evt_007` (enter an order total) and `evt_008` (press Place order) are **2 ms
+> apart** with a 317 ms quiet window. Nothing bounded a settle window by the
+> next action — `inFlightFor` bounds request *attribution*, not this — so
+> evt_007's `after` snapshot contained the rejection evt_008 caused. The author
+> cited a literal that really was in evt_007's stored snapshot;
+> `evidence_retrieved` and `contains_at` both passed; the assertion was false
+> about the moment it named.
+
+`capture()` now cancels open settles with `superseded` as its first synchronous
+act. On the regenerated fixture evt_007 ends at 1 ms and the literal first
+appears at evt_008, where it belongs — and the pipeline moves the verdict to the
+step that earns it.
+
+| | |
+|---|---|
+| settle bounded by the next action | `content/index.ts`, `settle.ts`, the schema |
+| `ReplayResult.passed` false on zero steps — the **seventh** vacuity column | `runners/base.py` |
+| unsupported events stop the step instead of vanishing | `runners/playwright.py`, `replay.mjs` |
+| `keypress` (the branch tested `keydown`, which is not an `EventType`) | ditto |
+| preconditions replay first, or a `Background` scenario fails falsely | ditto |
+| `network`/`console` dropped from `CHECKABLE` — the driver never observed them | ditto |
+| `run --replay`, `--base-url`, replay failures recorded not swallowed | `cli.py`, `ablation/` |
+| the driver exercised at all, including a negative case | `tests/test_replay_live.py` |
+
+Measured: `checkout` replays **2 of 2 scenarios green, 2/2 assertions held**,
+mean selector rank 0.0 — on the role+name path, since the demo app has no
+`data-testid`.
+
+**Stages 4 and 5 — the judge, and one revision.** `pipeline/judge.py` on
+`investigate()`, four read-only tools, fresh context. Live on `checkout` it
+raised a finding no validator can express:
+
+> *the verdict asserts the presence of an alert, but the test does not verify
+> that the order was actually blocked* — fix: assert the URL is still
+> `/checkout`, or that `Order confirmed` is absent.
+
+Bounded at two author rounds; only `fail` buys one; a revision that would let
+`merge_repeats` swallow a step is refused whole. `Converged` and
+`criticFindings*` are replaced by `judgeFindings` / `judgeFails` /
+`revisionRounds` — counts, never a rate, for the reason the sixth column taught.
+
+**And a latent bug the worked example had been inviting since Stage 2.**
+`Step.eventIds` was `minItems: 1` while `author.py`'s example showed a
+verdict-only step with `"events": []`. The prompt taught a shape the schema
+rejected, and it surfaced only when a real model took the example at its word —
+as a Pydantic error during assembly. The example was right; the constraint is
+gone.
+
+### Stage 2b — multi-tab — **done, 2026-08-28**
+
+Smaller than it looked, exactly as the plan said. The content script was already
+in every tab, the worker already read `sender.tab.id`, and the expensive problem
+— ordering events from separate documents on one clock — was solved when
+`performance.now()` was converted through `timeOrigin`. What was missing was a
+set instead of a number.
+
+`session.tabIds`, `chrome.tabs.onCreated` following `openerTabId`, `event.tabId`
+finally kept, and a line in the digest — without which the author writes *"the
+tester continued"* when a payment window opened. The `twotabs` fixture records
+across two tabs and the pipeline produces *"the tester opens the receipt in a
+new tab"* with an assertion on a total that appears nowhere else in the app.
+
+`openerTabId` is the whole test: a tab the flow opens for you is part of the
+session; a tab you open to check your email is not.
+
+### Stage 8 — the tester-facing finish — **done, 2026-08-28**
+
+**`whyNot` reached nothing.** The most valuable thing the author writes — *"the
+product list was never captured before or after this click"* — was in the IR,
+the sidecar and `trace.json`, and the review UI printed a generic *"nothing to
+check here"* over it. Fixed, and it now also drives the run list's
+needs-attention count, which was still keyed on the deleted critic.
+
+**The review screen opens on the test case, not on the pipeline.** The evidence
+pane defaulted to the retrieval chain — tool calls, budgets, investigation
+records. That serves whoever is auditing the tool; the tester is there to read
+what came out of their own session, which is also what the tool is judged on.
+
+**[docs/HOWTO.md](docs/HOWTO.md)**, written from what actually runs rather than
+from SPEC.md, and `RECORDING.md` gained the confirmation screen it never
+documented.
+
+### What is left
+
+Deferred deliberately, and none of it is a surface a tester touches:
+
+* **The live-browser agent** (REBUILD_PLAN stages 6b and 7). Whether it is a
+  real MCP client or live-page tools on the existing `ToolRunner` seam is a
+  decision to make then, not now. One thing to carry into it: an MCP client's
+  tool calls bypass `ToolRunner`, so they never land in `trace.toolCalls` —
+  which is the substrate `evidence_retrieved` resolves against.
+* **The eval instrument.** `eval_packet.py` needs `author.json`'s `refused` and
+  per-step `whyNot`, and an expectations section — the oracle is the biggest
+  thing the rebuild added and is invisible to the judge. Its metric rows and its
+  critic and splitter blocks are already fixed. `evals/RUBRIC.md`'s five checks
+  are sound; its *layer* table still names `bind`, `split` and `_second_chance`.
+* **The post-rebuild `LEDGER.md` row.** The only number that answers *did this
+  help*, and it needs the packet first.
+* **Deeper runner tests.** `tests/test_replay_live.py` exercises the driver end
+  to end including a negative case; the rest of `replay.mjs` is still uncovered.
+
+Read [docs/REBUILD_FINDINGS.md](docs/REBUILD_FINDINGS.md) §11b before trusting a
+number from the plan — four of its claims were re-measured while Stage 0 was
+built and three were measuring something else.
 
 ---
 

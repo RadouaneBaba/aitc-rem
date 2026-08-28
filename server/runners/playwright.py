@@ -32,10 +32,18 @@ from server.storage.paths import REPO_ROOT
 
 DRIVER = REPO_ROOT / "scripts" / "replay.mjs"
 
-#: How each kind of evidence is re-checked in a live browser. `narration` is
-#: absent deliberately: it is a thing the tester said, and no browser can
-#: confirm it. Reported as `not_checkable` rather than quietly passed.
-CHECKABLE = {"semantic_node", "a11y_node", "url", "network", "console"}
+#: How each kind of evidence is re-checked in a live browser. `narration` and
+#: `annotation` are absent deliberately: they are things the tester said or
+#: marked, and no browser can confirm them. Reported as `not_checkable` rather
+#: than quietly passed.
+#:
+#: `network` and `console` are absent for a different reason and it is worth
+#: stating, because they were in this set for a year without effect: the driver
+#: attaches no listeners, so `replay.mjs` answers `not_checkable` for both
+#: whatever this set says. Two sides disagreeing about what is checkable is how
+#: a gap stays invisible -- the Python half looked like it re-checked network
+#: evidence and never did. Re-adding either means teaching the driver first.
+CHECKABLE = {"semantic_node", "a11y_node", "url"}
 
 PLACEHOLDER_PREFIX = "<<"
 
@@ -53,13 +61,20 @@ class PlaywrightRunner:
         out_dir: Path,
         base_url: str,
         parameters: dict[str, str] | None = None,
+        storage_state: Path | None = None,
     ) -> list[ReplayResult]:
         out_dir.mkdir(parents=True, exist_ok=True)
         parameters = parameters or {}
         results: list[ReplayResult] = []
 
         for case in ir.testCases:
-            job, missing = build_job(case, recording, base_url=base_url, parameters=parameters)
+            job, missing = build_job(
+                case,
+                recording,
+                base_url=base_url,
+                parameters=parameters,
+                storage_state=storage_state,
+            )
             job_path = out_dir / f"{case.id}.replay-job.json"
             job_path.write_text(json.dumps(job, indent=2), encoding="utf-8")
 
@@ -130,33 +145,63 @@ class PlaywrightRunner:
 
 
 def build_job(
-    case: Any, recording: Recording, *, base_url: str, parameters: dict[str, str]
+    case: Any,
+    recording: Recording,
+    *,
+    base_url: str,
+    parameters: dict[str, str],
+    storage_state: Path | None = None,
 ) -> tuple[dict[str, Any], set[str]]:
     """Turn one finished test case into instructions a browser can follow.
 
     Driven by `eventIds` rather than by step text. The prose is for a human and
     is free to say "submits the order with manager approval"; what runs is the
     three recorded actions underneath it, each with its ranked selectors.
+
+    **Preconditions run first, and leaving them out produced a false FAILURE.**
+    A document with more than one scenario lifts the shared opening into a
+    `Background`, so the second case's own `steps` begin partway through the
+    flow -- and a replay starting from `startUrl` clicked a control on a page it
+    had never navigated to. That is the vacuity trap in its mirror image: a
+    green replay of a test case with no actions inflates `executionRate`, and a
+    red replay of a test case the runner never set up deflates it. Both make the
+    column measure the harness rather than the test.
+
+    They are replayed without assertions. A precondition's own text is a
+    statement about state, not a verdict the scenario reached, and re-checking
+    one would count the same claim twice across two scenarios.
     """
     by_id = {e.id: e for e in recording.events}
     missing: set[str] = set()
     steps: list[dict[str, Any]] = []
 
-    for step in case.steps:
-        actions: list[dict[str, Any]] = []
-        for event_id in step.eventIds:
+    def actions_for(event_ids: list[str]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for event_id in event_ids:
             event = by_id.get(event_id)
             if event is None:
                 continue
             action = _action(event, parameters, missing)
             if action is not None:
-                actions.append(action)
+                out.append(action)
+        return out
 
+    for precondition in getattr(case, "preconditions", None) or []:
+        steps.append(
+            {
+                "id": precondition.id,
+                "text": precondition.text,
+                "actions": actions_for(list(precondition.eventIds or [])),
+                "assertions": [],
+            }
+        )
+
+    for step in case.steps:
         steps.append(
             {
                 "id": step.id,
                 "text": step.text,
-                "actions": actions,
+                "actions": actions_for(list(step.eventIds)),
                 "assertions": [
                     {
                         "id": a.id,
@@ -170,16 +215,21 @@ def build_job(
             }
         )
 
-    return (
-        {
-            "caseId": case.id,
-            "name": getattr(case, "scenarioName", None) or case.title,
-            "baseUrl": base_url,
-            "startUrl": recording.metadata.startUrl,
-            "steps": steps,
-        },
-        missing,
-    )
+    job: dict[str, Any] = {
+        "caseId": case.id,
+        "name": getattr(case, "scenarioName", None) or case.title,
+        "baseUrl": base_url,
+        "startUrl": recording.metadata.startUrl,
+        "steps": steps,
+    }
+    # Only when the file is really there. A path the driver cannot read makes
+    # the context fail to build, and a replay that refuses to start because a
+    # saved session expired is worse than one that signs in the slow way -- the
+    # recorded login flow is still in the steps.
+    if storage_state and storage_state.is_file():
+        job["storageState"] = str(storage_state)
+
+    return job, missing
 
 
 def _action(event: Any, parameters: dict[str, str], missing: set[str]) -> dict[str, Any] | None:
@@ -194,11 +244,27 @@ def _action(event: Any, parameters: dict[str, str], missing: set[str]) -> dict[s
         return {"type": "fill", "selectors": selectors, "value": value}
     if kind in {"click", "submit"}:
         return {"type": "click", "selectors": selectors}
-    if kind == "keydown":
-        return {"type": "press", "selectors": selectors, "key": getattr(event, "key", "Enter")}
-    # navigate, scroll and the rest are outcomes of the actions above rather
-    # than things to re-do; replaying them would fight the application.
-    return None
+    if kind == "keypress":
+        # Was `keydown`, which is not a member of `EventType` -- so this branch
+        # had never executed once, and the fallback below silently dropped every
+        # keyboard action. It also read `event.key`; the field is `keys`, and it
+        # carries the whole chord ("Control+Enter"), which is what `press` wants.
+        return {"type": "press", "selectors": selectors, "key": getattr(event, "keys", "Enter")}
+    if kind == "select":
+        return {"type": "select", "selectors": selectors, "value": event.target.value or ""}
+
+    # `navigate` is an outcome of the actions above rather than a thing to
+    # re-do; replaying it would fight the application.
+    if kind == "navigate":
+        return None
+
+    # Everything else -- a file chooser, a dialog, a tab opening -- cannot be
+    # driven from a recorded selector. Say so on the step rather than returning
+    # None: a step whose every event dropped out has no actions, and a step with
+    # no actions used to be reported GREEN. An unsupported action is a fact
+    # about the runner, and a runner that hides its own gaps inflates the one
+    # number nobody can argue with.
+    return {"type": "unsupported", "selectors": selectors, "detail": kind}
 
 
 def _selectors(event: Any) -> list[dict[str, str]]:

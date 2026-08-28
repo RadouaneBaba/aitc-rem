@@ -1,0 +1,2543 @@
+{
+  "schemaVersion": "1.0",
+  "id": "rec_MTD2DKE2FK9J",
+  "projectId": "local",
+  "ownerId": "local",
+  "createdAt": "2026-08-28T14:45:50.330Z",
+  "objective": "Check that filtering to in-stock items cuts the list from 24 products to 9",
+  "metadata": {
+    "capturedAt": "2026-08-28T14:45:50.330Z",
+    "durationMs": 607,
+    "browser": "Chrome/151.0.0.0",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+    "viewport": {
+      "w": 1280,
+      "h": 720
+    },
+    "startUrl": "http://localhost:5173/storefront",
+    "origins": [
+      "http://localhost:5173"
+    ],
+    "recorderVersion": "0.1.0",
+    "audioOffsetMs": 44
+  },
+  "events": [
+    {
+      "id": "evt_001",
+      "seq": 0,
+      "timestamp": 111,
+      "type": "click",
+      "url": "http://localhost:5173/storefront",
+      "target": {
+        "role": "checkbox",
+        "name": "In stock",
+        "tagName": "input",
+        "selectors": {
+          "css": "section.card.filter-group:nth-of-type(1) > label.check:nth-of-type(1) > input",
+          "role": "getByRole('checkbox', { name: \"In stock\" })",
+          "text": "In stock"
+        },
+        "frame": []
+      },
+      "before": {
+        "capturedAt": 111,
+        "url": "http://localhost:5173/storefront",
+        "title": "Northwind Orders",
+        "scope": "full",
+        "root": {
+          "ref": "0",
+          "role": "generic",
+          "name": "",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "heading",
+                      "name": "Store"
+                    },
+                    {
+                      "ref": "0.0.1.1",
+                      "role": "group",
+                      "name": "",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.0.0",
+                              "role": "region",
+                              "name": "Stock status",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.0.0",
+                                  "role": "heading",
+                                  "name": "Stock status"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.1",
+                                  "role": "checkbox",
+                                  "name": "In stock",
+                                  "state": [
+                                    "checked"
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.2",
+                                  "role": "checkbox",
+                                  "name": "All products",
+                                  "state": [
+                                    "checked"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.1.0.1",
+                              "role": "region",
+                              "name": "Brand",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.1.0",
+                                  "role": "heading",
+                                  "name": "Brand"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.1",
+                                  "role": "checkbox",
+                                  "name": "Kestrel"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.2",
+                                  "role": "checkbox",
+                                  "name": "Meridian"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.3",
+                                  "role": "checkbox",
+                                  "name": "Halcyon"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "region",
+                          "name": "",
+                          "landmark": "region",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.1.0",
+                              "role": "text",
+                              "name": "Showing 24 of 24 products"
+                            },
+                            {
+                              "ref": "0.0.1.1.1.1",
+                              "role": "list",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.1.1.0",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Tower 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.1",
+                                      "role": "text",
+                                      "name": "SG-001"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.2",
+                                      "role": "text",
+                                      "name": "4990 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.1",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.0",
+                                      "role": "heading",
+                                      "name": "Meridian Console 2021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.1",
+                                      "role": "text",
+                                      "name": "SG-002"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.2",
+                                      "role": "text",
+                                      "name": "5305 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.2",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Deck 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.1",
+                                      "role": "text",
+                                      "name": "SG-003"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.2",
+                                      "role": "text",
+                                      "name": "5620 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.3",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Station 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.1",
+                                      "role": "text",
+                                      "name": "SG-004"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.2",
+                                      "role": "text",
+                                      "name": "5935 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.4",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.0",
+                                      "role": "heading",
+                                      "name": "Meridian Tower 2024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.1",
+                                      "role": "text",
+                                      "name": "SG-005"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.2",
+                                      "role": "text",
+                                      "name": "6250 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.5",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Console 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.1",
+                                      "role": "text",
+                                      "name": "SG-006"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.2",
+                                      "role": "text",
+                                      "name": "6565 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.6",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Deck 2021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.1",
+                                      "role": "text",
+                                      "name": "SG-007"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.2",
+                                      "role": "text",
+                                      "name": "6880 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.7",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.0",
+                                      "role": "heading",
+                                      "name": "Meridian Station 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.1",
+                                      "role": "text",
+                                      "name": "SG-008"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.2",
+                                      "role": "text",
+                                      "name": "7195 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.8",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Tower 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.1",
+                                      "role": "text",
+                                      "name": "SG-009"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.2",
+                                      "role": "text",
+                                      "name": "7510 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.9",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.9.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Console 2024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.9.1",
+                                      "role": "text",
+                                      "name": "SG-010"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.9.2",
+                                      "role": "text",
+                                      "name": "7825 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.9.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.10",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.10.0",
+                                      "role": "heading",
+                                      "name": "Meridian Deck 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.10.1",
+                                      "role": "text",
+                                      "name": "SG-011"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.10.2",
+                                      "role": "text",
+                                      "name": "8140 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.10.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.11",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.11.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Station 2021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.11.1",
+                                      "role": "text",
+                                      "name": "SG-012"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.11.2",
+                                      "role": "text",
+                                      "name": "8455 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.11.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.12",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.12.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Tower 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.12.1",
+                                      "role": "text",
+                                      "name": "SG-013"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.12.2",
+                                      "role": "text",
+                                      "name": "8770 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.12.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.13",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.13.0",
+                                      "role": "heading",
+                                      "name": "Meridian Console 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.13.1",
+                                      "role": "text",
+                                      "name": "SG-014"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.13.2",
+                                      "role": "text",
+                                      "name": "9085 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.13.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.14",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.14.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Deck 2024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.14.1",
+                                      "role": "text",
+                                      "name": "SG-015"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.14.2",
+                                      "role": "text",
+                                      "name": "9400 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.14.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.15",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.15.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Station 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.15.1",
+                                      "role": "text",
+                                      "name": "SG-016"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.15.2",
+                                      "role": "text",
+                                      "name": "9715 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.15.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.16",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.16.0",
+                                      "role": "heading",
+                                      "name": "Meridian Tower 2021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.16.1",
+                                      "role": "text",
+                                      "name": "SG-017"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.16.2",
+                                      "role": "text",
+                                      "name": "10030 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.16.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.17",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.17.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Console 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.17.1",
+                                      "role": "text",
+                                      "name": "SG-018"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.17.2",
+                                      "role": "text",
+                                      "name": "10345 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.17.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.18",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.18.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Deck 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.18.1",
+                                      "role": "text",
+                                      "name": "SG-019"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.18.2",
+                                      "role": "text",
+                                      "name": "10660 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.18.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.19",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.19.0",
+                                      "role": "heading",
+                                      "name": "Meridian Station 2024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.19.1",
+                                      "role": "text",
+                                      "name": "SG-020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.19.2",
+                                      "role": "text",
+                                      "name": "10975 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.19.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.20",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.20.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Tower 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.20.1",
+                                      "role": "text",
+                                      "name": "SG-021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.20.2",
+                                      "role": "text",
+                                      "name": "11290 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.20.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.21",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.21.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Console 2021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.21.1",
+                                      "role": "text",
+                                      "name": "SG-022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.21.2",
+                                      "role": "text",
+                                      "name": "11605 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.21.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.22",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.22.0",
+                                      "role": "heading",
+                                      "name": "Meridian Deck 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.22.1",
+                                      "role": "text",
+                                      "name": "SG-023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.22.2",
+                                      "role": "text",
+                                      "name": "11920 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.22.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.23",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.23.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Station 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.23.1",
+                                      "role": "text",
+                                      "name": "SG-024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.23.2",
+                                      "role": "text",
+                                      "name": "12235 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.23.3",
+                                      "role": "text",
+                                      "name": "Out of stock"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "nodeCount": 139
+      },
+      "after": {
+        "capturedAt": 433,
+        "url": "http://localhost:5173/storefront",
+        "title": "Northwind Orders",
+        "scope": "full",
+        "root": {
+          "ref": "0",
+          "role": "generic",
+          "name": "",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "heading",
+                      "name": "Store"
+                    },
+                    {
+                      "ref": "0.0.1.1",
+                      "role": "group",
+                      "name": "",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.0.0",
+                              "role": "region",
+                              "name": "Stock status",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.0.0",
+                                  "role": "heading",
+                                  "name": "Stock status"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.1",
+                                  "role": "checkbox",
+                                  "name": "In stock",
+                                  "state": [
+                                    "checked"
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.2",
+                                  "role": "checkbox",
+                                  "name": "All products"
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.1.0.1",
+                              "role": "region",
+                              "name": "Brand",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.1.0",
+                                  "role": "heading",
+                                  "name": "Brand"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.1",
+                                  "role": "checkbox",
+                                  "name": "Kestrel"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.2",
+                                  "role": "checkbox",
+                                  "name": "Meridian"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.3",
+                                  "role": "checkbox",
+                                  "name": "Halcyon"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "region",
+                          "name": "",
+                          "landmark": "region",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.1.0",
+                              "role": "text",
+                              "name": "Showing 9 of 24 products"
+                            },
+                            {
+                              "ref": "0.0.1.1.1.1",
+                              "role": "list",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.1.1.0",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Tower 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.1",
+                                      "role": "text",
+                                      "name": "SG-001"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.2",
+                                      "role": "text",
+                                      "name": "4990 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.1",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Deck 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.1",
+                                      "role": "text",
+                                      "name": "SG-003"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.2",
+                                      "role": "text",
+                                      "name": "5620 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.2",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Console 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.1",
+                                      "role": "text",
+                                      "name": "SG-006"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.2",
+                                      "role": "text",
+                                      "name": "6565 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.3",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.0",
+                                      "role": "heading",
+                                      "name": "Meridian Station 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.1",
+                                      "role": "text",
+                                      "name": "SG-008"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.2",
+                                      "role": "text",
+                                      "name": "7195 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.4",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Console 2024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.1",
+                                      "role": "text",
+                                      "name": "SG-010"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.2",
+                                      "role": "text",
+                                      "name": "7825 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.5",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.0",
+                                      "role": "heading",
+                                      "name": "Meridian Console 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.1",
+                                      "role": "text",
+                                      "name": "SG-014"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.2",
+                                      "role": "text",
+                                      "name": "9085 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.6",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.0",
+                                      "role": "heading",
+                                      "name": "Meridian Tower 2021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.1",
+                                      "role": "text",
+                                      "name": "SG-017"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.2",
+                                      "role": "text",
+                                      "name": "10030 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.7",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Deck 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.1",
+                                      "role": "text",
+                                      "name": "SG-019"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.2",
+                                      "role": "text",
+                                      "name": "10660 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.8",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.0",
+                                      "role": "heading",
+                                      "name": "Meridian Deck 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.1",
+                                      "role": "text",
+                                      "name": "SG-023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.2",
+                                      "role": "text",
+                                      "name": "11920 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "nodeCount": 64
+      },
+      "diff": {
+        "added": [
+          {
+            "ref": "0.0.1.1.1.0",
+            "role": "text",
+            "name": "Showing 9 of 24 products",
+            "path": "generic > group > main > group > region"
+          }
+        ],
+        "removed": [
+          {
+            "ref": "0.0.1.1.1.0",
+            "role": "text",
+            "name": "Showing 24 of 24 products",
+            "path": "generic > group > main > group > region"
+          },
+          {
+            "ref": "0.0.1.1.1.1.9",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.10",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.11",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.12",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.13",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.14",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.15",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.16",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.17",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.18",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.19",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.20",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.21",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.22",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.23",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.1.0",
+            "role": "heading",
+            "name": "Meridian Console 2021",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.1.1",
+            "role": "text",
+            "name": "SG-002",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.1.2",
+            "role": "text",
+            "name": "5305 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.1.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.4.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.10.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.11.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.12.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.14.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.15.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.17.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.19.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.20.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.21.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.23.3",
+            "role": "text",
+            "name": "Out of stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.0",
+            "role": "heading",
+            "name": "Kestrel Station 2023",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.1",
+            "role": "text",
+            "name": "SG-004",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.2",
+            "role": "text",
+            "name": "5935 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.4.0",
+            "role": "heading",
+            "name": "Meridian Tower 2024",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.4.1",
+            "role": "text",
+            "name": "SG-005",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.4.2",
+            "role": "text",
+            "name": "6250 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.0",
+            "role": "heading",
+            "name": "Kestrel Deck 2021",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.1",
+            "role": "text",
+            "name": "SG-007",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.2",
+            "role": "text",
+            "name": "6880 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.0",
+            "role": "heading",
+            "name": "Halcyon Tower 2023",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.1",
+            "role": "text",
+            "name": "SG-009",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.2",
+            "role": "text",
+            "name": "7510 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.10.0",
+            "role": "heading",
+            "name": "Meridian Deck 2020",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.10.1",
+            "role": "text",
+            "name": "SG-011",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.10.2",
+            "role": "text",
+            "name": "8140 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.11.0",
+            "role": "heading",
+            "name": "Halcyon Station 2021",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.11.1",
+            "role": "text",
+            "name": "SG-012",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.11.2",
+            "role": "text",
+            "name": "8455 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.12.0",
+            "role": "heading",
+            "name": "Kestrel Tower 2022",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.12.1",
+            "role": "text",
+            "name": "SG-013",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.12.2",
+            "role": "text",
+            "name": "8770 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.14.0",
+            "role": "heading",
+            "name": "Halcyon Deck 2024",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.14.1",
+            "role": "text",
+            "name": "SG-015",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.14.2",
+            "role": "text",
+            "name": "9400 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.15.0",
+            "role": "heading",
+            "name": "Kestrel Station 2020",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.15.1",
+            "role": "text",
+            "name": "SG-016",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.15.2",
+            "role": "text",
+            "name": "9715 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.17.0",
+            "role": "heading",
+            "name": "Halcyon Console 2022",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.17.1",
+            "role": "text",
+            "name": "SG-018",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.17.2",
+            "role": "text",
+            "name": "10345 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.19.0",
+            "role": "heading",
+            "name": "Meridian Station 2024",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.19.1",
+            "role": "text",
+            "name": "SG-020",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.19.2",
+            "role": "text",
+            "name": "10975 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.20.0",
+            "role": "heading",
+            "name": "Halcyon Tower 2020",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.20.1",
+            "role": "text",
+            "name": "SG-021",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.20.2",
+            "role": "text",
+            "name": "11290 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.21.0",
+            "role": "heading",
+            "name": "Kestrel Console 2021",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.21.1",
+            "role": "text",
+            "name": "SG-022",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.21.2",
+            "role": "text",
+            "name": "11605 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.23.0",
+            "role": "heading",
+            "name": "Halcyon Station 2023",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.23.1",
+            "role": "text",
+            "name": "SG-024",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.23.2",
+            "role": "text",
+            "name": "12235 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          }
+        ],
+        "changed": [
+          {
+            "before": {
+              "ref": "0.0.1.1.0.0.2",
+              "role": "checkbox",
+              "name": "All products",
+              "state": [
+                "checked"
+              ],
+              "path": "generic > group > main > group > group > region \"Stock status\""
+            },
+            "after": {
+              "ref": "0.0.1.1.0.0.2",
+              "role": "checkbox",
+              "name": "All products",
+              "path": "generic > group > main > group > group > region \"Stock status\""
+            },
+            "fields": [
+              "state"
+            ]
+          }
+        ]
+      },
+      "settle": {
+        "reason": "quiet",
+        "waitedMs": 313,
+        "mutationCount": 16,
+        "inFlightAtEnd": 0
+      },
+      "network": [],
+      "console": [],
+      "fidelity": [],
+      "tabId": 1123632011,
+      "screenshot": "screens/evt_001.png"
+    },
+    {
+      "id": "evt_002",
+      "seq": 1,
+      "timestamp": 607,
+      "type": "click",
+      "url": "http://localhost:5173/storefront",
+      "target": {
+        "role": "checkbox",
+        "name": "Kestrel",
+        "tagName": "input",
+        "selectors": {
+          "css": "section.card.filter-group:nth-of-type(2) > label.check:nth-of-type(1) > input",
+          "role": "getByRole('checkbox', { name: \"Kestrel\" })",
+          "text": "Kestrel"
+        },
+        "frame": []
+      },
+      "before": {
+        "capturedAt": 607,
+        "url": "http://localhost:5173/storefront",
+        "title": "Northwind Orders",
+        "scope": "full",
+        "root": {
+          "ref": "0",
+          "role": "generic",
+          "name": "",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "heading",
+                      "name": "Store"
+                    },
+                    {
+                      "ref": "0.0.1.1",
+                      "role": "group",
+                      "name": "",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.0.0",
+                              "role": "region",
+                              "name": "Stock status",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.0.0",
+                                  "role": "heading",
+                                  "name": "Stock status"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.1",
+                                  "role": "checkbox",
+                                  "name": "In stock",
+                                  "state": [
+                                    "checked"
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.2",
+                                  "role": "checkbox",
+                                  "name": "All products"
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.1.0.1",
+                              "role": "region",
+                              "name": "Brand",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.1.0",
+                                  "role": "heading",
+                                  "name": "Brand"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.1",
+                                  "role": "checkbox",
+                                  "name": "Kestrel",
+                                  "state": [
+                                    "checked"
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.2",
+                                  "role": "checkbox",
+                                  "name": "Meridian"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.3",
+                                  "role": "checkbox",
+                                  "name": "Halcyon"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "region",
+                          "name": "",
+                          "landmark": "region",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.1.0",
+                              "role": "text",
+                              "name": "Showing 9 of 24 products"
+                            },
+                            {
+                              "ref": "0.0.1.1.1.1",
+                              "role": "list",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.1.1.0",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Tower 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.1",
+                                      "role": "text",
+                                      "name": "SG-001"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.2",
+                                      "role": "text",
+                                      "name": "4990 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.1",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Deck 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.1",
+                                      "role": "text",
+                                      "name": "SG-003"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.2",
+                                      "role": "text",
+                                      "name": "5620 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.2",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.0",
+                                      "role": "heading",
+                                      "name": "Halcyon Console 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.1",
+                                      "role": "text",
+                                      "name": "SG-006"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.2",
+                                      "role": "text",
+                                      "name": "6565 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.3",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.0",
+                                      "role": "heading",
+                                      "name": "Meridian Station 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.1",
+                                      "role": "text",
+                                      "name": "SG-008"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.2",
+                                      "role": "text",
+                                      "name": "7195 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.3.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.4",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Console 2024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.1",
+                                      "role": "text",
+                                      "name": "SG-010"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.2",
+                                      "role": "text",
+                                      "name": "7825 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.4.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.5",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.0",
+                                      "role": "heading",
+                                      "name": "Meridian Console 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.1",
+                                      "role": "text",
+                                      "name": "SG-014"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.2",
+                                      "role": "text",
+                                      "name": "9085 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.5.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.6",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.0",
+                                      "role": "heading",
+                                      "name": "Meridian Tower 2021"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.1",
+                                      "role": "text",
+                                      "name": "SG-017"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.2",
+                                      "role": "text",
+                                      "name": "10030 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.6.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.7",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Deck 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.1",
+                                      "role": "text",
+                                      "name": "SG-019"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.2",
+                                      "role": "text",
+                                      "name": "10660 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.7.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.8",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.0",
+                                      "role": "heading",
+                                      "name": "Meridian Deck 2022"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.1",
+                                      "role": "text",
+                                      "name": "SG-023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.2",
+                                      "role": "text",
+                                      "name": "11920 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.8.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "nodeCount": 64
+      },
+      "after": {
+        "capturedAt": 912,
+        "url": "http://localhost:5173/storefront",
+        "title": "Northwind Orders",
+        "scope": "full",
+        "root": {
+          "ref": "0",
+          "role": "generic",
+          "name": "",
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "heading",
+                      "name": "Store"
+                    },
+                    {
+                      "ref": "0.0.1.1",
+                      "role": "group",
+                      "name": "",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.0.0",
+                              "role": "region",
+                              "name": "Stock status",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.0.0",
+                                  "role": "heading",
+                                  "name": "Stock status"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.1",
+                                  "role": "checkbox",
+                                  "name": "In stock",
+                                  "state": [
+                                    "checked"
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.0.2",
+                                  "role": "checkbox",
+                                  "name": "All products"
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.1.0.1",
+                              "role": "region",
+                              "name": "Brand",
+                              "landmark": "region",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.0.1.0",
+                                  "role": "heading",
+                                  "name": "Brand"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.1",
+                                  "role": "checkbox",
+                                  "name": "Kestrel",
+                                  "state": [
+                                    "checked"
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.2",
+                                  "role": "checkbox",
+                                  "name": "Meridian"
+                                },
+                                {
+                                  "ref": "0.0.1.1.0.1.3",
+                                  "role": "checkbox",
+                                  "name": "Halcyon"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "region",
+                          "name": "",
+                          "landmark": "region",
+                          "children": [
+                            {
+                              "ref": "0.0.1.1.1.0",
+                              "role": "text",
+                              "name": "Showing 3 of 24 products"
+                            },
+                            {
+                              "ref": "0.0.1.1.1.1",
+                              "role": "list",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.1.1.1.0",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Tower 2020"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.1",
+                                      "role": "text",
+                                      "name": "SG-001"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.2",
+                                      "role": "text",
+                                      "name": "4990 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.0.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.1",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Console 2024"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.1",
+                                      "role": "text",
+                                      "name": "SG-010"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.2",
+                                      "role": "text",
+                                      "name": "7825 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.1.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.1.1.1.2",
+                                  "role": "listitem",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.0",
+                                      "role": "heading",
+                                      "name": "Kestrel Deck 2023"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.1",
+                                      "role": "text",
+                                      "name": "SG-019"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.2",
+                                      "role": "text",
+                                      "name": "10660 DH"
+                                    },
+                                    {
+                                      "ref": "0.0.1.1.1.1.2.3",
+                                      "role": "text",
+                                      "name": "In stock"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "nodeCount": 34
+      },
+      "diff": {
+        "added": [
+          {
+            "ref": "0.0.1.1.1.0",
+            "role": "text",
+            "name": "Showing 3 of 24 products",
+            "path": "generic > group > main > group > region"
+          }
+        ],
+        "removed": [
+          {
+            "ref": "0.0.1.1.1.0",
+            "role": "text",
+            "name": "Showing 9 of 24 products",
+            "path": "generic > group > main > group > region"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.4",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.5",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.7",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8",
+            "role": "listitem",
+            "name": "",
+            "path": "generic > group > main > group > region > list"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.3",
+            "role": "text",
+            "name": "In stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.4.3",
+            "role": "text",
+            "name": "In stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.5.3",
+            "role": "text",
+            "name": "In stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.3",
+            "role": "text",
+            "name": "In stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.7.3",
+            "role": "text",
+            "name": "In stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.3",
+            "role": "text",
+            "name": "In stock",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.1.0",
+            "role": "heading",
+            "name": "Halcyon Deck 2022",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.1.1",
+            "role": "text",
+            "name": "SG-003",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.1.2",
+            "role": "text",
+            "name": "5620 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.2.0",
+            "role": "heading",
+            "name": "Halcyon Console 2020",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.2.1",
+            "role": "text",
+            "name": "SG-006",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.2.2",
+            "role": "text",
+            "name": "6565 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.0",
+            "role": "heading",
+            "name": "Meridian Station 2022",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.1",
+            "role": "text",
+            "name": "SG-008",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.3.2",
+            "role": "text",
+            "name": "7195 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.5.0",
+            "role": "heading",
+            "name": "Meridian Console 2023",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.5.1",
+            "role": "text",
+            "name": "SG-014",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.5.2",
+            "role": "text",
+            "name": "9085 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.0",
+            "role": "heading",
+            "name": "Meridian Tower 2021",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.1",
+            "role": "text",
+            "name": "SG-017",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.6.2",
+            "role": "text",
+            "name": "10030 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.0",
+            "role": "heading",
+            "name": "Meridian Deck 2022",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.1",
+            "role": "text",
+            "name": "SG-023",
+            "path": "generic > group > main > group > region > list > listitem"
+          },
+          {
+            "ref": "0.0.1.1.1.1.8.2",
+            "role": "text",
+            "name": "11920 DH",
+            "path": "generic > group > main > group > region > list > listitem"
+          }
+        ],
+        "changed": []
+      },
+      "settle": {
+        "reason": "quiet",
+        "waitedMs": 304,
+        "mutationCount": 7,
+        "inFlightAtEnd": 0
+      },
+      "network": [],
+      "console": [],
+      "fidelity": [],
+      "tabId": 1123632011
+    }
+  ],
+  "narration": [],
+  "annotations": [],
+  "parameters": []
+}

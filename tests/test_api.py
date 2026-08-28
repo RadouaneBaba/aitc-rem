@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 
 from server.api.app import create_app
-from server.library import StepLibrary
 from server.storage.paths import Storage
 from tests.test_pipeline import grounded_model, recording
 
@@ -34,12 +33,9 @@ def storage(tmp_path: Path) -> Storage:
 
 @pytest.fixture
 def client(storage: Storage, tmp_path: Path):
-    # A temporary library, or approving in a test would write into the real
-    # project's remembered phrasing (SS12) and quietly change later runs.
     app = create_app(
         storage=storage,
         model_factory=grounded_model,
-        library=StepLibrary(tmp_path / "library.db"),
     )
     with TestClient(app) as client:
         client.app.state.storage = storage
@@ -93,7 +89,7 @@ def test_a_failed_job_says_why_rather_than_going_quiet(storage: Storage, tmp_pat
         raise RuntimeError("no model configured")
 
     app = create_app(
-        storage=storage, model_factory=broken, library=StepLibrary(tmp_path / "library.db")
+        storage=storage, model_factory=broken
     )
     with TestClient(app) as client:
         payload = json.loads(recording().model_dump_json(exclude_none=True))
@@ -326,9 +322,10 @@ def test_an_edit_that_changes_nothing_is_not_recorded(client):
     assert get_run(client, recording_id, run_id)["review"]["edits"] == []
 
 
-def test_approval_is_recorded_because_it_is_what_feeds_the_step_library(client):
-    # SS12.2 -- a step enters the library because a human accepted it, never
-    # because it was generated.
+def test_approval_is_recorded_as_who_signed_it_off(client):
+    # SS13.5. Approval used to also feed the step library; the library is gone
+    # (`libraryRef` was never set once on any run), and this is what it always
+    # actually was: a record of a human saying yes.
     recording_id, run_id = a_run(client)
 
     response = client.post(
@@ -410,27 +407,6 @@ def test_an_expected_result_cannot_be_reworded_into_nothing(client):
         json={"text": "   "},
     )
     assert response.status_code == 400
-
-
-def test_approving_is_what_teaches_the_tool_its_own_vocabulary(client):
-    # SS12.2: a step enters the library because a human accepted it, never
-    # because it was generated. That is the difference between a vocabulary and
-    # a pile of phrasings, and it is also what makes the library the project's
-    # memory -- the only thing remembered is work somebody signed off.
-    recording_id, run_id = a_run(client)
-    library = client.app.state.library
-    assert library.entries() == []
-
-    body = get_run(client, recording_id, run_id)
-    texts = [s["text"] for c in body["ir"]["testCases"] for s in c["steps"]]
-
-    response = client.post(f"/api/runs/{recording_id}/{run_id}/approve", json={})
-    assert response.status_code == 200, response.text
-
-    remembered = {e.text for e in library.entries()}
-    assert remembered == set(texts)
-    # And it is findable next time by the sentence a model would have drafted.
-    assert library.exact(texts[0]) is not None
 
 
 # --------------------------------------------------------------------------
@@ -797,10 +773,10 @@ def test_every_pipeline_stage_has_something_to_show_a_watching_tester():
     from server.api.app import STAGE_DETAIL
     from server.models import PipelineStage
 
-    # `library` is the one stage the pipeline never announces -- the per-step
-    # search went with the naming stage -- so it is the only permitted gap.
+    # No permitted gaps any more: the stages that were never announced went with
+    # the stages that were never worth announcing.
     missing = {stage for stage in PipelineStage if stage not in STAGE_DETAIL}
-    assert missing == {PipelineStage.library}, missing
+    assert missing == set(), missing
 
 
 def test_a_run_that_leaked_a_secret_cannot_be_exported(client, tmp_path):

@@ -21,13 +21,10 @@ class AblationConfig(StrEnum):
 
 class PipelineStage(StrEnum):
     segment = "segment"
-    decompose = "decompose"
-    split = "split"
-    name = "name"
-    assert_ = "assert"
-    library = "library"
+    expectations = "expectations"
+    author = "author"
+    judge = "judge"
     validate = "validate"
-    critic = "critic"
     coverage = "coverage"
     render = "render"
 
@@ -213,19 +210,10 @@ class StageRecord(StrictModel):
 
 class ValidatorName(StrEnum):
     evidence_retrieved = "evidence_retrieved"
-    assertion_grounding = "assertion_grounding"
-    provenance_supported = "provenance_supported"
-    element_exists = "element_exists"
-    mutation_claimed = "mutation_claimed"
     event_coverage = "event_coverage"
     gherkin_parses = "gherkin_parses"
-    gherkin_style = "gherkin_style"
-    library_verbatim = "library_verbatim"
     no_placeholder_leak = "no_placeholder_leak"
-    selector_resolvable = "selector_resolvable"
-    no_pruned_assertion = "no_pruned_assertion"
     suggestions_quarantined = "suggestions_quarantined"
-    evidence_discriminates = "evidence_discriminates"
 
 
 class ValidatorStatus(StrEnum):
@@ -268,13 +256,18 @@ class ValidatorResult(StrictModel):
 
 
 class RepairTrigger(StrEnum):
+    """
+    What raised the finding. `critic` is historical -- that stage is deleted -- and is kept so an old trace still validates.
+    """
+
     validator = "validator"
     critic = "critic"
+    judge = "judge"
 
 
 class RepairAttempt(StrictModel):
     """
-    SS9.9 -- findings are not merely reported; the offending stage re-runs with the criticism as input. Bounded at 3 attempts per stage.
+    SS9.9 -- findings are not merely reported; the author re-runs with them as input. Bounded at one revision round: the rebuild deleted the routing table that decided WHICH stage re-runs, because the author wrote the document and is the only thing that knows which part of it is wrong.
     """
 
     model_config = ConfigDict(
@@ -283,6 +276,9 @@ class RepairAttempt(StrictModel):
     stage: PipelineStage
     attempt: int = Field(..., ge=1)
     trigger: RepairTrigger = Field(..., title="RepairTrigger")
+    """
+    What raised the finding. `critic` is historical -- that stage is deleted -- and is kept so an old trace still validates.
+    """
     finding: str
     targetStepId: str | None = None
     resolved: bool
@@ -337,26 +333,26 @@ class RunMetrics(StrictModel):
     """
     The same gate after the repair loop has finished. Read as a pair with validatorFirstPassRate -- the distance between them is what repair bought.
     """
-    criticFindingsRaised: int | None = None
+    judgeFindings: int | None = None
     """
-    How much the critic had to say: distinct findings across every critique in the run. The denominator of repairConvergenceRate, and it never ships without it. A convergence rate over zero findings is vacuously 1.0, exactly the way groundingRate is vacuously 1.0 for a configuration that abstains. Counted from the critic's own findings, NOT from repair attempts: reading it off the repair loop counted a two-stage validator rejection as two critic findings and counted a coherence finding -- which has no repair route -- as none, so it was wrong in 10 of 13 runs, in both directions.
+    How much the judge had to say about the document that SHIPPED: weak and fail together, from the final round. Deliberately not a total across rounds, and not a convergence rate. `Converged` reported 1-of-9 because it measured how much of what the critic said the loop was ALLOWED to act on, and matching a finding in round 2 to the one it descended from in round 1 is a guess rather than a fact -- so this counts what is still true of the artifact instead of claiming to know what was fixed. Replaces criticFindingsRaised, which was read off the repair loop rather than off the critic and was wrong in 10 of 13 runs, in both directions.
     """
-    criticFindingsResolved: int | None = None
+    judgeFails: int | None = None
     """
-    How many of those the repair loop resolved within budget. A finding with no repair route (coherence, state_jump) is never resolved, and that is the honest reading of SS9.9 rather than an omission.
+    Of those, the ones a QA lead would send back rather than sign after an edit. Non-zero here means the document shipped with a finding the loop could not resolve inside its bound, which is the honest reading of SS9.9 rather than an omission -- and it is the number to watch, because it is the one a rate would hide.
+    """
+    revisionRounds: int | None = None
+    """
+    Author rounds actually run. 1 means the judge and the gate found nothing worth another pass, which is the normal case; 2 means the document was rewritten once. Read beside judgeFails: rounds alone cannot distinguish a document nobody objected to from one whose findings the bound cut off.
     """
     repairAttempts: int | None = None
     """
-    Distinct (stage, step, finding) repairs attempted. A different fact from criticFindingsRaised -- most repairs are triggered by a validator, not by the critic -- and worth keeping now that the two are no longer conflated.
+    Findings handed back to the author across the run, one per (round, finding). A different fact from judgeFindings -- a rejected claim is a repair with no judge finding behind it -- and worth keeping separate now that the two are no longer conflated.
     """
     toolCallsTotal: int | None = None
     toolCallsPerStep: dict[str, int] | None = None
     """
     Keyed by stepId. The x-axis of the effort/difficulty correlation (SS3.4), and the column that separates an agent from a chain -- a chain is flat by construction.
-    """
-    repairConvergenceRate: float | None = None
-    """
-    SS9.9 -- how often repair fixed the finding within budget. Meaningless without criticFindingsRaised beside it.
     """
     stepsEditedByHuman: int | None = None
     """
@@ -377,9 +373,12 @@ class RunConfig(StrictModel):
     """
     False only for A0. Disable tools and the pipeline cannot emit a single valid assertion -- not 'degrades', cannot (SS3.2).
     """
-    criticEnabled: bool
-    repairEnabled: bool
-    maxRepairAttempts: int | None = 3
+    expectationsEnabled: bool
+    """
+    Whether this run had an oracle. A0 and A1 do not: they can only restate what the application did, which is the boundary the whole rebuild is about. A1 vs A2 is therefore what asking a human is worth, held against everything else being equal.
+
+    Replaces criticEnabled and repairEnabled. Those arms measured a loop that raised 9 findings and resolved 1, because five of the survivors were `coherence` and it had no repair route by design.
+    """
     defaultInvestigationBudget: int | None = 8
     models: dict[str, Models] | None = None
     """

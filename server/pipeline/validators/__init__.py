@@ -16,44 +16,45 @@ from dataclasses import dataclass, field
 
 from server.models import ValidatorAction, ValidatorName, ValidatorResult, ValidatorStatus
 from server.pipeline.validators.base import ValidationContext
-from server.pipeline.validators.consistency import (
-    event_coverage,
-    library_verbatim,
-    mutation_claimed,
-    selector_resolvable,
-)
-from server.pipeline.validators.grounding import (
-    assertion_grounding,
-    claim_total,
-    element_exists,
-    evidence_discriminates,
-    evidence_retrieved,
-    no_pruned_assertion,
-    provenance_supported,
-)
+from server.pipeline.validators.consistency import event_coverage
+from server.pipeline.validators.grounding import claim_total, evidence_retrieved
 from server.pipeline.validators.output import (
     gherkin_parses,
     no_placeholder_leak,
     suggestions_quarantined,
 )
-from server.pipeline.validators.style import gherkin_style
 
+#: Five, down from fourteen.
+#:
+#: The rule for keeping one is not "deterministic or agentic". It is **can this
+#: check ever be wrong**:
+#:
+#:   evidence_retrieved       is this exact string in this exact response
+#:   event_coverage           was every recorded event accounted for
+#:   gherkin_parses           does the file parse
+#:   no_placeholder_leak      did a redacted value reach the output
+#:   suggestions_quarantined  is an unverified suggestion renderable as a step
+#:
+#: Those cost nothing, cannot be wrong, and constrain the author not at all.
+#:
+#: The nine that went were JUDGEMENTS written as regexes -- is this claim
+#: vacuous, does this name match this scenario, would this catch a regression.
+#: Across 33 runs and 455 executions they produced ONE failure between them;
+#: nine of the fourteen never returned a non-pass at all and `library_verbatim`
+#: never executed once. Meanwhile the judge, reading the same output with a
+#: different question, found real defects that all fourteen had passed.
+#:
+#: They were not wrong. They were catching symptoms of an author with nothing to
+#: look at, and a regex guessing whether a sentence is meaningful will always
+#: lose that question to a model reading it. `evals/RUBRIC.md` asks it properly.
+#:
 #: Order is presentation only -- every validator always runs. Grounding first
 #: because it is the one the whole architecture exists to make possible.
 VALIDATORS = [
     evidence_retrieved,
-    assertion_grounding,
-    provenance_supported,
-    evidence_discriminates,
-    element_exists,
-    mutation_claimed,
     event_coverage,
     gherkin_parses,
-    gherkin_style,
-    library_verbatim,
     no_placeholder_leak,
-    selector_resolvable,
-    no_pruned_assertion,
     suggestions_quarantined,
 ]
 

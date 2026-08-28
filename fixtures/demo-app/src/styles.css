@@ -74,3 +74,21 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: upp
 .muted { color: var(--muted); font-size: 13px; }
 iframe.payment { width: 100%; height: 260px; border: 1px solid var(--line); border-radius: 8px; }
 canvas.signature { border: 1px dashed var(--line); border-radius: 8px; background: #fff; touch-action: none; }
+
+/* The keyhole fixture (pages/Storefront.tsx). Layout matters here only in that
+   the filter groups must be their own landmarks and the results must not be
+   inside them; everything else is so a human can read the page. */
+main.page.storefront { max-width: 1100px; }
+.storefront-layout { display: grid; grid-template-columns: 220px 1fr; gap: 20px; align-items: start; }
+.filters { display: flex; flex-direction: column; gap: 20px; }
+.filter-group h3 { font-size: 14px; margin: 0 0 10px; }
+label.check { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-weight: 400; }
+label.check input { width: auto; }
+.result-count { font-size: 14px; font-weight: 600; margin: 0 0 14px; }
+ul.product-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+li.product { border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+li.product h4 { font-size: 13px; margin: 0 0 6px; }
+li.product p { margin: 2px 0; font-size: 12px; color: var(--muted); }
+li.product p.price { color: var(--ink); font-weight: 600; }
+li.product p.stock.in { color: var(--brand); }
+li.product p.stock.out { color: var(--danger); }

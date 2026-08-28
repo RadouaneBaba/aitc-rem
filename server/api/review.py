@@ -19,7 +19,6 @@ to edit (SS3.2).
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 from server.models import (
     IRDocument,
@@ -418,35 +417,23 @@ def approve(
     review: ReviewDocument,
     *,
     reviewer: str | None = None,
-    library: Any = None,
 ) -> ReviewDocument:
-    """Approval is what feeds the step library (SS12.2).
+    """SS13.5's record of who signed this off.
 
-    A step enters the library because a human accepted it, never because it was
-    generated -- which is the difference between a vocabulary and a pile of
-    phrasings. It is also what makes the library the project's memory: the only
-    thing that gets remembered is work somebody signed off.
+    It used to also feed the step library, which is gone: `libraryRef` was never
+    set once on any step of any run, `library_verbatim` never executed, and the
+    database held two rows. It solved a problem the deleted per-segment naming
+    stage had created -- three stages naming steps independently and drifting --
+    and it created one of its own, a tool the drafter felt obliged to call on
+    every step, which flattened SS3.3's effort spread from 1.08 to 0.16.
 
-    Approving is the whole gesture. There is no separate "add to library"
-    button, because a reviewer who has just read a test case and said yes has
-    already made the only judgement the library needs, and asking twice would
-    get the second answer wrong.
+    Approving is still the whole gesture. There is nothing else to press.
     """
     review.approved = True
     review.approvedAt = datetime.now(UTC)
     if reviewer:
         review.reviewer = reviewer
     review.updatedAt = datetime.now(UTC)
-
-    if library is not None:
-        for case in ir.testCases:
-            for step in case.steps:
-                library.add(
-                    step.text,
-                    role=step.role.value if step.role else None,
-                    recording_id=ir.recordingId,
-                    run_id=ir.runId,
-                )
     return review
 
 

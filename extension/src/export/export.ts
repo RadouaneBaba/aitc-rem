@@ -40,8 +40,40 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([buf], { type: mime });
 }
 
+/**
+ * Wait until the recorder has actually finished stopping.
+ *
+ * Three things have to line up for the last action of a session to survive, and
+ * this is the third. `capture()` awaits settle before it sends, so the final
+ * click is routinely still in flight when Stop is pressed; the content script
+ * now drains those before it acknowledges the stop, and the worker marks the
+ * session `stopped` only after that acknowledgement. Which means a session
+ * without `stopped` is one whose last event has not landed yet.
+ *
+ * Assembling anyway is what actually cost the event: measured on a public demo
+ * site, five actions driven and four assembled, and nothing anywhere reported a
+ * problem -- the recording simply did not contain the add-to-cart it was about.
+ *
+ * Bounded, and it gives up rather than blocking: an export page that will not
+ * load is worse than a recording that is honestly one event short. `stopped` is
+ * absent for a session still recording, which is a legitimate thing to open
+ * this page on.
+ */
+const STOP_WAIT_MS = 8000;
+const STOP_POLL_MS = 100;
+
+async function settledSession(): Promise<Awaited<ReturnType<typeof getSession>>> {
+  const deadline = Date.now() + STOP_WAIT_MS;
+  let session = await getSession();
+  while (session && !session.stopped && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, STOP_POLL_MS));
+    session = await getSession();
+  }
+  return session;
+}
+
 async function assemble(): Promise<{ recording: Recording; screenshots: { key: string; dataUrl: string }[] } | null> {
-  const session = await getSession();
+  const session = await settledSession();
   if (!session) return null;
 
   const rows = await allEventRows();
@@ -95,10 +127,41 @@ async function assemble(): Promise<{ recording: Recording; screenshots: { key: s
     // step in the chain that is a reconstruction rather than a reading.
     narration: [],
     annotations: session.annotations,
-    parameters: session.parameters,
+    // Filled in below, once there is a document to check them against.
+    parameters: [],
   };
+  recording.parameters = liveParameters(session.parameters, recording);
 
   return { recording, screenshots };
+}
+
+/**
+ * Keep only the placeholders that actually appear in the recording.
+ *
+ * SS7.2 makes every redacted value a test PARAMETER: it is rendered in the
+ * feature file, it is what `--replay-param` supplies, and it is printed in the
+ * redaction preview the tester approves before sending. So a parameter that
+ * points at nothing is not harmless noise -- it is a row in the artifact asking
+ * somebody to supply a value that is used nowhere.
+ *
+ * `Redactor` accumulates a placeholder for every value it ever RECOGNISED,
+ * across every snapshot pass of every event, whether or not the text survived
+ * into the persisted tree. One storefront listing came out with 214 of them and
+ * **not one of those placeholders appears anywhere in the recording** -- the
+ * only 214 occurrences of `<<` in the file were the parameters array describing
+ * itself.
+ *
+ * Checked against the serialised document rather than by walking it, because
+ * a placeholder can legitimately live in a node name, a field value, a URL, a
+ * request body, a console line or an annotation, and a walker that forgot one
+ * of those would silently drop a real parameter.
+ */
+function liveParameters(
+  parameters: Recording['parameters'],
+  recording: Recording,
+): Recording['parameters'] {
+  const document = JSON.stringify({ events: recording.events, annotations: recording.annotations });
+  return parameters.filter((p) => document.includes(p.placeholder));
 }
 
 /** Requests may begin slightly before the click that caused them is recorded. */
@@ -394,10 +457,20 @@ async function main(): Promise<void> {
           : '';
       }
 
-      const review = `${base}/`;
+      // Straight to the confirmation screen, not to the review UI.
+      //
+      // The pipeline can only ever restate what the application DID; the one
+      // thing it cannot know is what it SHOULD have done, and the only person
+      // who knows that is about to close this tab. Two minutes from now they
+      // are on the next test and the answer is gone. So the link that gets the
+      // prominence is the one that asks while they still remember -- the draft
+      // is being written either way and will be waiting behind it.
+      const confirm = `${base}/?confirm=${encodeURIComponent(recording.id)}`;
       $('sent').innerHTML =
-        `Sent. Job <code>${job.id}</code> is running the pipeline — a draft takes a ` +
-        `couple of minutes. <a href="${review}" target="_blank">Open the review UI</a>.` +
+        `Sent. <a href="${confirm}" target="_blank"><strong>Tell us what should have ` +
+        `happened</strong></a> — it takes about a minute of clicking and it is the one ` +
+        `thing the recording cannot show us. ` +
+        `Job <code>${job.id}</code> is writing a draft meanwhile.` +
         narrationNote(narration) +
         shotNote +
         (unknownOrigins?.length

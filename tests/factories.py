@@ -66,7 +66,10 @@ def snapshot(
         capturedAt=at,
         url=url,
         title=title,
-        scope="scoped",
+        # Full, because that is what the recorder produces since 2026-08-28.
+        # A factory that builds an input the recorder cannot is a trap, and so
+        # is one that keeps building the input it used to.
+        scope="full",
         root=root or node("0", "main", "Checkout"),
         liveRegions=live or [],
     )
@@ -449,8 +452,7 @@ def agent_trace(**kw: Any) -> Any:
         config={
             "ablation": "A2",
             "toolsEnabled": True,
-            "criticEnabled": False,
-            "repairEnabled": False,
+            "expectationsEnabled": True,
         },
         toolCalls=kw.pop("tool_calls", []),
         modelCalls=[],

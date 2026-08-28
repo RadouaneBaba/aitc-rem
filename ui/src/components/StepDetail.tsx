@@ -116,7 +116,20 @@ export function StepDetail({
       {step.escalation && <Escalation question={step.escalation} busy={busy} onAnswer={onAnswer} />}
 
       <h3>Expected results</h3>
-      {step.assertions.length === 0 ? (
+      {step.assertions.length === 0 && step.whyNot ? (
+        // The author tried and could not, and said why. That is a different
+        // fact from "this step is just an action", and printing the generic
+        // line over it threw away the most useful sentence in the run: a
+        // reviewer who knows the product list was never captured can act on
+        // it, where "nothing to check here" invites them to move on.
+        //
+        // Not styled as a warning. A refusal is the designed outcome when the
+        // recording does not contain a verdict, and a visible gap beats an
+        // invisible falsehood.
+        <p className="whynot">
+          <strong>No expected result here.</strong> {step.whyNot}
+        </p>
+      ) : step.assertions.length === 0 ? (
         <p className="muted">
           Nothing to check here. Most steps are an action, and an omitted expected result is
           the right answer rather than a gap.

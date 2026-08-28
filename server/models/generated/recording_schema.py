@@ -192,7 +192,7 @@ class SemanticNode(StrictModel):
 
 class SnapshotScope(StrEnum):
     """
-    SS6.3 -- scoped by default (nearest landmark/dialog ancestor). 'full' only when get_full_snapshot asked for it, which is itself an agentic decision: cheap view by default, expensive one on demand.
+    Always 'full' since 2026-08-28: the whole document, every time. 'scoped' is retained only so recordings made before that date still parse -- it meant the clicked element's nearest landmark, which is the defect docs/REBUILD_FINDINGS.md is about.
     """
 
     scoped = "scoped"
@@ -201,7 +201,7 @@ class SnapshotScope(StrEnum):
 
 class ScopeRoot(StrictModel):
     """
-    What the scope was anchored to. Absent when scope is 'full'.
+    What the scope was anchored to. Absent under full capture, so absent on every recording made after 2026-08-28.
     """
 
     model_config = ConfigDict(
@@ -221,20 +221,24 @@ class SemanticSnapshot(StrictModel):
     title: str
     scope: SnapshotScope = Field(..., title="SnapshotScope")
     """
-    SS6.3 -- scoped by default (nearest landmark/dialog ancestor). 'full' only when get_full_snapshot asked for it, which is itself an agentic decision: cheap view by default, expensive one on demand.
+    Always 'full' since 2026-08-28: the whole document, every time. 'scoped' is retained only so recordings made before that date still parse -- it meant the clicked element's nearest landmark, which is the defect docs/REBUILD_FINDINGS.md is about.
     """
     scopeRoot: ScopeRoot | None = Field(None, title="ScopeRoot")
     """
-    What the scope was anchored to. Absent when scope is 'full'.
+    What the scope was anchored to. Absent under full capture, so absent on every recording made after 2026-08-28.
     """
     root: SemanticNode
     liveRegions: list[SemanticNode]
     """
-    SS6.3 -- every alert/status/log/alertdialog node anywhere in the document, regardless of scope. Outcomes appear far from the click, and this is where most expected results actually live.
+    Alert/status/log/alertdialog nodes that fall OUTSIDE the captured root. Now that the whole document is captured they are already in `root`, so this is normally empty; kept because a future targeted capture would need it, and because old recordings carry it.
     """
     truncated: bool | None = None
     """
     Node budget was hit and the tree was cut. Surfaces rather than silently shortening.
+    """
+    nodeCount: int | None = None
+    """
+    Nodes actually emitted. Present so the cost of full capture is readable from any recording: the '~29 KB per page' figure that justified scoping was measured on snapshots that had all hit a 400-node cap, so it described the cap and not the page.
     """
 
 
@@ -301,10 +305,16 @@ class SnapshotDiff(StrictModel):
 
 
 class SettleReason(StrEnum):
+    """
+    Why the recorder stopped waiting for the page to respond. `recording_stopped` means the tester pressed Stop while this action was still settling, and `superseded` means the tester acted again first: in both cases the `after` snapshot may be early, and that is strictly better than the alternative. For `superseded` the alternative is worse than losing the event -- it is attributing the NEXT action's outcome to this one. Measured on the checkout fixture: two events 2 ms apart with a 317 ms quiet window, so entering an order total captured the rejection that pressing Place order caused, and an assertion bound to it passed every validator and was false.
+    """
+
     quiet = "quiet"
     live_region = "live_region"
     url_change = "url_change"
     timeout = "timeout"
+    recording_stopped = "recording_stopped"
+    superseded = "superseded"
 
 
 class SettleInfo(StrictModel):
@@ -316,6 +326,9 @@ class SettleInfo(StrictModel):
         extra="forbid",
     )
     reason: SettleReason = Field(..., title="SettleReason")
+    """
+    Why the recorder stopped waiting for the page to respond. `recording_stopped` means the tester pressed Stop while this action was still settling, and `superseded` means the tester acted again first: in both cases the `after` snapshot may be early, and that is strictly better than the alternative. For `superseded` the alternative is worse than losing the event -- it is attributing the NEXT action's outcome to this one. Measured on the checkout fixture: two events 2 ms apart with a 317 ms quiet window, so entering an order total captured the rejection that pressing Place order caused, and an assertion bound to it passed every validator and was false.
+    """
     waitedMs: float
     mutationCount: int | None = None
     inFlightAtEnd: int | None = None

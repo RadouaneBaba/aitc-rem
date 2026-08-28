@@ -15,7 +15,7 @@ import pytest
 
 from server.ablation import run_ablation, write_report
 from server.llm import CompletionRequest, ScriptedModelClient, answer, calls
-from server.models import AblationConfig, Recording, ValidatorAction, ValidatorStatus
+from server.models import AblationConfig, Recording, ValidatorStatus
 from server.pipeline.run import PipelineOptions, run_pipeline
 from server.storage.paths import Storage
 from tests import factories as f
@@ -50,135 +50,125 @@ def stage_of(request: CompletionRequest) -> str:
     real model does.
     """
     system = request.messages[0].content or ""
-    if system.startswith("You are checking whether a recording supports"):
-        return "bind"
-    if system.startswith("You are writing ONE manual QA test document"):
-        return "draft"
-    if system.startswith("You are reviewing a finished QA test case"):
-        return "critic"
+    if system.startswith("You are a QA engineer"):
+        return "author"
+    if system.startswith("You are a QA lead reading a recording"):
+        return "expectations"
+    if system.startswith("You are a QA lead. Somebody hands you"):
+        return "judge"
     if system.startswith("You are reading a finished QA test case"):
         return "coverage"
-    if system.startswith("You are writing the two sentences"):
-        return "bug"
-    if system.startswith("You rewrite one step"):
-        return "rewrite"
-    if system.startswith("You propose the expected result"):
-        return "reexpect"
-    return "draft"
+    return "author"
 
 
-def draft_over(request: CompletionRequest) -> str:
+def signs_it_off(_request: CompletionRequest):
+    """A judge with nothing to say. The normal case, and the quiet one."""
+    return answer(json.dumps({"findings": []}))
+
+
+def sends_it_back(check: str = "verdict_fails_on_broken_build", severity: str = "fail"):
+    """A judge that objects, so the revision path can be exercised at all.
+
+    A real model cannot be asked to fail a document on command, which is the
+    same reason `ScriptedModelClient` exists for the fabricating author.
+    """
+
+    def behave(_request: CompletionRequest):
+        return answer(
+            json.dumps(
+                {
+                    "findings": [
+                        {
+                            "check": check,
+                            "severity": severity,
+                            "scenario": "Submitting a valid order shows the confirmation",
+                            "step": "step_002",
+                            "what": "The verdict rests on a banner that appears either way.",
+                            "fix": "Assert the order reference the application computed.",
+                        }
+                    ]
+                }
+            )
+        )
+
+    return behave
+
+
+def document_over(request: CompletionRequest, *, literal: str | None = None) -> str:
     """A document covering whatever events the index lists.
 
-    The stand-in reads the session index it was handed, exactly as a real
-    drafter does, so the same fake works on the two-event fixture and on a
-    recording made by the extension. Accounting for every event is not optional
-    -- `event_coverage` is the net under the drafter's freedom to choose step
+    The stand-in reads the session index it was handed, exactly as the author
+    does, so the same fake works on the two-event fixture and on a recording
+    made by the extension. Accounting for every event is not optional --
+    `event_coverage` is the net under the author's freedom to choose step
     boundaries, and a fake that ignored it would let a regression through.
     """
     import re
 
+    # messages[1] is the user prompt, which carries the session index. Reading
+    # the LAST message instead picks up the tool response on the second turn,
+    # whose only event id is the one that matched -- and both steps then claim
+    # the same event, which `event_coverage` correctly rejects.
     digest = request.messages[1].content or ""
     events = list(dict.fromkeys(re.findall(r"evt_\d+", digest)))
     if not events:
-        return drafted()
-
+        events = ["evt_001", "evt_002"]
     head, tail = events[:1], events[1:] or events[:1]
+
+    step_two: dict = {
+        "id": "step_002",
+        "keyword": "When",
+        "role": "test_step",
+        "text": "the tester places the order",
+        "events": tail,
+    }
+    if literal:
+        step_two["expected"] = "the confirmation banner appears"
+        step_two["evidence"] = {"eventId": tail[-1], "literal": literal}
+    else:
+        step_two["whyNot"] = "Nothing retrieved for this step names the outcome."
+
     return json.dumps(
         {
-            "title": "Order checkout",
+            "feature": "Order checkout",
             "description": "An order is placed and confirmed.",
             "tags": ["checkout"],
             "scenarios": [
                 {
                     "name": "Submitting a valid order shows the confirmation",
-                    "steps": [
-                        {
-                            "keyword": "Given",
-                            "role": "setup",
-                            "text": "the tester opens the order form",
-                            "eventIds": head,
-                        },
-                        {
-                            "keyword": "When",
-                            "role": "test_step",
-                            "text": "the tester places the order",
-                            "eventIds": tail,
-                            "expect": [
-                                {
-                                    "text": "the confirmation banner appears",
-                                    "eventId": tail[-1],
-                                }
-                            ],
-                        },
-                    ],
+                    "steps": ["step_001", "step_002"],
                 }
             ],
-        }
-    )
-
-
-def drafted(expect: list[dict] | None = None) -> str:
-    """A test document over the two-event fixture recording.
-
-    Both events are accounted for, which `event_coverage` requires: the drafter
-    now chooses step boundaries, so that validator is the net under it.
-    """
-    return json.dumps(
-        {
-            "title": "Order checkout",
-            "description": "An order is placed and confirmed.",
-            "tags": ["checkout"],
-            "scenarios": [
+            "steps": [
                 {
-                    "name": "Submitting a valid order shows the confirmation",
-                    "steps": [
-                        {
-                            "keyword": "Given",
-                            "role": "setup",
-                            "text": "the tester fills in the purchase order",
-                            "eventIds": ["evt_001"],
-                        },
-                        {
-                            "keyword": "When",
-                            "role": "test_step",
-                            "text": "the tester places the order",
-                            "eventIds": ["evt_002"],
-                            "expect": expect
-                            if expect is not None
-                            else [
-                                {
-                                    "text": "the confirmation banner appears",
-                                    "eventId": "evt_002",
-                                }
-                            ],
-                        },
-                    ],
-                }
+                    "id": "step_001",
+                    "keyword": "Given",
+                    "role": "setup",
+                    "text": "the tester fills in the purchase order",
+                    "events": head,
+                },
+                step_two,
             ],
         }
     )
 
 
 def grounded_model() -> ScriptedModelClient:
-    """An agent that retrieves, then cites exactly what it retrieved.
+    """An author that retrieves, then cites exactly what it retrieved.
 
-    It reads the tool response rather than assuming: quoting a string it did
-    not actually find is the mistake this whole gate exists to catch, so the
+    It reads the tool response rather than assuming: quoting a string it did not
+    actually find is the mistake this whole gate exists to catch, so the
     well-behaved stand-in must not make it.
     """
 
     def behave(request: CompletionRequest):
         stage = stage_of(request)
-        if stage == "draft":
-            return answer(draft_over(request))
-        if stage == "critic":
-            # Finding nothing is the expected answer for output that reads
-            # well, and a critic that always finds something is the failure
-            # mode SS9.9 is most exposed to.
-            return answer(json.dumps({"findings": []}))
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
         if stage == "coverage":
             return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return signs_it_off(request)
 
         tool_results = [m for m in request.messages if m.role == "tool"]
         if not tool_results:
@@ -187,62 +177,39 @@ def grounded_model() -> ScriptedModelClient:
                 preamble=json.dumps({"uncertainties": ["what the outcome was"]}),
             )
 
-        # Tool results arrive wrapped as {"toolCallId": ..., "result": ...} so
-        # a real model can see the id. This stand-in deliberately does NOT use
-        # it: under draft-then-bind the model names only the literal and the
-        # code resolves which retrieval contains it, so an agent that invents
-        # an id gains nothing by it.
+        # Tool results arrive wrapped as {"toolCallId": ..., "result": ...} so a
+        # real model can see the id. This stand-in deliberately does NOT use it:
+        # the author names only the literal and the code resolves which
+        # retrieval contains it, so an agent that invents an id gains nothing.
         payload = json.loads(tool_results[-1].content or "{}")
         matches = (payload.get("result") or {}).get("matches") or []
-        if not matches:
-            # Nothing was found, so there is nothing to claim. Answering
-            # `unsupported` is the correct outcome, not a failure.
-            return answer(json.dumps({"verdict": "unsupported", "reason": "not in the recording"}))
-
-        return answer(
-            json.dumps(
-                {
-                    "verdict": "bind",
-                    "literal": CONFIRMATION,
-                    "eventId": matches[0]["eventId"],
-                    "kind": "semantic_node",
-                    "reason": "the banner says so",
-                }
-            )
-        )
+        # Nothing found means nothing to claim, and the author says so in
+        # `whyNot` rather than claiming anyway. That is the correct outcome, not
+        # a failure.
+        return answer(document_over(request, literal=CONFIRMATION if matches else None))
 
     return ScriptedModelClient(behave)
 
 
 def fabricating_model() -> ScriptedModelClient:
-    """A model that claims something it never retrieved.
+    """An author that claims something it never retrieved.
 
-    A real model cannot be asked to do this on command, which is exactly why
-    the scripted client exists. Note what it is no longer able to fake: under
-    draft-then-bind there is no `toolCallId` field for it to fill in, so the
-    only lie available is to quote a literal it did not see -- and that is
-    caught by looking for the string in its own retrievals.
+    A real model cannot be asked to do this on command, which is exactly why the
+    scripted client exists. Note what it is no longer able to fake: there is no
+    `toolCallId` field for it to fill in, so the only lie available is to quote
+    a literal it did not see -- and that is caught by looking for the string in
+    its own retrievals.
     """
 
     def behave(request: CompletionRequest):
         stage = stage_of(request)
-        if stage == "draft":
-            return answer(draft_over(request))
-        if stage == "critic":
-            return answer(json.dumps({"findings": []}))
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
         if stage == "coverage":
             return answer(json.dumps({"suggestions": []}))
-        return answer(
-            json.dumps(
-                {
-                    "verdict": "bind",
-                    "literal": "Everything went perfectly",
-                    "eventId": "evt_002",
-                    "kind": "semantic_node",
-                    "reason": "I am confident about this",
-                }
-            )
-        )
+        if stage == "judge":
+            return signs_it_off(request)
+        return answer(document_over(request, literal="Everything went perfectly"))
 
     return ScriptedModelClient(behave)
 
@@ -260,21 +227,24 @@ def storage(tmp_path: Path) -> Storage:
 def test_a_run_produces_every_artifact(storage: Storage):
     result = run_pipeline(recording(), grounded_model(), storage=storage, run_id="run_001")
 
-    for name in ("segments", "draft", "split", "assertions", "ir", "trace"):
+    for name in ("segments", "expectations", "author", "judge", "ir", "trace"):
         assert result.artifacts[name].exists(), f"{name}.json was not written"
     # Each stage reads a file and writes a file, so a wrong output can be
-    # traced to the stage that produced it (SS9.1). This is the default
-    # configuration -- tools on, critic off -- so there is exactly one pass of
-    # render and validate and no repair.
+    # traced to the stage that produced it (SS9.1). One pass of each: the
+    # scripted model's document draws no `fail` from the judge and nothing at
+    # the gate rejects it, so the revision round never opens. That is the
+    # normal shape -- `test_a_judge_fail_buys_exactly_one_more_author_round`
+    # is the other one.
     assert [s.stage.value for s in result.trace.stages] == [
         "segment",
-        "decompose",
-        "split",
-        "assert",
+        "expectations",
+        "author",
         "render",
         "validate",
+        "judge",
         "coverage",
     ]
+    assert result.revision_rounds == 1
     assert result.artifacts["coverage"].exists()
     assert result.rendered
     assert list(result.run.root.glob("*.feature"))
@@ -296,10 +266,10 @@ def test_a_claim_the_model_did_not_retrieve_never_reaches_the_output(storage: St
 
     Under retrieve-first the model supplied its own `toolCallId` and the gate
     caught a bad one after the fact. It cannot supply one at all now: it names
-    a literal, and `bind.py` searches the retrievals the agent actually made
-    for a response containing that string. This model quotes something no tool
-    ever returned, so there is nothing to resolve and the claim is DELETED --
-    it never reaches the feature file to be rejected there.
+    a literal, and `evidence.citation` searches the retrievals the agent
+    actually made for a response containing that string. This model quotes
+    something no tool ever returned, so there is nothing to resolve and the
+    claim never reaches the feature file to be rejected there.
 
     The test that this replaces asserted the weaker property: that a fabricated
     citation was caught. Catching it was never as good as making it
@@ -310,10 +280,12 @@ def test_a_claim_the_model_did_not_retrieve_never_reaches_the_output(storage: St
     claimed = [a.text for c in result.ir.testCases for s in c.steps for a in s.assertions]
     assert claimed == [], f"an unretrieved claim reached the output: {claimed}"
 
-    # And it is not silently absent: the run says which claim it dropped and why.
-    dropped = [c for c in result.bound.claims if c.assertion is None]
-    assert dropped, "the claim should be recorded as dropped, not simply missing"
-    assert "does not appear in any response" in dropped[0].reason
+    # And it is not silently absent -- which is the half the old pipeline got
+    # wrong. The claim is recorded as refused WITH ITS REASON, and the step
+    # carries a sentence a tester can act on instead of just ending.
+    assert result.document.refused, "a refused claim must be recorded, not simply missing"
+    assert "nothing this run retrieved" in result.document.refused[0]["reason"]
+    assert any(s.why_not for s in result.document.steps)
 
     # Nothing was rejected, because nothing false was emitted. A configuration
     # that abstains has a vacuous grounding rate -- read it with Yield.
@@ -345,49 +317,271 @@ def test_the_written_trace_round_trips_through_the_schema(storage: Storage):
 
 
 def test_a_leaked_secret_prevents_the_feature_file_from_being_written(storage: Storage):
-    leaky = ScriptedModelClient(
-        lambda request: (
-            answer(
-                drafted(expect=[])
-                if stage_of(request) == "draft"
-                else json.dumps({"findings": [], "suggestions": []})
-            )
-            if stage_of(request) != "draft"
-            else answer(
-                json.dumps(
-                    {
-                        "title": "Sign in",
-                        "description": "",
-                        "tags": [],
-                        "scenarios": [
-                            {
-                                "name": "Signing in",
-                                "steps": [
-                                    {
-                                        "keyword": "Given",
-                                        "role": "setup",
-                                        "text": "the tester signs in as tester@example.com",
-                                        "eventIds": ["evt_001"],
-                                    },
-                                    {
-                                        "keyword": "When",
-                                        "role": "test_step",
-                                        "text": "the tester places the order",
-                                        "eventIds": ["evt_002"],
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                )
+    """`no_placeholder_leak` is the only hard fail, and it erases the output.
+
+    A real model cannot be asked to leak on command, which is what the scripted
+    client is for. Note the shape: the leak is in the STEP TEXT, not in a
+    citation -- redaction happens in the browser, so a value reaching the
+    document at all means something upstream is wrong, and shipping the file
+    anyway would put the secret in an xlsx and a Jira issue too.
+    """
+
+    def behave(request: CompletionRequest):
+        if stage_of(request) != "author":
+            return answer(json.dumps({"expectations": [], "suggestions": []}))
+        return answer(
+            json.dumps(
+                {
+                    "feature": "Sign in",
+                    "description": "",
+                    "tags": [],
+                    "scenarios": [{"name": "Signing in", "steps": ["step_001", "step_002"]}],
+                    "steps": [
+                        {
+                            "id": "step_001",
+                            "keyword": "Given",
+                            "role": "setup",
+                            "text": "the tester signs in as tester@example.com",
+                            "events": ["evt_001"],
+                        },
+                        {
+                            "id": "step_002",
+                            "keyword": "When",
+                            "role": "test_step",
+                            "text": "the tester places the order",
+                            "events": ["evt_002"],
+                        },
+                    ],
+                }
             )
         )
+
+    result = run_pipeline(
+        recording(), ScriptedModelClient(behave), storage=storage, run_id="run_003"
     )
-    result = run_pipeline(recording(), leaky, storage=storage, run_id="run_003")
 
     assert result.report.hard_failed
     assert result.rendered == {}
     assert not list(result.run.root.glob("*.feature"))
+
+
+# --------------------------------------------------------------------------
+# the judge, and the one revision it can ask for
+# --------------------------------------------------------------------------
+
+
+def judging_model(judge, *, author_literal: str | None = CONFIRMATION) -> ScriptedModelClient:
+    """A well-behaved author with a judge of the caller's choosing."""
+
+    def behave(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return judge(request)
+        return answer(document_over(request, literal=author_literal))
+
+    return ScriptedModelClient(behave)
+
+
+def test_a_judge_fail_buys_exactly_one_more_author_round(storage: Storage):
+    # SS9.9 with the routing table removed. The old loop was bounded at three
+    # attempts PER STAGE and resolved one finding in nine, because five of the
+    # survivors were `coherence` and had no route in the table at all. There is
+    # one route now -- back to the author, which wrote the document -- and the
+    # bound is on rounds rather than on stages.
+    #
+    # Two, not more. Every rewrite risks `merge_repeats` folding two steps into
+    # one, and a document nobody signs after one honest revision is saying
+    # something upstream is wrong.
+    result = run_pipeline(
+        recording(), judging_model(sends_it_back()), storage=storage, run_id="run_001"
+    )
+
+    assert result.revision_rounds == 2
+    assert [s.stage.value for s in result.trace.stages].count("author") == 2
+    assert [s.stage.value for s in result.trace.stages].count("judge") == 2
+
+
+def test_a_weak_finding_is_reported_and_does_not_spend_a_round(storage: Storage):
+    # `weak` is what a QA lead would sign after an edit. Rewriting a document
+    # that was already acceptable costs an author round and risks a step, so
+    # weak findings reach the trace and the reviewer without buying a rewrite.
+    result = run_pipeline(
+        recording(),
+        judging_model(sends_it_back(severity="weak")),
+        storage=storage,
+        run_id="run_001",
+    )
+
+    assert result.revision_rounds == 1
+    assert result.judgement is not None
+    assert [f.severity for f in result.judgement.findings] == ["weak"]
+    assert result.judgement.fails == []
+
+
+def test_the_judge_never_reaches_the_tester(storage: Storage):
+    # The critic put `coherence: weak` in the review UI, in a vocabulary nobody
+    # outside the pipeline reads. A finding is input to the author; what a
+    # reviewer sees is prose -- the step's own `whyNot`, in their language.
+    result = run_pipeline(
+        recording(),
+        judging_model(sends_it_back(severity="weak")),
+        storage=storage,
+        run_id="run_001",
+    )
+
+    feature = next(iter(result.rendered.values()))
+    assert "verdict_fails_on_broken_build" not in feature
+    assert "weak" not in feature
+    assert "The verdict rests on" not in feature
+
+
+def test_an_unresolved_finding_is_recorded_as_exhausted_rather_than_dropped(storage: Storage):
+    # `Converged` measured how much of what the critic said the loop was
+    # ALLOWED to act on, because findings it never reached vanished from the
+    # trace. This project has met that denominator trap in six columns; a
+    # finding that survives the last round stays visible as one.
+    result = run_pipeline(
+        recording(), judging_model(sends_it_back()), storage=storage, run_id="run_001"
+    )
+
+    assert result.trace.repairAttempts
+    last = result.trace.repairAttempts[-1]
+    assert last.exhausted
+    assert not last.resolved
+    assert last.trigger.value == "judge"
+
+
+def test_the_first_attempt_gate_is_the_first_attempts(storage: Storage):
+    # SS3.5 asks for the first-attempt rate by name, and a second round
+    # overwrites `report` entirely. Reporting only the second would be the
+    # revision loop marking its own homework.
+    result = run_pipeline(
+        recording(), judging_model(sends_it_back()), storage=storage, run_id="run_001"
+    )
+
+    from server.pipeline.run import _pass_rate
+
+    assert result.first_report is not None
+    assert result.revision_rounds == 2
+    assert result.trace.metrics.validatorFirstPassRate == pytest.approx(
+        _pass_rate(result.first_report)
+    )
+    # And it is a different object from the final report, not an alias -- the
+    # coverage stage edits `report.results` in place and would otherwise
+    # backdate itself into the first-attempt number.
+    assert result.first_report is not result.report
+
+
+def test_a_revision_that_would_lose_a_step_is_refused_whole(storage: Storage):
+    # `merge_repeats` folds any two ADJACENT steps whose text matches exactly,
+    # so a rewrite prompted with "this verdict proves nothing" can make one
+    # step's name generic enough to swallow its neighbour. That changes the step
+    # COUNT between two attempts of the same run -- SS3.6 promises it does not
+    # -- and moves `Yield`'s denominator, so the metric improves because a step
+    # vanished.
+    #
+    # `narrative.would_collapse` is this guard for a single-step rewrite. A
+    # whole-document rewrite has no index to ask about, so the question becomes
+    # whether the revision contains such a pair at all.
+    same = "the tester places the order"
+
+    def behave(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return sends_it_back()(request)
+        # The revision is recognisable by the feedback block the author is
+        # handed, which is the same thing a real model would key on.
+        if "came back" in (request.messages[1].content or ""):
+            return answer(
+                json.dumps(
+                    {
+                        "feature": "Order checkout",
+                        "description": "An order is placed and confirmed.",
+                        "tags": ["checkout"],
+                        "scenarios": [
+                            {"name": "Placing an order", "steps": ["step_001", "step_002"]}
+                        ],
+                        "steps": [
+                            {
+                                "id": "step_001",
+                                "keyword": "When",
+                                "role": "test_step",
+                                "text": same,
+                                "events": ["evt_001"],
+                            },
+                            {
+                                "id": "step_002",
+                                "keyword": "When",
+                                "role": "test_step",
+                                "text": same,
+                                "events": ["evt_002"],
+                            },
+                        ],
+                    }
+                )
+            )
+        return answer(document_over(request, literal=CONFIRMATION))
+
+    result = run_pipeline(
+        recording(), ScriptedModelClient(behave), storage=storage, run_id="run_001"
+    )
+
+    # The first document shipped, whole. Not a patched version of the second.
+    assert [s.text for s in result.document.steps] == [
+        "the tester fills in the purchase order",
+        "the tester places the order",
+    ]
+    assert any("previous document" in r.finding for r in result.trace.repairAttempts)
+
+
+def test_a_judge_that_fails_degrades_the_run_rather_than_ending_it(storage: Storage):
+    # A judgement is worth less than the document it judges. A run lost to a
+    # critic is exactly what the rebuild deleted, so the stage says it did not
+    # run rather than returning a clean verdict it never reached.
+    def behave(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            raise RuntimeError("the provider is having a day")
+        return answer(document_over(request, literal=CONFIRMATION))
+
+    result = run_pipeline(
+        recording(), ScriptedModelClient(behave), storage=storage, run_id="run_001"
+    )
+
+    assert result.judgement is not None
+    assert "the provider is having a day" in result.judgement.failed
+    assert result.rendered
+    assert result.revision_rounds == 1
+
+
+def test_a0_has_no_judge_because_it_cannot_look(storage: Storage):
+    # The judge is gated on its own flag, never on an ablation arm, so an arm is
+    # never the difference between two changes at once. A0 is the exception the
+    # rule implies rather than an exception to it: its first question is whether
+    # a verdict would survive a broken build, and answering that means looking.
+    result = run_pipeline(
+        recording(),
+        judging_model(sends_it_back()),
+        storage=storage,
+        run_id="run_001",
+        options=PipelineOptions.for_config(AblationConfig.A0),
+    )
+
+    assert result.judgement is None
+    assert result.revision_rounds == 1
+    assert "judge" not in [s.stage.value for s in result.trace.stages]
 
 
 # --------------------------------------------------------------------------
@@ -459,35 +653,19 @@ def test_the_ablation_finding_is_stated_either_way(storage: Storage):
     # SS3.5 -- "if A1 is roughly A2, that is a genuine finding worth knowing in
     # month two rather than month five." The harness must say so, not bury it.
     #
-    # `grounded_model` produces output the critic has nothing to say about, so
-    # this is the null case: A1 and A2 really did run the same pipeline, and the
-    # sentence has to say that rather than imply a difference it cannot see.
+    # `grounded_model` produces output the judge has nothing to say about, so
+    # this is the null case: the oracle changed nothing on this recording, and
+    # the sentence has to say that rather than imply a difference it cannot see.
     report = run_ablation([recording()], grounded_model(), storage=storage, model_name="scripted-1")
     finding = report.finding()
     assert "must not be read alone" in finding
-    assert "raised no findings" in finding
-    assert report.rows["A2"].critic_findings == 0
-    # And the vacuous reading is refused: no findings is not perfect
-    # convergence, for the same reason abstaining is not perfect grounding.
-    assert report.rows["A2"].repair_convergence_rate == 0.0
-
-
-def test_the_finding_reports_a_critic_that_did_have_something_to_say(storage: Storage):
-    # The other branch. A2's row is only worth printing if the sentence beside
-    # it can distinguish "the critic found nothing" from "the critic found
-    # things and fixed them".
-    from tests.test_critic import scripted
-
-    model = scripted(
-        names=["the tester clicks the button", "the tester places the order"],
-        findings=[{"step": "step_001", "kind": "step_name", "finding": "describes a mouse"}],
-        later_findings=[],
-    )
-    report = run_ablation([recording()], model, storage=storage, model_name="scripted-1")
-
-    assert report.rows["A2"].critic_findings >= 1
-    assert report.rows["A1"].critic_findings == 0, "A1 has no critic, by definition (SS3.5)"
-    assert "resolved" in report.finding()
+    assert "nothing to say" in finding
+    assert report.rows["A2"].judge_findings == 0
+    # And the vacuous reading is refused by construction: there is no rate over
+    # zero findings to report as 1.0. A count of nothing is a count of nothing,
+    # which is the whole reason `Converged` was replaced by two counts.
+    assert report.rows["A2"].judge_fails == 0
+    assert "Converged" not in report.table()
 
 
 def test_the_report_is_written_as_a_reusable_artifact(storage: Storage, tmp_path: Path):
@@ -518,24 +696,20 @@ def test_the_spine_runs_over_a_real_recorded_session(storage: Storage):
     assert result.report.ok, result.report.summary()
     assert result.grounding_rate == 1.0
 
-    # One drafting investigation for the whole document, one coverage pass, and
-    # binding investigations only where a claim was contested. That last number
-    # is not fixed and must not be: it is the difference between an agent that
-    # investigates and a chain that retrieves on a schedule (SS3.3).
+    # One investigation for the whole document, and one coverage pass. It used
+    # to be one drafting investigation plus one per contested claim across four
+    # more stages; the retrieval that settled a claim now happens inside the
+    # author's own loop, which is where SS3.3 always said it belonged.
     from collections import Counter
 
     per_stage = Counter(i.stage.value for i in result.trace.investigations)
-    assert per_stage["decompose"] == 1, "the document is written once, by one author"
+    assert per_stage["author"] == 1, "the document is written once, by one author"
     assert per_stage["coverage"] == 1
-    assert per_stage["assert"] <= len(result.draft.steps), (
-        "binding must cost at most one investigation per claim, and fewer when "
-        "the deterministic pass can settle one"
-    )
 
     feature = next(iter(result.rendered.values()))
     assert "Feature:" in feature
     # The evidence left the feature body and became a document beside it. The
-    # binding itself is untouched: the pointer still resolves in the trace,
+    # citation itself is untouched: the pointer still resolves in the trace,
     # which is what `evidence_retrieved` reads (SS3.2).
     sidecar = next(iter(result.sidecars.values()))
     for case in result.ir.testCases:
@@ -559,10 +733,10 @@ def test_an_intent_note_becomes_the_step_name_word_for_word():
     # by asking it not to paraphrase. A prompt that asks is not a guarantee.
     from server.evidence.store import EvidenceStore
     from server.models import SegmentRole
-    from server.pipeline.draft import (
-        DraftedScenario,
-        DraftedStep,
-        DraftResult,
+    from server.pipeline.author import (
+        AuthoredDocument,
+        AuthoredScenario,
+        AuthoredStep,
         apply_intent_notes,
     )
     from server.pipeline.segment import segment_recording
@@ -581,18 +755,18 @@ def test_an_intent_note_becomes_the_step_name_word_for_word():
     )
     store = EvidenceStore(recording=rec, segments=segment_recording(rec, run_id="run_001"))
 
-    drafted = DraftResult(
+    drafted = AuthoredDocument(
         title="t",
         description="",
         tags=[],
         scenarios=[
-            DraftedScenario(
+            AuthoredScenario(
                 name="s",
                 steps=[
-                    DraftedStep(
+                    AuthoredStep(
                         "step_001", "Given", SegmentRole.setup, "the tester signs in", ["evt_001"]
                     ),
-                    DraftedStep(
+                    AuthoredStep(
                         "step_002",
                         "When",
                         SegmentRole.test_step,
@@ -612,75 +786,6 @@ def test_an_intent_note_becomes_the_step_name_word_for_word():
     assert drafted.steps[0].text == "the tester signs in"
 
 
-def test_a_dictated_step_is_not_the_repair_loops_to_rewrite():
-    # SS6.7 and SS12.2 are the same promise from two directions: text a human
-    # chose is not the tool's to improve. Enforced in `repair.targets` as well
-    # as at the point of use, because a critic finding about a step the tester
-    # named themselves is a finding about the tester's wording.
-    from server.models import PipelineStage, RepairTrigger
-    from server.pipeline.critic import Finding
-    from server.pipeline.repair import targets
-
-    finding = Finding(
-        step_id="step_002",
-        kind="step_name",
-        message="this step name is vague",
-    )
-    empty = f.validation_report(results=[])
-
-    assert (
-        targets(empty, [finding], protected={"step_002"}, known_steps={"step_001", "step_002"})
-        == []
-    )
-    # Unprotected, the same finding is actionable -- so the guard above is
-    # doing the work, not the absence of a route.
-    unprotected = targets(empty, [finding], protected=set(), known_steps={"step_001", "step_002"})
-    assert [t.step_id for t in unprotected] == ["step_002"]
-    assert unprotected[0].stage == PipelineStage.name
-    assert unprotected[0].trigger == RepairTrigger.critic
-
-
-def test_library_verbatim_rejects_a_reuse_claim_that_was_rewritten(tmp_path: Path):
-    # 47 lines of this validator have existed since Phase 1 and never once run,
-    # because nothing ever set `libraryRef`. It is the thing that makes reuse
-    # real rather than aspirational: a model that paraphrases an approved step
-    # while claiming to reuse it reintroduces the step explosion the library
-    # exists to prevent, and does it with a citation saying otherwise.
-    from server.library import StepLibrary
-    from server.pipeline.validators.consistency import library_verbatim
-
-    library = StepLibrary(tmp_path / "library.db")
-    entry = library.add("the tester signs in")
-    assert entry is not None
-
-    honest = f.step("step_001", "the tester signs in", assertions=[])
-    honest.libraryRef = entry.id
-    liar = f.step("step_002", "the tester logs in to the app", assertions=[])
-    liar.libraryRef = entry.id
-
-    ctx = f.validation_context(ir_doc=f.ir_document(test_cases=[f.test_case(steps=[honest, liar])]))
-    ctx.library = library
-    results = list(library_verbatim(ctx))
-
-    failures = [r for r in results if r.status == ValidatorStatus.fail]
-    assert len(failures) == 1
-    assert failures[0].stepId == "step_002"
-    assert failures[0].action == ValidatorAction.reject
-
-
-def test_a_reuse_claim_with_no_library_is_not_admissible(tmp_path: Path):
-    # A claim that cannot be checked is not a claim. Rejecting rather than
-    # skipping is the same posture as SS3.2's evidence binding: the gate does
-    # not wave through what it was unable to verify.
-    from server.pipeline.validators.consistency import library_verbatim
-
-    step = f.step("step_001", "the tester signs in", assertions=[])
-    step.libraryRef = "lib_whatever"
-    ctx = f.validation_context(ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]))
-    results = list(library_verbatim(ctx))
-    assert [r.action for r in results] == [ValidatorAction.reject]
-
-
 def test_a_step_always_says_who_is_doing_it():
     # A step is a sentence about a person. Dropped, it reads as an instruction
     # to whoever is holding the document and matches no step definition. This
@@ -688,7 +793,7 @@ def test_a_step_always_says_who_is_doing_it():
     # subject produced "submits an order totalling "615"" with nobody
     # submitting anything, and the prompt had said to include it twice.
     from server.config import ProjectConfig
-    from server.pipeline.draft import with_subject
+    from server.pipeline.author import with_subject
 
     config = ProjectConfig()
     assert with_subject('submits an order totalling "615"', config) == (
@@ -704,165 +809,13 @@ def test_a_step_always_says_who_is_doing_it():
     assert with_subject("submit the order", ProjectConfig(voice="I")) == "submit the order"
 
 
-def test_a_mandatory_search_is_not_evidence_of_investigation():
-    # SS3.3's claim is that effort varies with difficulty -- "a step with an
-    # obvious outcome costs zero calls; an ambiguous one costs several" -- and
-    # the ablation's Spread column is how that is measured. A call the process
-    # mandates on EVERY step is a constant added to every reading, and it did
-    # real damage: search-before-invent lifted calls-per-step from 1.56 to 2.17
-    # and collapsed spread from 1.08 to 0.16, which reads as an agent that
-    # stopped adapting when nothing of the sort had happened.
-    #
-    # The per-step library search went with the naming stage, but the exclusion
-    # stays, because the rule it encodes is general and the next mandatory call
-    # will make the same mistake.
-    #
-    # They still count as tool calls -- they are real, and they cost quota. They
-    # are just not evidence that this step was hard.
-    from server.models import PipelineStage, StepInvestigation, ToolCall
-    from server.pipeline.run import _calls_per_step
-
-    def call(ident: str, tool: str) -> ToolCall:
-        return ToolCall(
-            id=ident,
-            stage=PipelineStage.assert_,
-            tool=tool,
-            args={},
-            responsePath=f"tools/{ident}.json",
-            responseHash="sha256:0",
-            timestamp=0.0,
-            durationMs=0.0,
-        )
-
-    def investigation(ident: str, tool_call_ids: list[str]) -> StepInvestigation:
-        return StepInvestigation(
-            id=ident,
-            stepId="step_001",
-            stage=PipelineStage.assert_,
-            initialUncertainty=[],
-            toolCallIds=tool_call_ids,
-            budgetUsed=len(tool_call_ids),
-            budgetMax=8,
-            stopReason="evidence_sufficient",
-        )
-
-    investigations = [investigation("inv_001", ["tc_0001", "tc_0002"])]
-    calls = [call("tc_0001", "search_step_library"), call("tc_0002", "find_text")]
-
-    assert _calls_per_step(investigations, calls) == {"step_001": 1}
-    # With no trace supplied, nothing is excluded -- the metric degrades to the
-    # old behaviour rather than silently reporting zero effort everywhere.
-    assert _calls_per_step(investigations, None) == {"step_001": 2}
-
-    # A repair adds a second investigation for the same step and does not undo
-    # the cost of the first. Under-reporting the step that took two passes would
-    # hide exactly the step SS3.4's correlation exists to find -- the hard one.
-    investigations.append(investigation("inv_001_r2", ["tc_0003"]))
-    assert _calls_per_step(investigations, calls) == {"step_001": 2}
-
-
-def test_the_binders_mandatory_retrieval_is_not_counted_as_effort():
-    # The deterministic binding pass confirms a claim with one mandatory
-    # `get_snapshot`. That is a process-mandated call, not investigation -- the
-    # same thing `ROUTINE_TOOLS` excludes, arriving by a different door, and
-    # `ROUTINE_TOOLS` cannot catch it because it filters by tool NAME and
-    # `get_snapshot` is genuine effort elsewhere.
-    #
-    # It gave every bound claim a floor of exactly 1: 9 of 13 runs read a column
-    # of constant 1s, on a metric whose whole purpose is variance. The step is
-    # still reported -- at zero -- because "this step cost nothing" and "this
-    # step was never looked at" are different facts.
-    from server.models import PipelineStage, StepInvestigation
-    from server.pipeline.run import _calls_per_step
-
-    mandatory = StepInvestigation(
-        id="inv_bind_step_001_001",
-        stepId="step_001",
-        stage=PipelineStage.assert_,
-        initialUncertainty=[],
-        toolCallIds=["tc_0009"],
-        budgetUsed=1,
-        budgetMax=1,
-        stopReason="no_investigation_needed",
-    )
-    contested = StepInvestigation(
-        id="inv_bind_step_002",
-        stepId="step_002",
-        stage=PipelineStage.assert_,
-        initialUncertainty=["which of these is the verdict"],
-        toolCallIds=["tc_0010", "tc_0011", "tc_0012"],
-        budgetUsed=3,
-        budgetMax=6,
-        stopReason="evidence_sufficient",
-    )
-
-    assert _calls_per_step([mandatory, contested], None) == {"step_001": 0, "step_002": 3}
-
-
-def test_the_binders_mandatory_retrieval_is_still_a_real_call():
-    # It costs quota and it is what the claim cites, so `budgetMax` must be
-    # honest too: the review UI and the sidecar both render "used N of M" and
-    # were printing "used 1 of 0".
-    from server.pipeline import bind
-
-    source = (Path(bind.__file__)).read_text(encoding="utf-8")
-    assert "budgetMax=0" not in source
-
-
-def test_a_step_about_a_refused_change_satisfies_mutation_claimed():
-    # The tester submits an order over the approval threshold, the server says
-    # no, and the expected result cites that refusal. "No successful mutation"
-    # is the finding here, not a defect -- and it is exactly what a test about
-    # an approval rule looks like.
-    #
-    # Judged on evidence, not on reading the sentence: an accepted assertion has
-    # to be grounded IN the rejected request's own event, which a step that
-    # merely failed cannot fake.
-    from server.pipeline.validators.consistency import mutation_claimed
-
-    assertion = f.assertion("a1", "the order requires manager approval")
-    assertion.evidence.eventId = "evt_001"
-    step = f.step(
-        "step_001",
-        "the tester submits an order that is rejected",
-        assertions=[assertion],
-        event_ids=["evt_001"],
-    )
-    recording = f.recording(events=[f.event("evt_001", 0, network=[f.network_call(status=409)])])
-    ctx = f.validation_context(
-        ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]),
-        recording_doc=recording,
-    )
-    assert not [r for r in mutation_claimed(ctx) if r.status == ValidatorStatus.fail]
-
-
-def test_a_step_claiming_a_change_that_never_happened_still_fails():
-    # The other half. Without a grounded rejection to point at, a step that says
-    # data changed and shows no successful request is making a claim the
-    # recording does not support.
-    from server.pipeline.validators.consistency import mutation_claimed
-
-    step = f.step(
-        "step_001",
-        "the tester submits the order and it is saved",
-        assertions=[],
-        event_ids=["evt_001"],
-    )
-    recording = f.recording(events=[f.event("evt_001", 0, network=[])])
-    ctx = f.validation_context(
-        ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]),
-        recording_doc=recording,
-    )
-    assert [r for r in mutation_claimed(ctx) if r.status == ValidatorStatus.fail]
-
-
 def _drafted_over(event_ids: list[str], per_step: int = 1):
     """A drafted document with `per_step` events per step, for shape tests."""
     from server.models import SegmentRole
-    from server.pipeline.draft import DraftedScenario, DraftedStep, DraftResult
+    from server.pipeline.author import AuthoredDocument, AuthoredScenario, AuthoredStep
 
     steps = [
-        DraftedStep(
+        AuthoredStep(
             step_id=f"step_{i + 1:03d}",
             keyword="When",
             role=SegmentRole.test_step,
@@ -871,11 +824,11 @@ def _drafted_over(event_ids: list[str], per_step: int = 1):
         )
         for i in range((len(event_ids) + per_step - 1) // per_step)
     ]
-    return DraftResult(
+    return AuthoredDocument(
         title="t",
         description="",
         tags=[],
-        scenarios=[DraftedScenario(name="one scenario", steps=steps)],
+        scenarios=[AuthoredScenario(name="one scenario", steps=steps)],
     )
 
 
@@ -1030,31 +983,28 @@ def test_a_break_inside_a_step_does_not_cut_it_in_half():
 
 
 def _drafts(payload: dict):
-    """A model that returns one drafted document and nothing else of interest."""
+    """A model that returns one authored document and nothing else of interest."""
 
     def behave(request: CompletionRequest):
-        if stage_of(request) != "draft":
-            return answer(json.dumps({"findings": [], "suggestions": []}))
+        if stage_of(request) != "author":
+            return answer(json.dumps({"expectations": [], "suggestions": []}))
         return answer(json.dumps(payload))
 
     return ScriptedModelClient(behave)
 
 
 ONE_STEP = {
-    "title": "Order checkout",
+    "feature": "Order checkout",
     "description": "",
     "tags": [],
-    "scenarios": [
+    "scenarios": [{"name": "Placing an order", "steps": ["step_001"]}],
+    "steps": [
         {
-            "name": "Placing an order",
-            "steps": [
-                {
-                    "keyword": "When",
-                    "role": "test_step",
-                    "text": "the tester places the order",
-                    "eventIds": ["evt_002"],
-                }
-            ],
+            "id": "step_001",
+            "keyword": "When",
+            "role": "test_step",
+            "text": "the tester places the order",
+            "events": ["evt_002"],
         }
     ],
 }
@@ -1067,14 +1017,14 @@ def test_a_wrong_turn_is_reported_rather_than_deleted(storage: Storage):
     # a reader would trust the narrative for a session it never covered.
     #
     # The judgement moved. It used to be a role the composer put on a step,
-    # which `_prune` then removed; the drafter now says outright which events
+    # which `_prune` then removed; the author now says outright which events
     # are not part of the test, and `event_coverage` is what makes that
     # accounting mandatory rather than polite.
     payload = {
         **ONE_STEP,
         "omitted": [
             {
-                "eventIds": ["evt_001"],
+                "events": ["evt_001"],
                 "reason": "exploratory",
                 "summary": "opened the wrong form and came back",
             }
@@ -1093,8 +1043,8 @@ def test_a_wrong_turn_is_reported_rather_than_deleted(storage: Storage):
     assert coverage and coverage[0].status != ValidatorStatus.fail, coverage[0].message
 
 
-def test_an_event_the_drafter_forgot_is_rejected(storage: Storage):
-    # The net under the drafter's freedom to choose step boundaries. It decides
+def test_an_event_the_author_forgot_is_rejected(storage: Storage):
+    # The net under the author's freedom to choose step boundaries. It decides
     # what a step is now, so "every event lands in a step or in an explicit
     # omission" is the one structural promise left, and it is code.
     result = run_pipeline(recording(), _drafts(ONE_STEP), storage=storage, run_id="run_dropped")
@@ -1102,53 +1052,6 @@ def test_an_event_the_drafter_forgot_is_rejected(storage: Storage):
     coverage = [r for r in result.report.results if r.validator.value == "event_coverage"]
     assert coverage and coverage[0].status == ValidatorStatus.fail
     assert "evt_001" in (coverage[0].message or "")
-
-
-def test_an_expected_result_that_looks_back_is_not_a_mutation_claim():
-    # "the shopping bag displays the item previously added" is a claim about
-    # what is on screen NOW. The adding happened two steps earlier and this
-    # step issued no request at all, so read as a mutation claim it fails a
-    # validator that is right about everything except which step it means.
-    #
-    # Found on a real recording, where it was the run's only rejection.
-    from server.pipeline.validators.consistency import mutation_claimed
-
-    assertion = f.assertion("a1", "the shopping bag page displays the item previously added")
-    assertion.evidence.eventId = "evt_001"
-    step = f.step(
-        "step_001",
-        "the tester views the shopping bag",
-        assertions=[assertion],
-        event_ids=["evt_001"],
-    )
-    recording = f.recording(events=[f.event("evt_001", 0, network=[])])
-    ctx = f.validation_context(
-        ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]),
-        recording_doc=recording,
-    )
-    assert not [r for r in mutation_claimed(ctx) if r.status == ValidatorStatus.fail]
-
-
-def test_a_plain_mutation_claim_still_has_to_prove_itself():
-    # The narrow rule above must not become a way out of the check. Without a
-    # past-reference marker next to the verb, "the order is saved" is a claim
-    # about what this step did and still needs a successful mutating request.
-    from server.pipeline.validators.consistency import mutation_claimed
-
-    assertion = f.assertion("a1", "the order is saved")
-    assertion.evidence.eventId = "evt_001"
-    step = f.step(
-        "step_001",
-        "the tester confirms the order",
-        assertions=[assertion],
-        event_ids=["evt_001"],
-    )
-    recording = f.recording(events=[f.event("evt_001", 0, network=[])])
-    ctx = f.validation_context(
-        ir_doc=f.ir_document(test_cases=[f.test_case(steps=[step])]),
-        recording_doc=recording,
-    )
-    assert [r for r in mutation_claimed(ctx) if r.status == ValidatorStatus.fail]
 
 
 def test_a_rerun_does_not_leave_the_previous_shape_behind(storage: Storage):
@@ -1176,43 +1079,14 @@ def test_a_rerun_does_not_leave_the_previous_shape_behind(storage: Storage):
     assert (result.run.root / "trace.json").is_file()
 
 
-def test_bug_mode_can_actually_be_turned_on():
-    # SS14 is built, verified and was unreachable: `bug_mode_enabled` defaults
-    # to False -- for a reason argued in `PipelineOptions`, that on a commercial
-    # site the uncaught-exception signal fires on third-party advertising -- and
-    # not one caller anywhere set it. The CLI, the API and the ablation all took
-    # the default, so a whole stage could not be run.
-    #
-    # A default is a default. An absence of a switch is a stage that does not
-    # ship.
-    from server.cli import main
-
-    parser_error: list[str] = []
-    try:
-        main(["run", "nonexistent.json", "--bug-mode"])
-    except SystemExit as exc:  # argparse rejects an unknown flag with SystemExit(2)
-        parser_error.append(str(exc))
-    except FileNotFoundError:
-        pass  # the flag parsed; the recording is what is missing
-
-    assert parser_error != ["2"], "--bug-mode is not a recognised flag"
-
-    from server.models import AblationConfig
-
-    options = PipelineOptions.for_config(AblationConfig.A2, bug_mode_enabled=True)
-    assert options.bug_mode_enabled is True
-
-
 def test_a0_makes_no_retrieval_of_any_kind(storage: Storage):
     # SS3.5 defines A0 as "single prompt, all context pre-loaded, no tools",
     # and the whole point of the row is SS3.2's claim that without retrieval a
     # model cannot ground anything.
     #
-    # The deterministic binding pass is cheap and needs no model, but it still
-    # calls a tool, stores a response and hashes it. Letting it run under A0
-    # gave that configuration three grounded assertions and 0.33 calls per step
-    # in the ablation table -- a "no tools" row that had made retrievals, which
-    # is the comparison quietly measuring something other than what it claims.
+    # It also gets no oracle, which is the other half of the row: A0 is the
+    # architecture this project replaces, and that architecture could neither
+    # look nor ask.
     from server.models import AblationConfig
 
     result = run_pipeline(
@@ -1229,6 +1103,8 @@ def test_a0_makes_no_retrieval_of_any_kind(storage: Storage):
     # this architecture cannot express an ungrounded claim, so a configuration
     # that may not retrieve has nothing it can honestly say.
     assert result.trace.metrics.assertionsTotal == 0
-    # Every dropped claim still says why, so the row is explicable.
-    assert result.bound is not None and result.bound.deleted >= 1
-    assert "no retrieval" in result.bound.claims[0].reason
+    # And it says so rather than just coming out empty: every step carries a
+    # sentence explaining why it has no verdict. An empty scenario and a
+    # scenario that explains itself read identically in a metrics table and not
+    # at all alike to a person.
+    assert all(s.why_not for s in result.document.steps)

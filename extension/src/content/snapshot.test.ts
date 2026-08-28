@@ -34,29 +34,38 @@ describe('buildSnapshot', () => {
     expect(JSON.stringify(snapshot)).not.toContain('css-1x7f2k');
   });
 
-  it('scopes to the nearest landmark ancestor', () => {
+  it('captures the whole document, not the landmark around the target', () => {
     document.body.innerHTML = `
       <nav><a href="/reports">Reports</a></nav>
       <main><button>Place order</button></main>`;
-    const root = scopeRootFor(document.querySelector('button'), document);
-    expect(root.tagName).toBe('MAIN');
+
+    // `scopeRootFor` still answers "which part of the page was the tester
+    // working in". It no longer decides what is captured.
+    expect(scopeRootFor(document.querySelector('button'), document).tagName).toBe('MAIN');
 
     const { snapshot } = buildSnapshot(document.querySelector('button'), document, redactor());
     expect(find(snapshot, 'button')).toBeTruthy();
-    // The nav is outside the scope and should not be paid for.
-    expect(find(snapshot, 'link', 'Reports')).toBeFalsy();
+    // Outside the target's landmark, and captured anyway. This assertion was
+    // `toBeFalsy()` until 2026-08-28, and that is the whole defect: an outcome
+    // rendering outside the clicked landmark was simply not recorded.
+    expect(find(snapshot, 'link', 'Reports')).toBeTruthy();
+    expect(snapshot.nodeCount).toBeGreaterThan(0);
   });
 
-  it('collects live regions document-wide, outside the scope', () => {
+  it('captures a live region that renders far from the click', () => {
     // The outcome of an action routinely renders far from the element clicked;
-    // if this were scoped away the assertion would be ungroundable.
+    // if this were scoped away the assertion would be ungroundable. It used to
+    // reach the snapshot through the separate `liveRegions` list, which was the
+    // one hole in scoped capture wide enough to see an outcome through. Under
+    // full capture it is simply in the tree, and `liveRegions` -- which only
+    // ever held nodes OUTSIDE the captured root -- is correctly empty.
     document.body.innerHTML = `
       <main><button>Place order</button></main>
       <div role="alert">Order confirmed</div>`;
     const { snapshot } = buildSnapshot(document.querySelector('button'), document, redactor());
 
-    expect(snapshot.liveRegions).toHaveLength(1);
-    expect(snapshot.liveRegions[0]!.name).toBe('Order confirmed');
+    expect(find(snapshot, 'alert', 'Order confirmed')).toBeTruthy();
+    expect(snapshot.liveRegions).toHaveLength(0);
   });
 
   it('reaches into an open shadow root', () => {
@@ -211,5 +220,112 @@ describe('selectors', () => {
     const path = cssPath(second);
     expect(document.querySelectorAll(path)).toHaveLength(1);
     expect(document.querySelector(path)).toBe(second);
+  });
+});
+
+/**
+ * The defect of 2026-08-28, pinned so it cannot come back.
+ *
+ * On real sites 30-50% of events recorded no observed change at all, because
+ * the tester clicks the control that CAUSES the change and that control is
+ * routinely its own landmark. Everything here is about the recorder; the
+ * pipeline downstream cannot recover from a recording that does not contain the
+ * evidence.
+ */
+describe('the keyhole', () => {
+  /** The shape of fixtures/demo-app/src/pages/Storefront.tsx, in miniature. */
+  const STOREFRONT = `
+    <main>
+      <section aria-label="Stock status">
+        <h3>Stock status</h3>
+        <label><input type="checkbox" id="instock"> In stock</label>
+      </section>
+      <p>Showing 24 of 24 products</p>
+      <ul><li>Kestrel Tower 2020</li><li>Meridian Console 2021</li></ul>
+    </main>`;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('the filter widget really is the nearest landmark to its own checkbox', () => {
+    document.body.innerHTML = STOREFRONT;
+    const root = scopeRootFor(document.getElementById('instock'), document);
+
+    // Not <main>. This is what made the scoped capture a keyhole, and it is why
+    // the fixture reproduces the defect rather than merely resembling it.
+    expect(root.tagName).toBe('SECTION');
+    expect(root.querySelector('p')).toBeNull();
+  });
+
+  it('captures the results count even though the click was inside the filter', () => {
+    document.body.innerHTML = STOREFRONT;
+    const { snapshot } = buildSnapshot(document.getElementById('instock'), document, redactor());
+
+    expect(find(snapshot, 'checkbox')).toBeTruthy();
+    // The thing under test, outside the landmark the tester clicked in.
+    expect(find(snapshot, 'text', 'Showing 24 of 24 products')).toBeTruthy();
+    expect(snapshot.scope).toBe('full');
+  });
+
+  it('diffs before against after from the same root when the target re-renders', () => {
+    // The second half of the defect. `scopeRootFor` was re-evaluated for
+    // `after`, so a click that detached its own landmark ancestor fell back to
+    // document.body -- every node's path changed, nothing matched, and the diff
+    // read +408 added / -405 removed on a 405-node tree. Pure noise, and it was
+    // being read as "the product grid re-rendered".
+    document.body.innerHTML = `
+      <main>
+        <section aria-label="Filters"><button id="apply">Apply</button></section>
+        <p>Showing 24 of 24 products</p>
+      </main>`;
+    const target = document.getElementById('apply')!;
+    const before = buildSnapshot(target, document, redactor()).snapshot;
+
+    // The click removes its own landmark and updates the count.
+    document.querySelector('section')!.remove();
+    document.querySelector('p')!.textContent = 'Showing 9 of 24 products';
+    const after = buildSnapshot(target, document, redactor()).snapshot;
+
+    const diff = diffSnapshots(before, after);
+    const named = (nodes: { name: string }[]) => nodes.map((n) => n.name).filter(Boolean);
+
+    // A handful of real changes, not a whole-tree churn.
+    expect(named(diff.removed)).toContain('Showing 24 of 24 products');
+    expect(named(diff.added)).toContain('Showing 9 of 24 products');
+    expect(diff.added.length).toBeLessThan(6);
+    expect(diff.removed.length).toBeLessThan(6);
+  });
+
+  it('reads what the page displayed exactly, and still redacts what was typed', () => {
+    // One storefront listing produced 214 parameters, every one classified as a
+    // phone number, because `redactText` ran over every node of every snapshot.
+    //
+    // The date below is the shape that actually matches: the rule wants 9-15
+    // digits in separated groups, which a price ("4 990,00 DH", 6 digits) and a
+    // product code never reach and a rendered timestamp reaches easily. A date
+    // on a page is routinely the thing a test asserts on, so this was
+    // destroying evidence to protect a value nobody entered.
+    document.body.innerHTML = `
+      <main>
+        <p>Updated 2026-08-28 14:32:10</p>
+        <p>4 990,00 DH</p>
+        <p>SG-001</p>
+        <label>Card<input type="text" name="cc-number" value="4111 1111 1111 1111"></label>
+      </main>`;
+    const r = redactor();
+    const { snapshot } = buildSnapshot(document.querySelector('p'), document, r);
+    const text = JSON.stringify(snapshot);
+
+    // Displayed content, read exactly.
+    expect(text).toContain('Updated 2026-08-28 14:32:10');
+    expect(text).toContain('4 990,00 DH');
+    expect(text).toContain('SG-001');
+    expect(text).not.toContain('<<phone');
+
+    // Typed input, still redacted -- by context, not by shape. Narrowing the
+    // scan is not a weakening: this is the path a secret actually takes.
+    expect(text).not.toContain('4111 1111 1111 1111');
+    expect(r.parameters().map((prm) => prm.category)).toContain('password');
   });
 });

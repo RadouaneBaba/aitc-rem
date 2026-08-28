@@ -73,6 +73,20 @@
           "items": { "$ref": "#/$defs/OmittedSegment" },
           "description": "Exploratory/abandoned segments -- shown, not hidden. A verbatim transcript is unusable; silent deletion is untrustworthy."
         },
+        "examples": {
+          "title": "ScenarioExamples",
+          "type": "object",
+          "description": "A `Scenario Outline`'s table, when the author decided this flow is one behaviour exercised with several sets of values.\n\nDistinct from `parameters`, which lifts REDACTION placeholders into an Examples row and is a rendering setting. This is a judgement about test design: a recording that adds 13 items and then 18 comes out as two near-identical scenarios and reads as a transcript, where one outline over two rows reads as a test somebody designed.",
+          "properties": {
+            "columns": { "type": "array", "items": { "type": "string" } },
+            "rows": {
+              "type": "array",
+              "items": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "required": ["columns", "rows"],
+          "additionalProperties": false
+        },
         "suggestions": {
           "type": "array",
           "items": { "$ref": "#/$defs/CoverageSuggestion" },
@@ -126,8 +140,7 @@
         "eventIds": {
           "type": "array",
           "items": { "type": "string" },
-          "minItems": 1,
-          "description": "Traceability into the recording. One of the two backlinks that carry the whole trust story (SS10): this one proves the sentence came from the recording."
+          "description": "Traceability into the recording. One of the two backlinks that carry the whole trust story (SS10): this one proves the sentence came from the recording.\n\nEmpty is legal, and only for a step that exists to CHECK something. An expected result is about what the application did and does not need an action of its own -- `Then the number of free rooms drops from 3 to 2` is a step nobody clicked, and inventing a click to hang it on would put a sentence in the feature file describing something that never happened. Such a step carries its backlink on the assertion's own `evidence.eventId` instead.\n\nThis was `minItems: 1` and the author's worked example showed a verdict-only step with no events, so the prompt taught a shape the schema rejected -- and it only surfaced the first time a real model took the example at its word, several stages downstream, as a Pydantic error during assembly. Worked examples outweigh rules; when the two disagree the example is usually right and the rule is the thing to change.\n\nThe net that matters is `event_coverage`, which requires every recorded event to land in exactly one step or in an explicit omission. That is a statement about events, not about steps, and a step with no events cannot violate it."
         },
         "investigationRef": {
           "type": "string",
@@ -141,11 +154,6 @@
         },
 
         "assertions": { "type": "array", "items": { "$ref": "#/$defs/Assertion" } },
-        "libraryRef": {
-          "type": "string",
-          "description": "Set when reused from the step library. The library_verbatim validator enforces that the text matches the entry exactly."
-        },
-
         "confidence": { "$ref": "common.schema.json#/$defs/Confidence" },
         "escalation": {
           "type": "string",
@@ -154,6 +162,10 @@
         "fidelity": {
           "type": "array",
           "items": { "$ref": "common.schema.json#/$defs/FidelityFlag" }
+        },
+        "whyNot": {
+          "type": "string",
+          "description": "Why this step has no expected result, in language the tester can act on: 'the product list was never captured before or after this click, so nothing here shows the order changed'.\n\nRefusal used to be something DONE TO the author -- a claim was proposed, could not be proved, and was deleted, so the scenario quietly ended with no `Then` while 27 style warnings said so in a vocabulary nobody outside the pipeline reads. It is now something the author WRITES, which means it can explain itself and a reviewer can close the gap. Never rendered into the feature body, which is prose and nothing else."
         },
         "criticNotes": { "type": "array", "items": { "type": "string" } }
       },

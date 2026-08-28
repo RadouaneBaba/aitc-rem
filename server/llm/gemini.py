@@ -157,11 +157,28 @@ def _to_contents(request: CompletionRequest, types: Any) -> tuple[str | None, li
                     ],
                 )
             )
+            # A function response carries a JSON object and nothing else -- there
+            # is no place in that shape for image bytes. So the picture follows
+            # as its own user turn, immediately after the response it belongs
+            # to, which is where the model reads it as "and here is what that
+            # looked like".
+            if message.images:
+                contents.append(
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_bytes(data=image.data, mime_type=image.mime)
+                            for image in message.images
+                        ],
+                    )
+                )
             continue
 
         parts: list[Any] = []
         if message.content:
             parts.append(types.Part.from_text(text=message.content))
+        for image in message.images:
+            parts.append(types.Part.from_bytes(data=image.data, mime_type=image.mime))
         for call in message.tool_calls:
             part = types.Part(function_call=types.FunctionCall(name=call.name, args=call.arguments))
             # Gemini 3 rejects a replayed function call whose thought signature

@@ -66,6 +66,14 @@ function locate(page, selector) {
  * Returns the rank, or -1 if the element could not be found at all.
  */
 async function act(page, action) {
+  // A recorded action this runner cannot drive -- a file chooser, a dialog, a
+  // tab opening. It stops the step honestly instead of being dropped: a step
+  // whose events all dropped out had no actions at all, and a step with no
+  // actions used to be reported as passing.
+  if (action.type === 'unsupported') {
+    return { rank: -1, error: `cannot replay a ${action.detail} action` };
+  }
+
   let lastError = null;
   for (let rank = 0; rank < action.selectors.length; rank++) {
     const locator = locate(page, action.selectors[rank]);
@@ -73,6 +81,7 @@ async function act(page, action) {
     try {
       if (action.type === 'fill') await locator.fill(action.value ?? '', { timeout: TIMEOUT });
       else if (action.type === 'press') await locator.press(action.key ?? 'Enter', { timeout: TIMEOUT });
+      else if (action.type === 'select') await locator.selectOption(action.value ?? '', { timeout: TIMEOUT });
       else await locator.click({ timeout: TIMEOUT });
       return { rank, error: null };
     } catch (error) {
@@ -141,7 +150,32 @@ async function main() {
     return;
   }
 
-  const page = await browser.newPage();
+  // Saved cookies and local storage, when the caller has any.
+  //
+  // Every recording on disk is of a public site, so replay has always walked
+  // the login flow -- three events, cheap, and the redacted password comes back
+  // through `--replay-param`. That stops working on the applications a team
+  // actually tests: walking a real login on every replay is slow, is the most
+  // brittle part of the flow, and trips rate limits and MFA. `storageState` is
+  // the standard answer -- sign in once, keep the resulting state, hand it to
+  // every later run.
+  //
+  // Missing or unreadable is not an error. A state file expires, and a replay
+  // that refused to start because of one would be less useful than one that
+  // signs in the slow way; the page simply begins signed out.
+  let context;
+  try {
+    context = await browser.newContext(
+      job.storageState ? { storageState: job.storageState } : {},
+    );
+  } catch (error) {
+    result.warnings.push(
+      `ignored the saved session state: ${String(error).split('\n')[0]}`,
+    );
+    context = await browser.newContext();
+  }
+
+  const page = await context.newPage();
   try {
     await page.goto(job.startUrl ?? job.baseUrl, { timeout: 15_000 });
     result.ran = true;

@@ -429,11 +429,25 @@ test('records what the tester pointed at and what they named', async () => {
 });
 
 /** Fire an annotation from the popup, the way a tester would. */
+/**
+ * Add an annotation the way a tester does, through the popup.
+ *
+ * An intent note is NOT collected in a `window.prompt` any more -- it has its
+ * own textarea, because the one input the tester is asked to write carefully
+ * had the worst field in the tool. This helper answered a dialog that no longer
+ * opens, so clicking "Note..." only revealed the form and the note was never
+ * saved: the assertion below it had been passing on an empty list for as long
+ * as the textarea has existed. `pnpm e2e` is not part of `scripts/check.sh`,
+ * which is how it stayed green in the places anyone looked.
+ */
 async function annotate(kind: string, text?: string): Promise<void> {
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  if (text !== undefined) popup.once('dialog', (d) => void d.accept(text));
   await popup.click(`.ann button[data-kind="${kind}"]`);
+  if (text !== undefined) {
+    await popup.fill('#notetext', text);
+    await popup.click('#notesave');
+  }
   await popup.waitForTimeout(150);
   await popup.close();
 }
@@ -718,6 +732,294 @@ test('records a session with a wrong turn in it', async () => {
   mkdirSync(FIXTURE_OUT, { recursive: true });
   writeFileSync(
     resolve(FIXTURE_OUT, 'wander.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+});
+
+/**
+ * The keyhole. This is the regression test for the capture defect found on
+ * 2026-08-28, and it is the reason fixtures/demo-app/src/pages/Storefront.tsx
+ * exists.
+ *
+ * The tester clicks a filter checkbox that lives inside its own `region`
+ * landmark. The thing under test -- the results count -- is outside it. Under
+ * the old scoped capture, `scopeRootFor` stopped at the filter widget, so
+ * `before` and `after` were both the widget, the widget did not change, and the
+ * diff was empty: 30-50% of events on real sites recorded no observed change at
+ * all and the binding stages were arguing over an empty candidate set.
+ *
+ * Everything asserted below is about the CAPTURE, not about the pipeline. If
+ * this test goes red, no amount of prompt work downstream can recover -- the
+ * evidence is not in the recording.
+ */
+test('captures the whole page, not the landmark around the click', async () => {
+  const page = await context.newPage();
+  await page.goto(`${APP}/storefront`);
+
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await popup.fill(
+    '#objective',
+    'Check that filtering to in-stock items cuts the list from 24 products to 9',
+  );
+  await popup.click('#start');
+  await expect(popup.locator('#active')).toBeVisible();
+  await popup.close();
+  await page.bringToFront();
+
+  const filters = page.locator('.filters');
+  await expect(page.locator('.result-count')).toHaveText('Showing 24 of 24 products');
+
+  // The click at the centre of the defect: inside a small landmark, changing
+  // something outside it.
+  await filters.getByLabel('In stock').check();
+  await pause(page);
+  await expect(page.locator('.result-count')).toHaveText('Showing 9 of 24 products');
+
+  // A second keyhole, in a different landmark, so the fixture does not rest on
+  // one event.
+  await filters.getByLabel('Kestrel').check();
+  await pause(page);
+  await expect(page.locator('.result-count')).toHaveText('Showing 3 of 24 products');
+
+  const recording = await stopRecording();
+  expect(recording.events.length).toBeGreaterThanOrEqual(2);
+
+  // 1. Every snapshot is of the page. `scoped` is what the defect looked like.
+  for (const event of recording.events) {
+    expect(event.before.scope).toBe('full');
+    expect(event.after.scope).toBe('full');
+  }
+
+  // 2. The count change is IN the diff. This is the assertion the whole rebuild
+  //    exists to make true -- under the old capture both sides of it were
+  //    empty.
+  const stockEvent = recording.events[0]!;
+  const names = (nodes: { name?: string }[]) => nodes.map((n) => n.name ?? '');
+  expect(names(stockEvent.diff.removed)).toContain('Showing 24 of 24 products');
+  expect(names(stockEvent.diff.added)).toContain('Showing 9 of 24 products');
+
+  // 3. And the products themselves moved, not just the counter. 15 of 24 cards
+  //    left the page; a capture that saw only the counter would still be a
+  //    keyhole, just a wider one.
+  expect(stockEvent.diff.removed.length).toBeGreaterThan(15);
+
+  const brandEvent = recording.events[1]!;
+  expect(names(brandEvent.diff.added)).toContain('Showing 3 of 24 products');
+
+  // 4. Prices are evidence again. The old redactor scanned page content and
+  //    turned 214 values on one storefront into `<<phone_n>>` placeholders,
+  //    which is exactly the material a discriminating assertion needs.
+  const asText = JSON.stringify(recording.events);
+  expect(asText).toContain('4990 DH');
+  expect(recording.parameters.filter((p) => p.category === 'phone')).toHaveLength(0);
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'keyhole.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+});
+
+/**
+ * A tab opened from a recorded tab joins the recording (SS18 milestone 21).
+ *
+ * The recorder was pinned to one tab by choice rather than by limitation: the
+ * content script is already injected everywhere, the worker already reads
+ * `sender.tab.id`, and the expensive problem -- ordering events from separate
+ * documents on one clock -- was solved when `performance.now()` was converted
+ * through `timeOrigin`. What was missing was a set instead of a number.
+ *
+ * Real flows leave their tab: a payment provider, a PDF receipt, a carrier's
+ * tracking page. Until this, "works on a real session" was not true.
+ *
+ * The receipt shows a total that appears nowhere else in the application, so
+ * the assertion below can only pass on a recording that actually followed the
+ * tab. A second tab carrying nothing new would exercise the plumbing and prove
+ * nothing.
+ */
+test('follows a tab opened from the tab it is recording', async () => {
+  const page = await startRecording('Check that the receipt shows the amount charged');
+
+  await page.fill('#email', 'tester@example.com');
+  await pause(page);
+  await page.fill('#password', 'hunter2');
+  await pause(page);
+  await page.click('button:has-text("Sign in")');
+  await pause(page);
+
+  await page.click('button:has-text("Add Blue Widget to cart")');
+  await pause(page);
+  await page.click('nav.appnav button:has-text("Checkout")');
+  await pause(page);
+  await page.fill('#total', '615');
+  await pause(page);
+  await page.check('input[type=checkbox]');
+  await pause(page);
+  await page.click('button:has-text("Place order")');
+  await pause(page);
+  await expect(page.locator('[role=alert].ok')).toHaveText('Order confirmed');
+
+  // target="_blank" is what sets `openerTabId`, which is the signal the worker
+  // follows. A tab with no opener -- the tester checking their email -- is
+  // correctly left out.
+  const [receipt] = await Promise.all([
+    context.waitForEvent('page', { timeout: 10_000 }),
+    page.click('a:has-text("Open the receipt in a new tab")'),
+  ]);
+  await receipt.waitForLoadState();
+  await expect(receipt.locator('[role=status]')).toContainText('615.00');
+
+  // The content script in the new tab starts at document_idle and is told to
+  // record only once the tab reports complete, so give it a beat before acting.
+  await receipt.waitForTimeout(700);
+  await receipt.click('h2');
+  await pause(receipt);
+
+  await page.close();
+  await receipt.close();
+  const recording = await stopRecording();
+
+  const tabs = new Set(recording.events.map((e) => e.tabId));
+  expect(tabs.size).toBeGreaterThan(1);
+
+  // The click in the second tab is in the session, on the same clock, in order.
+  const times = recording.events.map((e) => e.timestamp);
+  expect([...times].sort((a, b) => a - b)).toEqual(times);
+
+  const inReceipt = recording.events.filter((e) => e.url.includes('/receipt'));
+  expect(inReceipt.length).toBeGreaterThan(0);
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'twotabs.recording.json'),
+    JSON.stringify(recording, null, 2),
+    'utf8',
+  );
+});
+
+/**
+ * The last action of a session must survive the tester pressing Stop.
+ *
+ * `capture()` builds `before` synchronously and then awaits settle, and settle
+ * keeps restarting its quiet window for as long as a request from that action is
+ * in flight. `inFlightFor` bounds an action's window by the start of the NEXT
+ * action -- which the last action of a session does not have. So the final
+ * click, the one the test is usually about, waits out the full 5s timeout while
+ * the tester is already reaching for Stop.
+ *
+ * It used to be dropped three times over: the capture had not finished, the
+ * worker refused events from a stopped session, and the export page assembled
+ * from IndexedDB anyway. The recording came back one event short and looked
+ * complete.
+ *
+ * `/api/slow` never answers inside the settle window, which makes this
+ * deterministic rather than a race the suite would lose intermittently.
+ */
+test('keeps the last action when the tester stops before the page settles', async () => {
+  const page = await startRecording('Check that slow validation still records');
+
+  await page.fill('#email', 'tester@example.com');
+  await pause(page);
+  await page.fill('#password', 'hunter2');
+  await pause(page);
+  await page.click('button:has-text("Sign in")');
+  await pause(page);
+  await page.click('nav.appnav button:has-text("Checkout")');
+  await pause(page);
+
+  // No pause at all after this one. The request behind it takes 6.5s, so the
+  // settle window is certainly still open when Stop is pressed.
+  await page.click('button:has-text("Submit for slow validation")');
+
+  const recording = await stopRecording();
+
+  const slow = recording.events.find((e) => e.target.name?.includes('slow validation'));
+  expect(slow, 'the last action must survive an immediate stop').toBeTruthy();
+  // And it says why its `after` snapshot may be early, rather than pretending
+  // the page had settled.
+  expect(slow!.settle?.reason).toBe('recording_stopped');
+});
+
+/**
+ * A recording of a real, public site, so "is full capture affordable" is
+ * answered against a commercial page rather than against the fixture app.
+ *
+ * The fixture app is 100-140 nodes. That is nowhere near a commercial page, so
+ * a cost measured on it would be the same mistake docs/REBUILD_FINDINGS.md made
+ * when it measured a 400-node cap and reported it as the size of a page.
+ *
+ * Opt-in, because it needs the network and `pnpm e2e` must stay deterministic
+ * and runnable offline:
+ *
+ *     AITC_E2E_PUBLIC=1 npx playwright test -g "public demo site"
+ *     .venv/Scripts/python scripts/capture_cost.py tests/fixtures/public.recording.json
+ *
+ * saucedemo is on config/allowed_origins.yaml, its credentials are published on
+ * its own front page, and the flow chosen -- sign in, sort, add to cart -- is
+ * the one that produced the project's most-studied bad output: a sort whose
+ * only evidence was the label of the option the tester had just selected.
+ */
+test('records a public demo site, for a real page-size measurement', async () => {
+  test.skip(!process.env.AITC_E2E_PUBLIC, 'set AITC_E2E_PUBLIC=1 to record over the network');
+  test.setTimeout(180_000);
+
+  const page = await context.newPage();
+  await page.goto('https://www.saucedemo.com/');
+
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await popup.fill('#objective', 'Check that sorting by price low to high puts the cheapest item first');
+  await popup.click('#start');
+  await expect(popup.locator('#active')).toBeVisible();
+  await popup.close();
+  await page.bringToFront();
+
+  await page.fill('#user-name', 'standard_user');
+  await pause(page);
+  // Published on saucedemo's own front page. It still goes through
+  // `isSecretField`, which is the point of signing in here at all.
+  await page.fill('#password', 'secret_sauce');
+  await pause(page);
+  await page.click('#login-button');
+  await expect(page.locator('.inventory_list')).toBeVisible();
+  await pause(page);
+
+  // Sorting is the action this project has studied most: the run that produced
+  // its most-quoted bad output asserted on the label of the option the tester
+  // had just chosen, because under scoped capture that label was one of the few
+  // strings in the snapshot. The prices it should have used are now in the same
+  // snapshot -- see the assertion below.
+  await page.selectOption('.product_sort_container', 'lohi');
+  await pause(page);
+
+  const recording = await stopRecording();
+
+  // The password never reaches disk, whatever else changed about redaction.
+  expect(JSON.stringify(recording)).not.toContain('secret_sauce');
+  expect(recording.parameters.some((p) => p.category === 'password')).toBe(true);
+
+  // Every parameter points at something. 214 of them on one storefront pointed
+  // at nothing at all.
+  const body = JSON.stringify({ events: recording.events, annotations: recording.annotations });
+  for (const p of recording.parameters) expect(body).toContain(p.placeholder);
+
+  for (const event of recording.events) expect(event.after.scope).toBe('full');
+
+  // The point of recording a real site: the evidence a discriminating assertion
+  // needs is in the snapshot. Under scoped capture the sort event saw the sort
+  // widget and nothing else.
+  const sorted = recording.events[recording.events.length - 1]!;
+  const page1 = JSON.stringify(sorted.after);
+  expect(page1).toContain('$7.99');
+  expect(page1).toContain('Sauce Labs Onesie');
+  expect(sorted.after.truncated).toBeFalsy();
+
+  mkdirSync(FIXTURE_OUT, { recursive: true });
+  writeFileSync(
+    resolve(FIXTURE_OUT, 'public.recording.json'),
     JSON.stringify(recording, null, 2),
     'utf8',
   );

@@ -123,9 +123,132 @@ def test_narration_evidence_is_marked_uncheckable_rather_than_assumed():
     assert job["steps"][0]["assertions"][0]["kind"] == "not_checkable"
 
 
+def test_a_saved_session_reaches_the_driver_only_when_the_file_exists(tmp_path: Path):
+    # A state file expires, and a replay that refused to start because of one
+    # would be less useful than a replay that signs in the slow way -- the
+    # recorded login is still in the steps. So an absent path is dropped rather
+    # than passed on for the driver to fail a context on.
+    state = tmp_path / "saucedemo.json"
+    job, _ = build_job(
+        a_case(),
+        a_recording(),
+        base_url=DEFAULT_BASE_URL,
+        parameters={},
+        storage_state=state,
+    )
+    assert "storageState" not in job
+
+    state.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    job, _ = build_job(
+        a_case(),
+        a_recording(),
+        base_url=DEFAULT_BASE_URL,
+        parameters={},
+        storage_state=state,
+    )
+    assert job["storageState"] == str(state)
+
+
+def test_a_scenario_that_inherits_a_background_replays_it_first():
+    # Found by replaying a real two-scenario document. A document with more than
+    # one scenario lifts the shared opening into a `Background`, so the second
+    # case's own steps begin partway through the flow -- and the replay started
+    # at `startUrl` and clicked a control on a page it had never navigated to.
+    #
+    # It is the vacuity trap in its mirror image. A green replay of a case with
+    # no actions inflates `executionRate`; a red replay of a case the runner
+    # never set up deflates it. Both make the column measure the harness.
+    step = f.step("step_002", "the tester signs in", assertions=[])
+    step.eventIds = ["evt_002"]
+    case = f.test_case(
+        steps=[step],
+        preconditions=[
+            f.precondition("pre_001", "the tester enters a password", event_ids=["evt_001"])
+        ],
+    )
+    job, _ = build_job(case, a_recording(), base_url=DEFAULT_BASE_URL, parameters={})
+
+    assert [s["id"] for s in job["steps"]] == ["pre_001", "step_002"]
+    assert job["steps"][0]["actions"][0]["type"] == "fill"
+    # And without assertions: a precondition's text states shared state, not a
+    # verdict this scenario reached, so re-checking one would count the same
+    # claim once per scenario that inherits it.
+    assert job["steps"][0]["assertions"] == []
+
+
+def test_an_event_the_runner_cannot_drive_stops_the_step_instead_of_vanishing():
+    # A file chooser, a dialog and a tab opening cannot be driven from a
+    # recorded selector. They used to return None and be dropped, so a step made
+    # entirely of them had NO actions -- and a step with no actions was reported
+    # as passing. That inflates `executionRate`, which is the one number in this
+    # system nobody can argue with and therefore the one that must never be
+    # vacuous. An unsupported action is a fact about the runner; hiding it makes
+    # the runner grade its own gaps.
+    recording = f.recording(
+        events=[f.event("evt_001", 0, etype="dialog", tgt=f.target("button", "OK"))]
+    )
+    step = f.step("step_001", "the tester dismisses the dialog", assertions=[])
+    step.eventIds = ["evt_001"]
+    job, _ = build_job(
+        f.test_case(steps=[step]), recording, base_url=DEFAULT_BASE_URL, parameters={}
+    )
+    action = job["steps"][0]["actions"][0]
+    assert action["type"] == "unsupported"
+    assert action["detail"] == "dialog"
+
+
+def test_a_keyboard_action_is_replayed_with_the_chord_the_recorder_stored():
+    # This branch had never executed once: it tested for `keydown`, which is not
+    # a member of EventType -- the value is `keypress` -- so every keyboard
+    # action fell through to the drop below. It also read `event.key`, and the
+    # field is `keys`, which carries the whole chord. Two bugs in three lines,
+    # both invisible because the fallback was silent.
+    recording = f.recording(
+        events=[f.event("evt_001", 0, etype="keypress", tgt=f.target("textbox", "Search"))]
+    )
+    recording.events[0].keys = "Control+Enter"
+    step = f.step("step_001", "the tester submits with the keyboard", assertions=[])
+    step.eventIds = ["evt_001"]
+    job, _ = build_job(
+        f.test_case(steps=[step]), recording, base_url=DEFAULT_BASE_URL, parameters={}
+    )
+    action = job["steps"][0]["actions"][0]
+    assert action["type"] == "press"
+    assert action["key"] == "Control+Enter"
+
+
+def test_network_evidence_is_uncheckable_because_the_driver_never_observes_it():
+    # `network` and `console` sat in CHECKABLE for a year while `replay.mjs`
+    # answered `not_checkable` for both regardless: the driver attaches no
+    # listeners, so the window has closed by the time an assertion is checked.
+    # Two sides disagreeing about what is checkable is how a gap stays
+    # invisible -- this half looked like it re-checked network evidence and
+    # never did. Re-adding either means teaching the driver first.
+    assertion = f.assertion()
+    assertion.evidence.kind = "network"
+    step = f.step("step_001", "the tester signs in", assertions=[assertion])
+    step.eventIds = ["evt_001"]
+    job, _ = build_job(
+        f.test_case(steps=[step]), a_recording(), base_url=DEFAULT_BASE_URL, parameters={}
+    )
+    assert job["steps"][0]["assertions"][0]["kind"] == "not_checkable"
+
+
 # --------------------------------------------------------------------------
 # reading the result
 # --------------------------------------------------------------------------
+
+
+def test_a_case_with_no_steps_has_not_passed():
+    # `ran and all(...)` over an empty list is True. This project has met that
+    # shape in seven columns now -- a grounding rate of 1.0 on a run that
+    # claimed nothing, `Executes` on a configuration that abstained, `Converged`
+    # over findings the loop was never allowed to act on. Here it reported a
+    # green replay for a test case the runner could not express one action for.
+    empty = parse_result("playwright", "tc_1", {"ran": True, "steps": []}, files=[])
+    assert empty.ran
+    assert not empty.passed
+    assert empty.assertions_checked == 0
 
 
 def test_a_result_separates_could_not_run_from_did_not_pass():

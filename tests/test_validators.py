@@ -20,7 +20,6 @@ from server.evidence.store import EvidenceStore
 from server.evidence.tools import ToolRunner
 from server.models import (
     AgentTrace,
-    FidelityFlag,
     IRDocument,
     PipelineStage,
     Recording,
@@ -79,7 +78,7 @@ class Harness:
         self.storage = Storage(recordings_dir=tmp_path / "recordings", runs_dir=tmp_path / "runs")
         self.run = self.storage.run(self.recording.id, "run_test")
         self.runner = ToolRunner(
-            store=self.store, storage=self.storage, run=self.run, stage=PipelineStage.name
+            store=self.store, storage=self.storage, run=self.run, stage=PipelineStage.author
         )
 
         # A real retrieval, of the kind the naming stage will make.
@@ -121,7 +120,7 @@ class Harness:
             ownerId="owner_test",
             createdAt=datetime.now(UTC),
             config=RunConfig(
-                ablation="A2", toolsEnabled=True, criticEnabled=False, repairEnabled=False
+                ablation="A2", toolsEnabled=True, expectationsEnabled=True
             ),
             toolCalls=self.runner.calls,
             modelCalls=[],
@@ -269,242 +268,9 @@ def test_grounding_rate_counts_only_the_ungrounded(h: Harness):
 # --------------------------------------------------------------------------
 
 
-def test_a_literal_cited_at_the_wrong_event_is_rejected(h: Harness):
-    h.assertion.evidence.eventId = "evt_001"
-    report = validate(h.ctx())
-
-    fails = failures_for(report, ValidatorName.assertion_grounding)
-    assert fails
-    assert "evt_001" in fails[0].message
-    # The message names where the string really is, so the repair loop has
-    # something to act on.
-    assert "evt_002" in fails[0].message
-
-
-def test_a_reference_to_an_event_that_does_not_exist_is_rejected(h: Harness):
-    h.step.eventIds = ["evt_404"]
-    report = validate(h.ctx())
-
-    assert failures_for(report, ValidatorName.element_exists)
-    assert report.rejected
-
-
 # --------------------------------------------------------------------------
 # mutation_claimed
 # --------------------------------------------------------------------------
-
-
-def test_a_save_claim_without_a_successful_mutation_is_rejected(h: Harness):
-    # The step says data CHANGED; the recording shows no successful POST.
-    #
-    # "and it is saved" rather than "saves", and the difference is the whole
-    # rule: a step's text says what the TESTER did, an expected result says
-    # what the APPLICATION did, and only the second is a claim about state.
-    h.ir.testCases[0].steps[0].text = "the tester submits the record and it is saved"
-    report = validate(h.ctx())
-
-    fails = failures_for(report, ValidatorName.mutation_claimed)
-    assert fails
-    assert "no successful mutating request" in fails[0].message
-
-
-def test_a_step_describing_an_action_is_not_a_claim_about_the_application(h: Harness):
-    # "the tester saves the payment method" describes pressing a button. Read
-    # as a claim that something persisted, it fails a validator that NO rewrite
-    # can satisfy -- every honest verb for that action is a mutation word. On a
-    # real fixture the repair loop spent its whole budget making the sentence
-    # worse, hedging it to "attempts to save" and then to "clicks Save", which
-    # is exactly the mechanics language SS11.1 exists to keep out.
-    #
-    # The claim, when there is one, lives in the expected result.
-    h.ir.testCases[0].steps[0].text = "the tester saves the customer record"
-    h.ir.testCases[0].steps[0].assertions = []
-    report = validate(h.ctx())
-    assert not failures_for(report, ValidatorName.mutation_claimed)
-
-
-def test_an_expected_result_claiming_a_change_still_has_to_prove_it(h: Harness):
-    # The other half, and the one that keeps this validator worth having. An
-    # expected result is a claim about the application by definition, so any
-    # mutation word in one counts.
-    step = h.ir.testCases[0].steps[0]
-    step.text = "the tester fills in the customer form"
-    step.assertions = [f.assertion("a1", "the customer record is saved")]
-    report = validate(h.ctx())
-    assert failures_for(report, ValidatorName.mutation_claimed)
-
-
-def test_a_save_claim_backed_by_a_real_mutation_passes(h: Harness):
-    h.step.text = "the tester submits the order"
-    report = validate(h.ctx())
-    assert not failures_for(report, ValidatorName.mutation_claimed)
-
-
-def test_incomplete_network_capture_downgrades_the_rejection_to_a_warning(h: Harness):
-    # SS6.4 -- requests before injection and from service workers are missed.
-    # Rejecting a true claim because the evidence was unobtainable would be the
-    # wrong failure.
-    h.recording.events[0].fidelity = [FidelityFlag.network_incomplete]
-    h.ir.testCases[0].steps[0].text = "the tester submits the record and it is saved"
-    report = validate(h.ctx())
-
-    assert not failures_for(report, ValidatorName.mutation_claimed)
-    warns = [
-        r
-        for r in report.by_validator(ValidatorName.mutation_claimed)
-        if r.status == ValidatorStatus.warn
-    ]
-    assert warns
-    assert not report.rejected
-
-
-def test_a_step_that_merely_navigates_is_not_treated_as_a_mutation(h: Harness):
-    h.ir.testCases[0].steps[0].text = "the tester opens the order form"
-    report = validate(h.ctx())
-    assert not failures_for(report, ValidatorName.mutation_claimed)
-
-
-def test_a_claim_about_what_the_page_says_is_not_a_claim_that_it_persisted(h: Harness):
-    # A deadlock, not a loosening, and the deadlock is what proves it.
-    #
-    # `hardpaths` shows a status message reading "Payment method saved".
-    # `bind._unwitnessed` requires a claim to quote the value it rests on, so
-    # every admissible sentence about that message contains the word "saved" --
-    # and the one sentence that does not, "a confirmation appears", is refused
-    # by `bind._existence_only`. Between the two rules nothing could be said,
-    # and the run was rejected for a claim that was true, grounded and about
-    # the screen.
-    # evt_001 carries no network at all, so a persistence claim on this step
-    # cannot be proved and the rejection would be unavoidable.
-    h.ir.testCases[0].steps[0].assertions = [
-        f.assertion(
-            "asrt_display",
-            'the status message reads "Payment method saved"',
-            ev=f.evidence("Payment method saved", h.call_id, "evt_001", "semantic_node"),
-        )
-    ]
-    assert not failures_for(validate(h.ctx()), ValidatorName.mutation_claimed)
-
-
-def test_the_display_verb_must_come_first_or_it_is_still_a_persistence_claim(h: Harness):
-    # The negative case, and the whole reason the rule is about ORDER rather
-    # than about the presence of a display verb. "the order is placed and a
-    # confirmation is shown" asserts persistence in its first clause and must
-    # still prove a successful request.
-    h.ir.testCases[0].steps[0].assertions = [
-        f.assertion(
-            "asrt_persist",
-            "the order is placed and a confirmation is shown",
-            ev=f.evidence("Order confirmed", h.call_id, "evt_001", "semantic_node"),
-        )
-    ]
-
-    fails = failures_for(validate(h.ctx()), ValidatorName.mutation_claimed)
-    assert fails
-    assert "changed something" in fails[0].message
-
-
-def test_one_literal_may_not_be_the_whole_evidence_for_two_different_claims(h: Harness):
-    # Grounding proves a claim points at a retrieval. It cannot prove the
-    # retrieval is ABOUT that claim rather than the one next to it.
-    #
-    # Found on a real recording, thirteen validators green: two claims -- "the
-    # product list is filtered to show only available items" and "the product
-    # list updates to show items matching the selected processors" -- both
-    # resting on "Results updated.", an aria-live region announcing that
-    # something changed. Genuinely retrieved, and it tells them apart from
-    # nothing. `_unwitnessed` cannot see it: neither claim quotes a value or
-    # contains a digit, so there is no checkable content to compare.
-    step = h.ir.testCases[0].steps[1]
-    step.assertions = [
-        f.assertion(
-            "asrt_a",
-            "the list shows only available items",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-        ),
-        f.assertion(
-            "asrt_b",
-            "the list shows items matching the selected processors",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-        ),
-    ]
-
-    warnings = [
-        r
-        for r in validate(h.ctx()).results
-        if r.validator == ValidatorName.evidence_discriminates and r.status == ValidatorStatus.warn
-    ]
-    assert warnings
-    assert CONFIRMATION in (warnings[0].message or "")
-    assert "available items" in (warnings[0].message or "")
-
-
-def test_two_claims_may_share_a_literal_when_they_say_the_same_thing(h: Harness):
-    # The negative case. A reviewer rewording one claim into the other's
-    # sentence is a duplicate, not a discrimination failure, and this check must
-    # not double up on `merge_repeats`.
-    step = h.ir.testCases[0].steps[1]
-    step.assertions = [
-        f.assertion(
-            "asrt_a",
-            "the confirmation banner appears",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-        ),
-        f.assertion(
-            "asrt_b",
-            "the confirmation banner appears",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-        ),
-    ]
-    assert not failures_for(validate(h.ctx()), ValidatorName.evidence_discriminates)
-    assert not [
-        r
-        for r in validate(h.ctx()).results
-        if r.validator == ValidatorName.evidence_discriminates and r.status == ValidatorStatus.warn
-    ]
-
-
-def test_a_rejected_claim_does_not_count_against_the_evidence_it_used(h: Harness):
-    # Only what SHIPS can mislead a reader.
-    step = h.ir.testCases[0].steps[1]
-    step.assertions = [
-        f.assertion(
-            "asrt_a",
-            "the list shows only available items",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-        ),
-        f.assertion(
-            "asrt_b",
-            "something else entirely",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-            accepted=False,
-        ),
-    ]
-    assert not [
-        r
-        for r in validate(h.ctx()).results
-        if r.validator == ValidatorName.evidence_discriminates and r.status == ValidatorStatus.warn
-    ]
-
-
-def test_this_finding_never_rejects_a_run(h: Harness):
-    # It says two claims cannot both be right about this evidence; it cannot say
-    # WHICH. On `twoflows` one of the two was a good claim and the other
-    # restated the scenario name -- rejecting would have punished both.
-    step = h.ir.testCases[0].steps[1]
-    step.assertions = [
-        f.assertion(
-            "asrt_a",
-            "the list shows only available items",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-        ),
-        f.assertion(
-            "asrt_b",
-            "the list shows the selected processors",
-            ev=f.evidence(CONFIRMATION, h.call_id, "evt_002", "semantic_node"),
-        ),
-    ]
-    assert not failures_for(validate(h.ctx()), ValidatorName.evidence_discriminates)
 
 
 # --------------------------------------------------------------------------
@@ -594,37 +360,6 @@ def test_two_steps_of_one_bug_report_still_may_not_share_an_event(h: Harness):
 # --------------------------------------------------------------------------
 
 
-def test_an_assertion_grounded_in_a_pruned_event_is_rejected(h: Harness):
-    # The reader of the feature file cannot see a pruned event, so an assertion
-    # citing one points at evidence that is not there. This resolved omissions
-    # through `omitted.segmentId`, which draft-then-bind never sets, so it
-    # returned early on every run ever made -- reporting "no subject" for a
-    # recording that had just pruned an event.
-    h.ir.testCases[0].steps = [h.step]
-    h.ir.testCases[0].omitted = [f.omitted_segment(segment_id=None, reason="exploratory", count=1)]
-    h.ir.testCases[0].omitted[0].eventIds = ["evt_002"]
-
-    fails = failures_for(validate(h.ctx()), ValidatorName.no_pruned_assertion)
-
-    assert fails
-    assert "evt_002" in fails[0].message
-    assert "exploratory" in fails[0].message
-
-
-def test_an_omission_that_no_assertion_cites_passes(h: Harness):
-    # The negative case. Pruning is normal -- SS9.3 expects it -- and this
-    # validator is about assertions, not about omissions.
-    h.ir.testCases[0].omitted = [f.omitted_segment(segment_id=None, reason="abandoned", count=1)]
-    h.ir.testCases[0].omitted[0].eventIds = ["evt_003"]
-
-    report = validate(h.ctx())
-
-    assert not failures_for(report, ValidatorName.no_pruned_assertion)
-    assert not skipped_for(report, ValidatorName.no_pruned_assertion), (
-        "an omission is a subject: this must run rather than skip"
-    )
-
-
 # --------------------------------------------------------------------------
 # no_placeholder_leak -- the only hard fail
 # --------------------------------------------------------------------------
@@ -688,40 +423,6 @@ def test_invalid_gherkin_is_rejected(h: Harness):
 # --------------------------------------------------------------------------
 
 
-def test_an_unrecorded_selector_warns_rather_than_rejects(h: Harness):
-    h.step.selectorHints = [f.selector_hint("css", "button.invented", "low")]
-    report = validate(h.ctx())
-
-    warns = [
-        r
-        for r in report.by_validator(ValidatorName.selector_resolvable)
-        if r.status == ValidatorStatus.warn
-    ]
-    assert warns
-    # Selectors live in comments and are a convenience for later automation,
-    # so a stale one is a nuisance rather than a false claim.
-    assert not report.rejected
-
-
-def test_a_recorded_selector_passes(h: Harness):
-    h.step.selectorHints = [f.selector_hint("css", "button.submit", "medium")]
-    report = validate(h.ctx())
-    assert not [
-        r
-        for r in report.by_validator(ValidatorName.selector_resolvable)
-        if r.status == ValidatorStatus.warn
-    ]
-
-
-def test_a_reuse_claim_that_cannot_be_checked_is_rejected(h: Harness):
-    # Phase 1 has no library, so a step claiming reuse is claiming something
-    # unverifiable -- which is not admissible.
-    h.step.libraryRef = "lib_001"
-    report = validate(h.ctx())
-    assert failures_for(report, ValidatorName.library_verbatim)
-    assert report.rejected
-
-
 # --------------------------------------------------------------------------
 # against a real recording
 # --------------------------------------------------------------------------
@@ -737,7 +438,7 @@ def test_the_gate_runs_over_a_real_recorded_session(tmp_path: Path):
     store = EvidenceStore(recording=recording, segments=segments)
     storage = Storage(recordings_dir=tmp_path / "recordings", runs_dir=tmp_path / "runs")
     run = storage.run(recording.id, "run_real")
-    runner = ToolRunner(store=store, storage=storage, run=run, stage=PipelineStage.name)
+    runner = ToolRunner(store=store, storage=storage, run=run, stage=PipelineStage.author)
 
     call_id, response = runner.call("find_text", {"query": CONFIRMATION})
     assert response["count"], "the confirmation must be retrievable from the real recording"
@@ -778,7 +479,7 @@ def test_the_gate_runs_over_a_real_recorded_session(tmp_path: Path):
             ownerId=recording.ownerId,
             createdAt=datetime.now(UTC),
             config=RunConfig(
-                ablation="A2", toolsEnabled=True, criticEnabled=False, repairEnabled=False
+                ablation="A2", toolsEnabled=True, expectationsEnabled=True
             ),
             toolCalls=runner.calls,
             modelCalls=[],

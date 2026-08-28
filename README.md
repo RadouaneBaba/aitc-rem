@@ -8,7 +8,7 @@ Every claim the system makes is licensed by evidence it went and retrieved.
 |---|---|
 | new to the project entirely | **[docs/explainer.html](docs/explainer.html)** -- the whole thing in one page, with diagrams |
 | a QA tester recording a session | **[docs/TESTER_ONEPAGER.md](docs/TESTER_ONEPAGER.md)** -- one printable page; [docs/RECORDING.md](docs/RECORDING.md) is the long version |
-| running the pipeline yourself | this file |
+| running the pipeline yourself | **[docs/HOWTO.md](docs/HOWTO.md)** -- every feature, what it is for, and the command; written from what actually runs |
 | recording a real public site | [TESTING.md](TESTING.md) |
 | changing the code | [CLAUDE.md](CLAUDE.md), then [SPEC.md](SPEC.md) |
 | wanting to know *why* a rule exists | [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md) -- the defect behind each one, and the measurements |

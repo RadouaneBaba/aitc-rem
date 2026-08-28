@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 from enum import StrEnum
-from pydantic import AwareDatetime, ConfigDict, Field
 from server.models.base import StrictModel
+from pydantic import AwareDatetime, ConfigDict, Field
 from . import common_schema
 from typing import Literal
 
@@ -12,6 +12,20 @@ from typing import Literal
 class TestCaseKind(StrEnum):
     test_case = "test_case"
     bug_report = "bug_report"
+
+
+class ScenarioExamples(StrictModel):
+    """
+    A `Scenario Outline`'s table, when the author decided this flow is one behaviour exercised with several sets of values.
+
+    Distinct from `parameters`, which lifts REDACTION placeholders into an Examples row and is a rendering setting. This is a judgement about test design: a recording that adds 13 items and then 18 comes out as two near-identical scenarios and reads as a transcript, where one outline over two rows reads as a test somebody designed.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str]
+    rows: list[list[str]]
 
 
 class StepKeyword(StrEnum):
@@ -257,9 +271,15 @@ class Step(StrictModel):
     """
     SS9.3 -- what this step does in the narrative. Setup, the behaviour under test, or teardown. Kept alongside `keyword` because it survives re-rendering: a scenario that gets split still knows which of its steps were preconditions.
     """
-    eventIds: list[str] = Field(..., min_length=1)
+    eventIds: list[str]
     """
     Traceability into the recording. One of the two backlinks that carry the whole trust story (SS10): this one proves the sentence came from the recording.
+
+    Empty is legal, and only for a step that exists to CHECK something. An expected result is about what the application did and does not need an action of its own -- `Then the number of free rooms drops from 3 to 2` is a step nobody clicked, and inventing a click to hang it on would put a sentence in the feature file describing something that never happened. Such a step carries its backlink on the assertion's own `evidence.eventId` instead.
+
+    This was `minItems: 1` and the author's worked example showed a verdict-only step with no events, so the prompt taught a shape the schema rejected -- and it only surfaced the first time a real model took the example at its word, several stages downstream, as a Pydantic error during assembly. Worked examples outweigh rules; when the two disagree the example is usually right and the rule is the thing to change.
+
+    The net that matters is `event_coverage`, which requires every recorded event to land in exactly one step or in an explicit omission. That is a statement about events, not about steps, and a step with no events cannot violate it.
     """
     investigationRef: str
     """
@@ -271,16 +291,18 @@ class Step(StrictModel):
     For later automation. Rendered as Gherkin comments, never in step text.
     """
     assertions: list[Assertion]
-    libraryRef: str | None = None
-    """
-    Set when reused from the step library. The library_verbatim validator enforces that the text matches the entry exactly.
-    """
     confidence: common_schema.Confidence
     escalation: str | None = None
     """
     A specific question for the human. A first-class outcome, not a failure -- an agent that asks is more useful than one that guesses.
     """
     fidelity: list[common_schema.FidelityFlag]
+    whyNot: str | None = None
+    """
+    Why this step has no expected result, in language the tester can act on: 'the product list was never captured before or after this click, so nothing here shows the order changed'.
+
+    Refusal used to be something DONE TO the author -- a claim was proposed, could not be proved, and was deleted, so the scenario quietly ended with no `Then` while 27 style warnings said so in a vocabulary nobody outside the pipeline reads. It is now something the author WRITES, which means it can explain itself and a reviewer can close the gap. Never rendered into the feature body, which is prose and nothing else.
+    """
     criticNotes: list[str] | None = None
 
 
@@ -321,6 +343,12 @@ class TestCaseIR(StrictModel):
     omitted: list[OmittedSegment]
     """
     Exploratory/abandoned segments -- shown, not hidden. A verbatim transcript is unusable; silent deletion is untrustworthy.
+    """
+    examples: ScenarioExamples | None = Field(None, title="ScenarioExamples")
+    """
+    A `Scenario Outline`'s table, when the author decided this flow is one behaviour exercised with several sets of values.
+
+    Distinct from `parameters`, which lifts REDACTION placeholders into an Examples row and is a rendering setting. This is a judgement about test design: a recording that adds 13 items and then 18 comes out as two near-identical scenarios and reads as a transcript, where one outline over two rows reads as a test somebody designed.
     """
     suggestions: list[CoverageSuggestion] | None = None
     """

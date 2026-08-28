@@ -105,6 +105,30 @@ class Storage:
             json.loads(recording.model_dump_json(by_alias=True, exclude_none=True)),
         )
 
+    def expectations_path(self, recording_id: str) -> Path:
+        """What should have happened, beside the recording it is about.
+
+        Not a run artifact. Expectations are an INPUT to authoring, gathered
+        once from the person who was there, and every later run of the same
+        recording reads the same answers -- a tester who confirmed twelve
+        guesses must not be asked again because somebody re-ran the pipeline.
+        """
+        return self.recordings_dir / recording_id / "expectations.json"
+
+    def load_expectations(self, recording_id: str) -> dict[str, Any] | None:
+        path = self.expectations_path(recording_id)
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def save_expectations(self, expectations: Any) -> Path:
+        path = self.expectations_path(expectations.recordingId)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            expectations.model_dump_json(indent=2, exclude_none=True), encoding="utf-8"
+        )
+        return path
+
     def audio_path(self, recording_id: str) -> Path:
         """Narration audio, beside its recording (SS7.5).
 

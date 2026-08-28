@@ -109,6 +109,8 @@ def render_test_case(
     siblings = len(test_cases(ir)) if ir else 1
     narrative = build_narrative(case.steps, lift_background=siblings > 1)
     outline = _outline_names(case, narrative, config)
+    # `Scenario Outline` is the keyword whenever there is a table to go under
+    # it, from either source.
 
     lines: list[str] = []
     lines.extend(_header(case, date, config))
@@ -227,7 +229,8 @@ def _background(case: TestCaseIR, narrative: Narrative, outline: list[str]) -> l
 
 
 def _scenario(case: TestCaseIR, narrative: Narrative, outline: list[str]) -> list[str]:
-    keyword = "Scenario Outline" if outline else "Scenario"
+    has_table = bool(outline) or bool(case.examples and case.examples.columns)
+    keyword = "Scenario Outline" if has_table else "Scenario"
     lines = ["", f"{INDENT}{keyword}: {_one_line(_scenario_name(case))}"]
 
     # Blank lines between beats help a long scenario and make a short one look
@@ -263,6 +266,30 @@ def _omissions(case: TestCaseIR) -> list[str]:
 
 
 def _examples(case: TestCaseIR, outline: list[str]) -> list[str]:
+    """The `Examples` table, from whichever of the two sources supplied one.
+
+    The AUTHOR's table wins where it exists, and it is the more interesting of
+    the two: it means the author judged that one flow was exercised with several
+    sets of values, which is the difference between a recording that reads as a
+    transcript and one that reads as test design. A recording that adds 13 items
+    and then 18 otherwise comes out as two near-identical scenarios.
+
+    `parameters: outline` is the other source and is a RENDERING setting -- it
+    lifts redaction placeholders into a one-row table. One row is not really a
+    table, which is why `inline` is the default.
+    """
+    if case.examples and case.examples.columns and case.examples.rows:
+        # Padded to a grid. Gherkin does not require it and every reader does:
+        # a ragged table is the difference between a document somebody wrote
+        # and a document something emitted.
+        grid = [list(case.examples.columns), *(list(r) for r in case.examples.rows)]
+        widths = [max(len(row[i]) for row in grid) for i in range(len(grid[0]))]
+        rows = [
+            f"{INDENT * 3}| " + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)) + " |"
+            for row in grid
+        ]
+        return ["", f"{INDENT * 2}Examples:", *rows]
+
     if not outline:
         return []
     by_name = {p.name: p for p in case.parameters}
@@ -288,6 +315,13 @@ def _outline_names(case: TestCaseIR, narrative: Narrative, config: ProjectConfig
     two places to find one value. An Outline earns its keep when a project
     genuinely runs several rows.
     """
+    # An author-declared table already decides this, and its columns are its
+    # own -- angle-bracket placeholders the author wrote into the step text,
+    # not redaction parameters. Returning names here would make `_step_text`
+    # rewrite `<<password>>` into `<password>` in a scenario whose table has no
+    # such column.
+    if case.examples and case.examples.columns:
+        return []
     if config.parameters != "outline":
         return []
 

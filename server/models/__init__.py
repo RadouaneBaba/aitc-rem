@@ -13,6 +13,11 @@ from .generated.common_schema import (
     SegmentRole,
     SelectorSet,
 )
+from .generated.expectations_schema import (
+    Expectation,
+    ExpectationSet,
+    ExpectationSource,
+)
 from .generated.ir_schema import (
     Assertion,
     BugDetail,
@@ -25,6 +30,7 @@ from .generated.ir_schema import (
     OmittedSegment,
     Parameter,
     Precondition,
+    ScenarioExamples,
     SelectorHint,
     SelectorStrategy,
     Step,
@@ -102,6 +108,10 @@ from .generated.trace_schema import (
 )
 
 __all__ = [
+    "Expectation",
+    "ScenarioExamples",
+    "ExpectationSet",
+    "ExpectationSource",
     # common
     "Confidence",
     "FidelityFlag",

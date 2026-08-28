@@ -26,6 +26,7 @@ def replay_all(
     out_dir: Path,
     base_url: str = DEFAULT_BASE_URL,
     parameters: dict[str, str] | None = None,
+    storage_state: Path | None = None,
     names: list[str] | None = None,
 ) -> list[ReplayResult]:
     """Replay every test case with the named runners."""
@@ -49,6 +50,7 @@ def replay_all(
                 out_dir=out_dir,
                 base_url=base_url,
                 parameters=parameters,
+                storage_state=storage_state,
             )
         )
     return out

@@ -15,6 +15,7 @@ is a deployment change rather than a migration.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,8 +34,14 @@ from server.config import (
     load_project_config,
     normalise_origin,
 )
-from server.library import StepLibrary, library_path
-from server.models import IRDocument, PipelineStage, Recording, ReviewDocument
+from server.models import (
+    ExpectationSet,
+    ExpectationSource,
+    IRDocument,
+    PipelineStage,
+    Recording,
+    ReviewDocument,
+)
 from server.pipeline.run import PipelineOptions, run_pipeline
 from server.renderers import export_all
 from server.renderers.gherkin import feature_filename, render_document, trace_filename
@@ -50,15 +57,27 @@ UI_DIST = REPO_ROOT / "ui" / "dist"
 #: developer reading a trace.
 STAGE_DETAIL = {
     PipelineStage.segment: "reading the recording",
-    PipelineStage.decompose: "writing the test case",
-    PipelineStage.split: "deciding whether this is one test case or several",
-    PipelineStage.assert_: "checking each expected result against the recording",
-    PipelineStage.name: "rewriting a step a review flagged",
+    PipelineStage.expectations: "working out what should have happened",
+    PipelineStage.author: "writing the test cases",
     PipelineStage.render: "writing the feature file",
     PipelineStage.validate: "checking every claim against the evidence",
-    PipelineStage.critic: "reading it back the way a reviewer would",
+    PipelineStage.judge: "reading it back as a QA lead would",
     PipelineStage.coverage: "looking for what this session did not cover",
 }
+
+
+class ExpectationAnswer(BaseModel):
+    """One card on the confirmation screen, answered."""
+
+    id: str
+    source: ExpectationSource
+    #: Only read for `corrected`. See `post_expectations`.
+    expected: str | None = None
+    note: str | None = None
+
+
+class ExpectationAnswers(BaseModel):
+    answers: list[ExpectationAnswer] = []
 
 
 class RecordingPayload(BaseModel):
@@ -115,7 +134,6 @@ def create_app(
     model_factory=None,
     options: PipelineOptions | None = None,
     config: ProjectConfig | None = None,
-    library: StepLibrary | None = None,
 ) -> FastAPI:
     """Build the app.
 
@@ -130,9 +148,6 @@ def create_app(
     app.state.storage = storage
     app.state.config = config
     app.state.jobs = runner
-    # SS12. One library per server, created lazily so a test that never
-    # approves anything never writes a database file.
-    app.state.library = library if library is not None else StepLibrary(library_path())
 
     # The recorder runs inside whatever page the tester is on, so the POST is
     # cross-origin by definition. Local-only server, local-only exposure.
@@ -177,7 +192,7 @@ def create_app(
         run_id = _next_run_id(storage, recording.id)
         job = runner.enqueue(
             recording.id,
-            lambda job: _run(job, recording, storage, _model(), options, config, app.state.library),
+            lambda job: _run(job, recording, storage, _model(), options, config),
             run_id=run_id,
         )
         return {
@@ -187,6 +202,73 @@ def create_app(
             "unknownOrigins": unknown,
             "narration": transcription,
         }
+
+    @app.get("/api/recordings/{recording_id}/expectations")
+    def get_expectations(recording_id: str) -> dict[str, Any]:
+        """What the pipeline thinks should have happened, for the tester to check.
+
+        404 while the guess is still running, which is the normal first second
+        after Stop: the confirmation screen polls the job and then asks here.
+        """
+        stored = storage.load_expectations(recording_id)
+        if stored is None:
+            raise HTTPException(404, f"no expectations for {recording_id} yet")
+        return stored
+
+    @app.post("/api/recordings/{recording_id}/expectations")
+    def post_expectations(recording_id: str, payload: ExpectationAnswers) -> dict[str, Any]:
+        """The confirmation screen, coming back.
+
+        This is the most valuable interaction in the product and the cheapest:
+        the tester reads a guess and presses one of three buttons. Everything
+        the pipeline can otherwise know is a restatement of what the application
+        DID; this is the only place anybody says what it SHOULD have done.
+
+        Answering enqueues a fresh run, because the answers are an INPUT to
+        authoring rather than an edit to its output. The first run has already
+        happened by now on the guesses alone -- a run must never wait for a
+        screen somebody might not open -- so this produces a better second
+        draft beside it rather than unblocking a first one.
+        """
+        stored = storage.load_expectations(recording_id)
+        if stored is None:
+            raise HTTPException(404, f"no expectations for {recording_id}")
+
+        expectations = ExpectationSet.model_validate(stored)
+        by_id = {e.id: e for e in expectations.expectations}
+        unknown = [a.id for a in payload.answers if a.id not in by_id]
+        if unknown:
+            raise HTTPException(422, f"no such expectation(s): {', '.join(unknown)}")
+
+        for answer in payload.answers:
+            target = by_id[answer.id]
+            target.source = answer.source
+            # Only a rewrite replaces the sentence. A tick means "your guess was
+            # right", and overwriting the guess with itself would lose nothing
+            # but reads as an edit in the diff.
+            if answer.expected and answer.source == ExpectationSource.corrected:
+                target.expected = answer.expected
+            if answer.note:
+                target.note = answer.note
+
+        expectations.confirmedAt = datetime.now(UTC)
+        storage.save_expectations(expectations)
+
+        recording = Recording.model_validate(storage.load_recording_json(recording_id))
+        run_id = _next_run_id(storage, recording_id)
+        job = runner.enqueue(
+            recording_id,
+            lambda job: _run(
+                job,
+                recording,
+                storage,
+                _model(),
+                _with_expectations(options, expectations),
+                config,
+            ),
+            run_id=run_id,
+        )
+        return {"job": job.as_dict(), "expectations": expectations.model_dump(mode="json", exclude_none=True)}
 
     @app.post("/api/recordings/{recording_id}/audio", status_code=201)
     async def post_audio(recording_id: str, request: Request) -> dict[str, Any]:
@@ -476,9 +558,7 @@ def create_app(
         return _edit(
             recording_id,
             run_id,
-            lambda ir, rv: review_ops.approve(
-                ir, rv, reviewer=body.reviewer, library=app.state.library
-            ),
+            lambda ir, rv: review_ops.approve(ir, rv, reviewer=body.reviewer),
         )
 
     @app.post("/api/runs/{recording_id}/{run_id}/export")
@@ -555,11 +635,9 @@ def _run(
     model,
     options: PipelineOptions | None,
     config: ProjectConfig,
-    library: StepLibrary | None = None,
 ) -> dict[str, Any]:
     opts = options or PipelineOptions()
     opts.project = config
-    opts.library = library
 
     def progress(stage: PipelineStage) -> None:
         job.detail = STAGE_DETAIL.get(stage, stage.value)
@@ -582,6 +660,19 @@ def _run(
         "groundingRate": result.grounding_rate,
         "ok": result.report.ok,
     }
+
+
+def _with_expectations(
+    options: PipelineOptions | None, expectations: ExpectationSet
+) -> PipelineOptions:
+    """A copy carrying the tester's answers, never a mutation of the shared one.
+
+    `options` is the app's, reused by every request. Setting the oracle on it
+    would leak one recording's expectations into the next recording's run --
+    which would be silent, and would look exactly like the model guessing well.
+    """
+    base = options or PipelineOptions()
+    return replace(base, expectations=expectations)
 
 
 def _unknown_origins(recording: Recording, policy: str = "warn") -> list[str]:
@@ -680,8 +771,13 @@ def _list_runs(storage: Storage) -> list[dict[str, Any]]:
         # a tester with fifteen recordings needs "which of these needs me",
         # and the answer is in `ir.json` already.
         warnings = sum(len(c.warnings) for c in ir.testCases)
+        # `whyNot` rather than `criticNotes`: the critic is deleted, and its
+        # replacement hands findings to the AUTHOR and never to the tester. What
+        # needs a person here is a step the author could not find a verdict for
+        # and said so about -- which is the one thing on this screen only a
+        # human can close.
         flagged = sum(
-            1 for c in ir.testCases for s in c.steps if s.criticNotes or s.escalation
+            1 for c in ir.testCases for s in c.steps if s.whyNot or s.criticNotes or s.escalation
         )
         out.append(
             {

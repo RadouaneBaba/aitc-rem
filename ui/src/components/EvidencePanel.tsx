@@ -38,7 +38,13 @@ export function EvidencePanel({
   busy: boolean;
   onEditFeature: (text: string) => void;
 }) {
-  const [tab, setTab] = useState<'why' | 'feature'>('why');
+  // The feature file first, and the change is the whole of this screen's
+  // posture. A reviewer opening a run was landed on the retrieval chain --
+  // tool calls, budgets, investigation records -- which is the pipeline's
+  // insides and serves whoever is auditing the tool. The tester is here to
+  // read what came out of their own session; that is also what the tool is
+  // judged on. The proof is one click away rather than in their face.
+  const [tab, setTab] = useState<'why' | 'feature'>('feature');
 
   const investigations = (trace?.investigations ?? []).filter(
     (i) => step && i.stepId === step.id,

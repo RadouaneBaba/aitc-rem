@@ -146,19 +146,18 @@ def section(run: Path) -> str:
     out.append(f"| validator pass (first / final) | "
                f"{metrics.get('validatorFirstPassRate', '—')} / "
                f"{metrics.get('validatorFinalPassRate', '—')} |")
-    # Raised beside resolved, always. `Converged` alone is vacuously 1.0 for a
-    # critic that found nothing, which is the same trap as a grounding rate
-    # without a yield -- this project has now met it in five columns.
-    out.append(f"| critic findings (raised / resolved) | "
-               f"{metrics.get('criticFindingsRaised', '—')} / "
-               f"{metrics.get('criticFindingsResolved', '—')} |")
-    out.append(f"| repair attempts / convergence | "
-               f"{metrics.get('repairAttempts', '—')} / "
-               f"{metrics.get('repairConvergenceRate', '—')} |")
+    # Counts, never a rate. `Converged` was vacuously 1.0 for a critic that
+    # found nothing -- the same trap as a grounding rate without a yield, and
+    # this project has now met it in six columns. `Unsigned` is what the judge
+    # still objected to on the document that shipped.
+    out.append(f"| judge findings (total / still standing) | "
+               f"{metrics.get('judgeFindings', '—')} / "
+               f"{metrics.get('judgeFails', '—')} |")
+    out.append(f"| author rounds / findings handed back | "
+               f"{metrics.get('revisionRounds', '—')} / "
+               f"{metrics.get('repairAttempts', '—')} |")
     out.append(f"| tool calls total | {metrics.get('toolCallsTotal', '—')} |")
     out.append(f"| tool calls per step | `{metrics.get('toolCallsPerStep') or {}}` |")
-    split = _load(run / "split.json") or {}
-    out.append(f"| scenarios added by the splitter | {split.get('scenariosAdded', '—')} |")
     out.append(f"| rejected by | {', '.join(rejected) if rejected else '*nothing*'} |")
     out.append(f"| warned by | {', '.join(warned) if warned else '*nothing*'} |")
     out.append("")

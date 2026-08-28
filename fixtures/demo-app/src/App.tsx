@@ -5,12 +5,38 @@ import { Catalog } from './pages/Catalog';
 import { Checkout } from './pages/Checkout';
 import { Confirmation } from './pages/Confirmation';
 import { Login } from './pages/Login';
+import { Receipt } from './pages/Receipt';
 import { Reports } from './pages/Reports';
+import { Storefront } from './pages/Storefront';
 
-type Page = 'login' | 'catalog' | 'checkout' | 'reports' | 'confirmation';
+type Page =
+  | 'login'
+  | 'catalog'
+  | 'checkout'
+  | 'reports'
+  | 'storefront'
+  | 'confirmation'
+  | 'receipt';
+
+/**
+ * The storefront is reachable directly at /storefront, without signing in.
+ *
+ * It exists to reproduce the scoped-capture defect (see pages/Storefront.tsx),
+ * and a recording of that defect should contain the filter clicks and nothing
+ * else -- three sign-in events ahead of them would put the thing under test in
+ * the second half of a recording whose first half is noise.
+ */
+function initialPage(): Page {
+  if (location.pathname === '/storefront') return 'storefront';
+  // The second tab lands here directly, opened from the confirmation page.
+  // It has to be reachable without signing in for the same reason /storefront
+  // is: a new tab is a fresh document with none of this one's React state.
+  if (location.pathname === '/receipt') return 'receipt';
+  return 'login';
+}
 
 export default function App() {
-  const [page, setPage] = useState<Page>('login');
+  const [page, setPage] = useState<Page>(initialPage);
   const [user, setUser] = useState<string | null>(null);
   const [cartCount, setCartCount] = useState(0);
   const [cartTotal, setCartTotal] = useState(0);
@@ -40,6 +66,9 @@ export default function App() {
             </button>
             <button aria-current={page === 'reports' ? 'page' : undefined} onClick={() => go('reports')}>
               Reports
+            </button>
+            <button aria-current={page === 'storefront' ? 'page' : undefined} onClick={() => go('storefront')}>
+              Store
             </button>
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
               <span className="muted">Cart</span>
@@ -81,7 +110,9 @@ export default function App() {
       )}
 
       {page === 'reports' && <Reports />}
+      {page === 'storefront' && <Storefront />}
       {page === 'confirmation' && <Confirmation reference={reference} />}
+      {page === 'receipt' && <Receipt />}
 
       {toast && <Toast message={toast} onDone={dismissToast} />}
     </>

@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from server.ablation import run_ablation, write_report
 from server.api.review import new_review
@@ -22,7 +23,6 @@ from server.config import (
     load_project_config,
     normalise_origin,
 )
-from server.library import StepLibrary, library_path
 from server.llm.cassette import CassetteClient
 from server.llm.chain import BudgetGuard, FallbackChain, RateLimiter, RetryingClient
 from server.llm.client import ModelClient
@@ -223,8 +223,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         model_name=args.model,
         budget=args.budget,
         project=project,
-        library=StepLibrary(library_path()),
-        bug_mode_enabled=args.bug_mode,
     )
 
     result = run_pipeline(recording, model, storage=storage, run_id=args.run_id, options=options)
@@ -237,7 +235,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     print(f"Recording:      {recording.id}  ({len(recording.events)} events)")
     print(f"Run:            {result.run.root}")
-    print(f"Steps:          {len(result.draft.steps)}")
+    print(f"Steps:          {len(result.document.steps)}")
     print(f"Tool calls:     {len(result.trace.toolCalls)}  {result.tool_calls_per_step}")
     print(f"Grounding rate: {result.grounding_rate:.1%}")
     print(f"Duration:       {result.duration_ms / 1000:.1f}s")
@@ -268,6 +266,16 @@ def cmd_run(args: argparse.Namespace) -> int:
             for warning in export.warnings:
                 print(f"                - {warning}")
 
+    if args.replay and not result.report.hard_failed:
+        print()
+        _print_replay(
+            result,
+            recording,
+            parameters=_replay_parameters(args.replay_param),
+            base_url=args.base_url or None,
+            storage_state=Path(args.storage_state) if args.storage_state else None,
+        )
+
     if result.rendered:
         print()
         print(next(iter(result.rendered.values())))
@@ -275,6 +283,63 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"Evidence sidecar: {result.run.root / trace_filename(result.ir.testCases[0])}")
 
     return 0 if result.report.ok else 1
+
+
+def _print_replay(
+    result: Any,
+    recording: Recording,
+    *,
+    parameters: dict[str, str],
+    base_url: str | None,
+    storage_state: Path | None = None,
+) -> None:
+    """Drive the generated test case against the live application and say so.
+
+    The strongest check in the system and the only claim in it nobody can
+    argue with: the other columns say a claim can point at a retrieval, and
+    this one says the test runs.
+
+    Every count is printed, never a bare rate. `passed` over zero attempted
+    steps was `True` until this stage was first exercised, and a replay that
+    could not be attempted at all is reported as blocked rather than folded
+    into a failure -- "could not run" is not evidence about the test case.
+    """
+    from server.runners import DEFAULT_BASE_URL, replay_all
+
+    try:
+        outcomes = replay_all(
+            result.ir,
+            recording=recording,
+            out_dir=result.run.root,
+            base_url=base_url or DEFAULT_BASE_URL,
+            parameters=parameters,
+            storage_state=storage_state,
+        )
+    except Exception as exc:  # noqa: BLE001 - never lose a finished run to this
+        print(f"Replay:         could not run -- {type(exc).__name__}: {exc}")
+        return
+
+    for outcome in outcomes:
+        if outcome.blocked:
+            print(f"Replay:         blocked -- {outcome.blocked}")
+            continue
+        verdict = "passed" if outcome.passed else "failed"
+        print(
+            f"Replay:         {outcome.case_id} {verdict} "
+            f"({len(outcome.steps)} step(s), "
+            f"{outcome.assertions_held}/{outcome.assertions_checked} assertion(s) held, "
+            f"mean selector rank {outcome.mean_selector_rank:.2f})"
+        )
+        for step in outcome.steps:
+            for assertion in step.assertions:
+                if assertion.status == "pass":
+                    continue
+                detail = f" -- {assertion.detail}" if assertion.detail else ""
+                print(f"                [{assertion.status}] {assertion.literal!r}{detail}")
+            if not step.ok:
+                print(f"                [step] {step.step_id} -- {step.error}")
+        for warning in outcome.warnings:
+            print(f"                {warning}")
 
 
 def cmd_ablate(args: argparse.Namespace) -> int:
@@ -312,6 +377,8 @@ def cmd_ablate(args: argparse.Namespace) -> int:
         budget=args.budget,
         replay=args.replay,
         replay_parameters=_replay_parameters(args.replay_param),
+        replay_base_url=args.base_url or None,
+        replay_storage_state=Path(args.storage_state) if args.storage_state else None,
     )
     print(report.table())
     print()
@@ -534,8 +601,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
         model_name=args.model,
         budget=args.budget,
         project=project,
-        library=StepLibrary(library_path()),
-        bug_mode_enabled=args.bug_mode,
     )
     app = create_app(
         storage=storage,
@@ -586,20 +651,6 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="send even when an origin is not on the allowlist; overrides origin_policy",
     )
-    # SS14. Off by default and that default is argued in `PipelineOptions`: on a
-    # commercial site the uncaught-exception signal fires on third-party
-    # advertising scripts, and one bug report that sends a developer to
-    # reproduce somebody else's JavaScript costs more trust than fifty good test
-    # cases earn. But nothing anywhere set the flag, so a whole built stage was
-    # unreachable from every entry point -- a default is a default, not an
-    # absence of a switch.
-    common.add_argument(
-        "--bug-mode",
-        action="store_true",
-        help="write a repro report when the recording contains a 5xx, an uncaught "
-        "exception, or the tester's bug marker (SS14)",
-    )
-
     # SS6.6. A transcript from anywhere -- OS dictation, a voice memo, or typed
     # notes with timestamps -- makes `narrated` reachable without a microphone,
     # and is how a bad transcription gets corrected.
@@ -622,8 +673,47 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    # Shared by `run` and `ablate`. The runner was reachable only through the
+    # ablation, which is the wrong way round: replaying ONE recording is the
+    # normal thing to want, and needing a three-configuration comparison to do
+    # it is most of why `executionRate` sat at 0.0 and unexamined.
+    replay_args = argparse.ArgumentParser(add_help=False)
+    replay_args.add_argument(
+        "--replay",
+        action="store_true",
+        help="also drive each generated test case against the live app (needs `pnpm demo`)",
+    )
+    replay_args.add_argument(
+        "--replay-param",
+        action="append",
+        default=[],
+        metavar="name=value",
+        help="a value for a redaction placeholder, e.g. --replay-param password=hunter2",
+    )
+    replay_args.add_argument(
+        "--base-url",
+        default="",
+        help=(
+            "where to replay against. Only consulted when the recording carries no "
+            "startUrl -- a replay goes to the page the session was captured on"
+        ),
+    )
+    replay_args.add_argument(
+        "--storage-state",
+        default="",
+        metavar="state.json",
+        help=(
+            "Playwright storageState: cookies and local storage saved from a signed-in "
+            "session, so a replay starts already logged in. Write one with "
+            "`node scripts/login_once.mjs <url> <state.json>`. Keep it out of git; it is "
+            "a live session. Ignored if the file is absent -- the recorded login still runs"
+        ),
+    )
+
     run = sub.add_parser(
-        "run", parents=[common, narration], help="run the pipeline over one recording"
+        "run",
+        parents=[common, narration, replay_args],
+        help="run the pipeline over one recording",
     )
     run.add_argument("recording")
     run.add_argument("--config", default="A2", choices=[c.value for c in AblationConfig])
@@ -635,21 +725,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     run.set_defaults(func=cmd_run)
 
-    ablate = sub.add_parser("ablate", parents=[common], help="run A0/A1/A2 and print the table")
+    ablate = sub.add_parser(
+        "ablate", parents=[common, replay_args], help="run A0/A1/A2 and print the table"
+    )
     ablate.add_argument("recordings", nargs="+")
     ablate.add_argument("--out", default=str(REPO_ROOT / "runs" / "ablation.json"))
-    ablate.add_argument(
-        "--replay",
-        action="store_true",
-        help="also drive each generated test case against the demo app (needs `pnpm demo`)",
-    )
-    ablate.add_argument(
-        "--replay-param",
-        action="append",
-        default=[],
-        metavar="name=value",
-        help="a value for a redaction placeholder, e.g. --replay-param password=hunter2",
-    )
     ablate.set_defaults(func=cmd_ablate)
 
     imp = sub.add_parser(

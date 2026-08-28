@@ -19,8 +19,26 @@ import { RunPicker } from './components/RunPicker';
 import { JobBanner } from './components/JobBanner';
 import { TrustStrip } from './components/TrustStrip';
 import { ShortcutSheet } from './components/ShortcutSheet';
+import { Confirm } from './components/Confirm';
+
+/**
+ * Which recording, if any, the tester is being asked to confirm.
+ *
+ * A query parameter rather than a router: there are exactly two screens here,
+ * and the extension's export page needs a URL it can link to the moment the
+ * tester presses Send. Read once -- the confirmation screen is a destination,
+ * not a tab somebody flips back and forth to.
+ */
+function confirmTarget(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('confirm');
+  } catch {
+    return null;
+  }
+}
 
 export function App() {
+  const [confirming, setConfirming] = useState<string | null>(confirmTarget);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selected, setSelected] = useState<RunSummary | null>(null);
   const [body, setBody] = useState<RunBody | null>(null);
@@ -169,6 +187,24 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [move, verdict, body, approve]);
+
+  // Ahead of the "looking for a run" branch on purpose: the tester arrives here
+  // from the export page seconds after pressing Send, when there is no run yet.
+  // Showing them "Looking for a run..." at the one moment they still remember
+  // what they were checking is how the most valuable screen in the product goes
+  // unused.
+  if (confirming) {
+    return (
+      <Confirm
+        recordingId={confirming}
+        onDone={() => {
+          setConfirming(null);
+          window.history.replaceState(null, '', window.location.pathname);
+          refresh();
+        }}
+      />
+    );
+  }
 
   if (!body || !selected) {
     return (

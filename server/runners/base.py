@@ -80,7 +80,23 @@ class ReplayResult:
 
     @property
     def passed(self) -> bool:
-        return self.ran and all(s.ok for s in self.steps)
+        """Every step ran and held. **A case with no steps has not passed.**
+
+        `ran and all(...)` over an empty list is `True`, and this project has
+        now met that shape in seven places -- a grounding rate of 1.0 on a run
+        that claimed nothing, `Executes` on a configuration that abstained,
+        `Converged` over findings the loop was never allowed to touch. Here it
+        would report a green replay for a test case the runner could not
+        express a single action for, which is the most expensive version of it:
+        `executionRate` is the one number in the system nobody can argue with,
+        so it is the one that must never be vacuous.
+
+        Read it beside `assertions_checked`, which is why that is in
+        `as_dict()`. A case can legitimately pass with zero assertions checked
+        -- every verdict narration-grounded, say -- and that is a different
+        fact from passing with two.
+        """
+        return self.ran and bool(self.steps) and all(s.ok for s in self.steps)
 
     @property
     def assertions_checked(self) -> int:
@@ -141,6 +157,7 @@ class Runner(Protocol):
         out_dir: Path,
         base_url: str,
         parameters: dict[str, str] | None = None,
+        storage_state: Path | None = None,
     ) -> list[ReplayResult]: ...
 
 

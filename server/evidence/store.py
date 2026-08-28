@@ -147,54 +147,6 @@ class EvidenceStore:
         self.event(event_id)  # raises with a useful message if unknown
         return self._nodes.get((event_id, when), [])
 
-    def merged_view(self, event_id: str, when: When = "after") -> dict[str, Any]:
-        """The widest view of the page available for this event.
-
-        SS6.3 offers `get_full_snapshot` as the expensive view on demand, but
-        the recorder only ever captured SCOPED snapshots -- it is not running
-        any more and cannot be asked for a wider one after the fact. Rather than
-        pretend, this merges every snapshot taken at the same URL within the
-        surrounding segment, which really is more of the page than any single
-        scoped view, and says plainly what it is.
-        """
-        event = self.event(event_id)
-        base = getattr(event, when, None) or event.after
-        segment_id = self._segment_of_event.get(event_id)
-        siblings = (
-            [self.event(e) for e in self._segments_by_id[segment_id].eventIds]
-            if segment_id and segment_id in self._segments_by_id
-            else [event]
-        )
-
-        seen: set[tuple[str, str, str]] = set()
-        merged: list[dict[str, Any]] = []
-        for sibling in siblings:
-            for sib_when in ("before", "after", "transient"):
-                snap = getattr(sibling, sib_when, None)
-                if snap is None or snap.url != base.url:
-                    continue
-                for node in self._nodes.get((sibling.id, sib_when), []):
-                    key = (node.role, node.name, node.path)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    merged.append(node.as_dict())
-
-        return {
-            "eventId": event_id,
-            "when": when,
-            "url": base.url,
-            "title": base.title,
-            "coverage": "merged_scoped",
-            "note": (
-                "The recorder captures scoped snapshots (SS6.3); no whole-page "
-                "capture exists for this event. This is the union of every "
-                "snapshot taken at the same URL within the surrounding segment."
-            ),
-            "sourceEvents": [s.id for s in siblings],
-            "nodes": merged,
-        }
-
     # ------------------------------------------------------------------
     # lookup
     # ------------------------------------------------------------------

@@ -23,8 +23,27 @@ export const TIMEOUT_MS = 5000;
 export interface SettleHandle {
   /** Resolves once the page is judged to have responded. */
   done: Promise<SettleInfo>;
-  /** Called the instant a live region appears, ahead of settle. */
-  cancel(): void;
+  /**
+   * Stop waiting now and resolve with `reason`.
+   *
+   * Two callers, both in `content/index.ts`, and neither is optional.
+   *
+   * `recording_stopped`: the loop below keeps restarting the quiet window while
+   * any request from this action is in flight, and for the LAST action of a
+   * session there is no next action to bound that window -- so one
+   * never-completing analytics beacon holds it to the full 5s timeout. Measured
+   * on a public demo site: the final add-to-cart click, the one the recording
+   * was about, was still inside its settle window when the tester stopped, and
+   * the tab was then frozen in the background so the timer never fired at all.
+   *
+   * `superseded`: the tester acted again before this window closed. Nothing
+   * else bounds it -- `inFlightFor` bounds request ATTRIBUTION by the next
+   * action, not the settle -- so the `after` snapshot went on absorbing the
+   * page's response to the NEXT action and attributed it to this one. That is
+   * worse than an early snapshot, because it is a wrong one that reads as
+   * right: it grounds a false assertion that passes every validator.
+   */
+  cancel(reason?: SettleReason): void;
 }
 
 export interface SettleDeps {
@@ -134,7 +153,7 @@ export function waitForSettle(deps: SettleDeps): SettleHandle {
 
   return {
     done,
-    cancel: () => finish('quiet'),
+    cancel: (reason: SettleReason = 'quiet') => finish(reason),
   };
 }
 

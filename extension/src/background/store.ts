@@ -23,7 +23,21 @@ export interface SessionMeta {
   /** Wall-clock start, for Recording.metadata.capturedAt. */
   startedAtIso: string;
   startUrl: string;
+  /** The tab the tester pressed Record in. Kept as the origin of the session
+   *  even after it opens others -- `startUrl` is this tab's. */
   tabId: number;
+  /** Every tab the session is recording, including `tabId`.
+   *
+   *  SS18 milestone 21. The recorder was pinned to one tab by choice rather
+   *  than by limitation: the content script is already injected into every tab
+   *  (`<all_urls>`, `all_frames`), the service worker already reads
+   *  `sender.tab.id` on every event, and the expensive problem -- ordering
+   *  events from separate documents on one clock -- was solved when
+   *  `performance.now()` was converted through `timeOrigin`. What was missing
+   *  was a set instead of a number.
+   *
+   *  A plain array rather than a Set because this is stored in IndexedDB. */
+  tabIds: number[];
   origins: string[];
   parameters: RedactionParameter[];
   annotations: TesterAnnotation[];
@@ -37,6 +51,8 @@ export interface SessionMeta {
   /** Stopped sessions are kept, not deleted: the export page still needs them.
    *  Only `startRecording` clears the store. */
   stopped?: boolean;
+  /** Session ms at which Stop was pressed. See `ingest`. */
+  stoppedAt?: number;
 }
 
 function open(): Promise<IDBDatabase> {

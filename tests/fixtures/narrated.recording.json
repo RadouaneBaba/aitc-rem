@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.0",
-  "id": "rec_MTA1OK3S1NX1",
+  "id": "rec_MTD2D38FEEAD",
   "projectId": "local",
   "ownerId": "local",
-  "createdAt": "2026-08-26T12:03:05.032Z",
+  "createdAt": "2026-08-28T14:45:28.095Z",
   "objective": "Check that an order over EUR500 requires approval",
   "metadata": {
-    "capturedAt": "2026-08-26T12:03:05.032Z",
-    "durationMs": 6349,
+    "capturedAt": "2026-08-28T14:45:28.095Z",
+    "durationMs": 6363,
     "browser": "Chrome/151.0.0.0",
     "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
     "viewport": {
@@ -19,17 +19,17 @@
       "http://localhost:5173"
     ],
     "recorderVersion": "0.1.0",
-    "audioOffsetMs": 47,
+    "audioOffsetMs": 61,
     "fidelitySummary": {
       "rapid_sequence": 2,
-      "closed_shadow_root": 2
+      "closed_shadow_root": 3
     }
   },
   "events": [
     {
       "id": "evt_001",
       "seq": 0,
-      "timestamp": 610,
+      "timestamp": 637,
       "type": "input",
       "url": "http://localhost:5173/",
       "target": {
@@ -45,98 +45,196 @@
         "value": "<<user_email_1>>"
       },
       "before": {
-        "capturedAt": 610,
+        "capturedAt": 637,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
-              "name": "Email address",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "Password",
-              "value": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Sign in"
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Sign in"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "text",
+                          "name": "Demo user: <<user_email_1>> — password is in the project README."
+                        },
+                        {
+                          "ref": "0.0.1.0.2",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.2.0",
+                              "role": "text",
+                              "name": "Email address"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.1",
+                              "role": "textbox",
+                              "name": "Email address",
+                              "value": "<<user_email_1>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.2",
+                              "role": "text",
+                              "name": "Password"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.3",
+                              "role": "textbox",
+                              "name": "Password",
+                              "value": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.2.4",
+                              "role": "button",
+                              "name": "Sign in"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
+        "nodeCount": 13
       },
       "after": {
-        "capturedAt": 918,
+        "capturedAt": 953,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
-              "name": "Email address",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "Password",
-              "value": "<<password>>"
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Sign in"
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Sign in"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "text",
+                          "name": "Demo user: <<user_email_1>> — password is in the project README."
+                        },
+                        {
+                          "ref": "0.0.1.0.2",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.2.0",
+                              "role": "text",
+                              "name": "Email address"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.1",
+                              "role": "textbox",
+                              "name": "Email address",
+                              "value": "<<user_email_1>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.2",
+                              "role": "text",
+                              "name": "Password"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.3",
+                              "role": "textbox",
+                              "name": "Password",
+                              "value": "<<password>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.4",
+                              "role": "button",
+                              "name": "Sign in"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
+        "nodeCount": 13
       },
       "diff": {
         "added": [],
@@ -144,18 +242,18 @@
         "changed": [
           {
             "before": {
-              "ref": "0.3",
+              "ref": "0.0.1.0.2.3",
               "role": "textbox",
               "name": "Password",
               "value": "",
-              "path": "form"
+              "path": "generic > group > main > region > form"
             },
             "after": {
-              "ref": "0.3",
+              "ref": "0.0.1.0.2.3",
               "role": "textbox",
               "name": "Password",
               "value": "<<password>>",
-              "path": "form"
+              "path": "generic > group > main > region > form"
             },
             "fields": [
               "value"
@@ -165,21 +263,22 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 304,
+        "waitedMs": 311,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
       "fidelity": [],
+      "tabId": 1123631981,
       "screenshot": "screens/evt_001.png"
     },
     {
       "id": "evt_002",
       "seq": 1,
-      "timestamp": 1088,
+      "timestamp": 1130,
       "type": "input",
-      "url": "http://localhost:5173/catalog",
+      "url": "http://localhost:5173/",
       "target": {
         "role": "textbox",
         "name": "Password",
@@ -193,170 +292,217 @@
         "value": "<<password>>"
       },
       "before": {
-        "capturedAt": 1088,
+        "capturedAt": 1130,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
-              "name": "Email address",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "Password",
-              "value": "<<password>>"
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Sign in"
-            }
-          ]
-        },
-        "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
-      },
-      "after": {
-        "capturedAt": 1099,
-        "url": "http://localhost:5173/catalog",
-        "title": "Northwind Orders",
-        "scope": "scoped",
-        "root": {
-          "ref": "0",
-          "role": "form",
-          "name": "",
-          "landmark": "form",
-          "children": [
-            {
-              "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
+              "role": "group",
               "name": "",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "",
-              "value": "<<password>>"
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Signing in...",
-              "state": [
-                "disabled"
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Sign in"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "text",
+                          "name": "Demo user: <<user_email_1>> — password is in the project README."
+                        },
+                        {
+                          "ref": "0.0.1.0.2",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.2.0",
+                              "role": "text",
+                              "name": "Email address"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.1",
+                              "role": "textbox",
+                              "name": "Email address",
+                              "value": "<<user_email_1>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.2",
+                              "role": "text",
+                              "name": "Password"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.3",
+                              "role": "textbox",
+                              "name": "Password",
+                              "value": "<<password>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.4",
+                              "role": "button",
+                              "name": "Sign in"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
+        "nodeCount": 13
+      },
+      "after": {
+        "capturedAt": 1134,
+        "url": "http://localhost:5173/",
+        "title": "Northwind Orders",
+        "scope": "full",
+        "root": {
+          "ref": "0",
+          "role": "generic",
           "name": "",
-          "landmark": "form"
-        }
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Sign in"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "text",
+                          "name": "Demo user: <<user_email_1>> — password is in the project README."
+                        },
+                        {
+                          "ref": "0.0.1.0.2",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.2.0",
+                              "role": "text",
+                              "name": "Email address"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.1",
+                              "role": "textbox",
+                              "name": "Email address",
+                              "value": "<<user_email_1>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.2",
+                              "role": "text",
+                              "name": "Password"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.3",
+                              "role": "textbox",
+                              "name": "Password",
+                              "value": "<<password>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.4",
+                              "role": "button",
+                              "name": "Sign in"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "nodeCount": 13
       },
       "diff": {
-        "added": [
-          {
-            "ref": "0.1",
-            "role": "textbox",
-            "name": "",
-            "value": "<<user_email_1>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.3",
-            "role": "textbox",
-            "name": "",
-            "value": "<<password>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.4",
-            "role": "button",
-            "name": "Signing in...",
-            "state": [
-              "disabled"
-            ],
-            "path": "form"
-          }
-        ],
-        "removed": [
-          {
-            "ref": "0.1",
-            "role": "textbox",
-            "name": "Email address",
-            "value": "<<user_email_1>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.3",
-            "role": "textbox",
-            "name": "Password",
-            "value": "<<password>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.4",
-            "role": "button",
-            "name": "Sign in",
-            "path": "form"
-          }
-        ],
-        "changed": [],
-        "urlChanged": {
-          "from": "http://localhost:5173/",
-          "to": "http://localhost:5173/catalog"
-        }
+        "added": [],
+        "removed": [],
+        "changed": []
       },
       "settle": {
-        "reason": "url_change",
-        "waitedMs": 11,
-        "mutationCount": 4,
+        "reason": "superseded",
+        "waitedMs": 1,
+        "mutationCount": 0,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
-      "fidelity": []
+      "fidelity": [],
+      "tabId": 1123631981
     },
     {
       "id": "evt_003",
       "seq": 2,
-      "timestamp": 1089,
+      "timestamp": 1132,
       "type": "click",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -371,148 +517,702 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 1089,
+        "capturedAt": 1132,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
-              "name": "Email address",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "Password",
-              "value": "<<password>>"
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Sign in"
-            }
-          ]
-        },
-        "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
-      },
-      "after": {
-        "capturedAt": 1100,
-        "url": "http://localhost:5173/catalog",
-        "title": "Northwind Orders",
-        "scope": "scoped",
-        "root": {
-          "ref": "0",
-          "role": "form",
-          "name": "",
-          "landmark": "form",
-          "children": [
-            {
-              "ref": "0.0",
-              "role": "text",
-              "name": "Email address"
-            },
-            {
-              "ref": "0.1",
-              "role": "textbox",
+              "role": "group",
               "name": "",
-              "value": "<<user_email_1>>"
-            },
-            {
-              "ref": "0.2",
-              "role": "text",
-              "name": "Password"
-            },
-            {
-              "ref": "0.3",
-              "role": "textbox",
-              "name": "",
-              "value": "<<password>>"
-            },
-            {
-              "ref": "0.4",
-              "role": "button",
-              "name": "Signing in...",
-              "state": [
-                "disabled"
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Sign in"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "text",
+                          "name": "Demo user: <<user_email_1>> — password is in the project README."
+                        },
+                        {
+                          "ref": "0.0.1.0.2",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.2.0",
+                              "role": "text",
+                              "name": "Email address"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.1",
+                              "role": "textbox",
+                              "name": "Email address",
+                              "value": "<<user_email_1>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.2",
+                              "role": "text",
+                              "name": "Password"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.3",
+                              "role": "textbox",
+                              "name": "Password",
+                              "value": "<<password>>"
+                            },
+                            {
+                              "ref": "0.0.1.0.2.4",
+                              "role": "button",
+                              "name": "Sign in"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
+        "nodeCount": 13
+      },
+      "after": {
+        "capturedAt": 1147,
+        "url": "http://localhost:5173/catalog",
+        "title": "Northwind Orders",
+        "scope": "full",
+        "root": {
+          "ref": "0",
+          "role": "generic",
           "name": "",
-          "landmark": "form"
-        }
+          "children": [
+            {
+              "ref": "0.0",
+              "role": "group",
+              "name": "",
+              "children": [
+                {
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    },
+                    {
+                      "ref": "0.0.0.1",
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "table",
+                          "name": "Prices exclude VAT",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "generic",
+                              "name": "Prices exclude VAT"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "rowgroup",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.1.0",
+                                  "role": "row",
+                                  "name": "SKU Product Price",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.0",
+                                      "role": "columnheader",
+                                      "name": "SKU"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.1",
+                                      "role": "columnheader",
+                                      "name": "Product"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.2",
+                                      "role": "columnheader",
+                                      "name": "Price"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.3",
+                                      "role": "columnheader",
+                                      "name": ""
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "rowgroup",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "row",
+                                  "name": "BW-01 Blue Widget EUR120 Add Blue Widget to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "cell",
+                                      "name": "BW-01"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "cell",
+                                      "name": "Blue Widget"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "cell",
+                                      "name": "EUR120"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "cell",
+                                      "name": "Add Blue Widget to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.0.3.0",
+                                          "role": "button",
+                                          "name": "Add Blue Widget to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.2.1",
+                                  "role": "row",
+                                  "name": "RW-02 Red Widget EUR240 Add Red Widget to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.0",
+                                      "role": "cell",
+                                      "name": "RW-02"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.1",
+                                      "role": "cell",
+                                      "name": "Red Widget"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.2",
+                                      "role": "cell",
+                                      "name": "EUR240"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.3",
+                                      "role": "cell",
+                                      "name": "Add Red Widget to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.1.3.0",
+                                          "role": "button",
+                                          "name": "Add Red Widget to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.2.2",
+                                  "role": "row",
+                                  "name": "GG-03 Green Gadget EUR310 Add Green Gadget to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.0",
+                                      "role": "cell",
+                                      "name": "GG-03"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.1",
+                                      "role": "cell",
+                                      "name": "Green Gadget"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.2",
+                                      "role": "cell",
+                                      "name": "EUR310"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.3",
+                                      "role": "cell",
+                                      "name": "Add Green Gadget to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.2.3.0",
+                                          "role": "button",
+                                          "name": "Add Green Gadget to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.2.3",
+                                  "role": "row",
+                                  "name": "PA-04 Precision Assembly EUR615 Add Precision Assembly to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.0",
+                                      "role": "cell",
+                                      "name": "PA-04"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.1",
+                                      "role": "cell",
+                                      "name": "Precision Assembly"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.2",
+                                      "role": "cell",
+                                      "name": "EUR615"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.3",
+                                      "role": "cell",
+                                      "name": "Add Precision Assembly to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.3.3.0",
+                                          "role": "button",
+                                          "name": "Add Precision Assembly to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "liveRegions": [],
+        "nodeCount": 47
       },
       "diff": {
         "added": [
           {
-            "ref": "0.1",
-            "role": "textbox",
-            "name": "",
-            "value": "<<user_email_1>>",
-            "path": "form"
+            "ref": "0.0.0.1",
+            "role": "navigation",
+            "name": "Main",
+            "path": "generic > group > banner"
           },
           {
-            "ref": "0.3",
-            "role": "textbox",
-            "name": "",
-            "value": "<<password>>",
-            "path": "form"
-          },
-          {
-            "ref": "0.4",
+            "ref": "0.0.0.1.0",
             "role": "button",
-            "name": "Signing in...",
+            "name": "Catalogue",
             "state": [
-              "disabled"
+              "current"
             ],
-            "path": "form"
+            "path": "generic > group > banner > navigation \"Main\""
+          },
+          {
+            "ref": "0.0.0.1.1",
+            "role": "button",
+            "name": "Checkout",
+            "path": "generic > group > banner > navigation \"Main\""
+          },
+          {
+            "ref": "0.0.0.1.2",
+            "role": "button",
+            "name": "Reports",
+            "path": "generic > group > banner > navigation \"Main\""
+          },
+          {
+            "ref": "0.0.0.1.3",
+            "role": "button",
+            "name": "Store",
+            "path": "generic > group > banner > navigation \"Main\""
+          },
+          {
+            "ref": "0.0.0.1.4",
+            "role": "group",
+            "name": "",
+            "path": "generic > group > banner > navigation \"Main\""
+          },
+          {
+            "ref": "0.0.0.1.4.0",
+            "role": "text",
+            "name": "Cart",
+            "path": "generic > group > banner > navigation \"Main\" > group"
+          },
+          {
+            "ref": "0.0.0.1.4.1",
+            "role": "generic",
+            "name": "Cart contains 0 items",
+            "path": "generic > group > banner > navigation \"Main\" > group"
+          },
+          {
+            "ref": "0.0.1.0.0",
+            "role": "heading",
+            "name": "Catalogue",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.1",
+            "role": "table",
+            "name": "Prices exclude VAT",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.1.0",
+            "role": "generic",
+            "name": "Prices exclude VAT",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\""
+          },
+          {
+            "ref": "0.0.1.0.1.1",
+            "role": "rowgroup",
+            "name": "",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0",
+            "role": "row",
+            "name": "SKU Product Price",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.0",
+            "role": "columnheader",
+            "name": "SKU",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.1",
+            "role": "columnheader",
+            "name": "Product",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.2",
+            "role": "columnheader",
+            "name": "Price",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.3",
+            "role": "columnheader",
+            "name": "",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.2",
+            "role": "rowgroup",
+            "name": "",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0",
+            "role": "row",
+            "name": "BW-01 Blue Widget EUR120 Add Blue Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.0",
+            "role": "cell",
+            "name": "BW-01",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.1",
+            "role": "cell",
+            "name": "Blue Widget",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.2",
+            "role": "cell",
+            "name": "EUR120",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.3",
+            "role": "cell",
+            "name": "Add Blue Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.3.0",
+            "role": "button",
+            "name": "Add Blue Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\" > cell \"Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1",
+            "role": "row",
+            "name": "RW-02 Red Widget EUR240 Add Red Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.0",
+            "role": "cell",
+            "name": "RW-02",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.1",
+            "role": "cell",
+            "name": "Red Widget",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.2",
+            "role": "cell",
+            "name": "EUR240",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.3",
+            "role": "cell",
+            "name": "Add Red Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.3.0",
+            "role": "button",
+            "name": "Add Red Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\" > cell \"Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2",
+            "role": "row",
+            "name": "GG-03 Green Gadget EUR310 Add Green Gadget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.0",
+            "role": "cell",
+            "name": "GG-03",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.1",
+            "role": "cell",
+            "name": "Green Gadget",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.2",
+            "role": "cell",
+            "name": "EUR310",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.3",
+            "role": "cell",
+            "name": "Add Green Gadget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.3.0",
+            "role": "button",
+            "name": "Add Green Gadget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\" > cell \"Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3",
+            "role": "row",
+            "name": "PA-04 Precision Assembly EUR615 Add Precision Assembly to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.0",
+            "role": "cell",
+            "name": "PA-04",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.1",
+            "role": "cell",
+            "name": "Precision Assembly",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.2",
+            "role": "cell",
+            "name": "EUR615",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.3",
+            "role": "cell",
+            "name": "Add Precision Assembly to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.3.0",
+            "role": "button",
+            "name": "Add Precision Assembly to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\" > cell \"Add Precision Assembly to cart\""
           }
         ],
         "removed": [
           {
-            "ref": "0.1",
+            "ref": "0.0.1.0.0",
+            "role": "heading",
+            "name": "Sign in",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.1",
+            "role": "text",
+            "name": "Demo user: <<user_email_1>> — password is in the project README.",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.2",
+            "role": "form",
+            "name": "",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.2.0",
+            "role": "text",
+            "name": "Email address",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.2.1",
             "role": "textbox",
             "name": "Email address",
             "value": "<<user_email_1>>",
-            "path": "form"
+            "path": "generic > group > main > region > form"
           },
           {
-            "ref": "0.3",
+            "ref": "0.0.1.0.2.2",
+            "role": "text",
+            "name": "Password",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.2.3",
             "role": "textbox",
             "name": "Password",
             "value": "<<password>>",
-            "path": "form"
+            "path": "generic > group > main > region > form"
           },
           {
-            "ref": "0.4",
+            "ref": "0.0.1.0.2.4",
             "role": "button",
             "name": "Sign in",
-            "path": "form"
+            "path": "generic > group > main > region > form"
           }
         ],
         "changed": [],
@@ -523,7 +1223,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 9,
+        "waitedMs": 14,
         "mutationCount": 4,
         "inFlightAtEnd": 0
       },
@@ -532,13 +1232,13 @@
           "id": "net_0001",
           "method": "POST",
           "url": "http://localhost:5173/api/login",
-          "startTime": 1091,
+          "startTime": 1136,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 1095,
-          "durationMs": 4,
+          "endTime": 1142,
+          "durationMs": 6,
           "status": 200,
           "requestBody": "{\"email\":\"<<user_email_1>>\",\"password\":\"<<password>>\"}",
           "responseBody": "{\"token\":\"<<token>>\",\"user\":\"<<user_email_1>>\"}",
@@ -551,12 +1251,13 @@
       "console": [],
       "fidelity": [
         "rapid_sequence"
-      ]
+      ],
+      "tabId": 1123631981
     },
     {
       "id": "evt_004",
       "seq": 3,
-      "timestamp": 1568,
+      "timestamp": 1637,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -571,134 +1272,980 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 1568,
+        "capturedAt": 1637,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "navigation",
-          "name": "Main",
-          "landmark": "navigation",
+          "role": "generic",
+          "name": "",
           "children": [
             {
               "ref": "0.0",
-              "role": "button",
-              "name": "Catalogue",
-              "state": [
-                "current"
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "button",
-              "name": "Checkout"
-            },
-            {
-              "ref": "0.2",
-              "role": "button",
-              "name": "Reports"
-            },
-            {
-              "ref": "0.3",
               "role": "group",
               "name": "",
               "children": [
                 {
-                  "ref": "0.3.0",
-                  "role": "text",
-                  "name": "Cart"
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    },
+                    {
+                      "ref": "0.0.0.1",
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
-                  "ref": "0.3.1",
-                  "role": "generic",
-                  "name": "Cart contains 0 items"
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "table",
+                          "name": "Prices exclude VAT",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "generic",
+                              "name": "Prices exclude VAT"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "rowgroup",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.1.0",
+                                  "role": "row",
+                                  "name": "SKU Product Price",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.0",
+                                      "role": "columnheader",
+                                      "name": "SKU"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.1",
+                                      "role": "columnheader",
+                                      "name": "Product"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.2",
+                                      "role": "columnheader",
+                                      "name": "Price"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.1.0.3",
+                                      "role": "columnheader",
+                                      "name": ""
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "rowgroup",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "row",
+                                  "name": "BW-01 Blue Widget EUR120 Add Blue Widget to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "cell",
+                                      "name": "BW-01"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "cell",
+                                      "name": "Blue Widget"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "cell",
+                                      "name": "EUR120"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "cell",
+                                      "name": "Add Blue Widget to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.0.3.0",
+                                          "role": "button",
+                                          "name": "Add Blue Widget to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.2.1",
+                                  "role": "row",
+                                  "name": "RW-02 Red Widget EUR240 Add Red Widget to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.0",
+                                      "role": "cell",
+                                      "name": "RW-02"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.1",
+                                      "role": "cell",
+                                      "name": "Red Widget"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.2",
+                                      "role": "cell",
+                                      "name": "EUR240"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.1.3",
+                                      "role": "cell",
+                                      "name": "Add Red Widget to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.1.3.0",
+                                          "role": "button",
+                                          "name": "Add Red Widget to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.2.2",
+                                  "role": "row",
+                                  "name": "GG-03 Green Gadget EUR310 Add Green Gadget to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.0",
+                                      "role": "cell",
+                                      "name": "GG-03"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.1",
+                                      "role": "cell",
+                                      "name": "Green Gadget"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.2",
+                                      "role": "cell",
+                                      "name": "EUR310"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.2.3",
+                                      "role": "cell",
+                                      "name": "Add Green Gadget to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.2.3.0",
+                                          "role": "button",
+                                          "name": "Add Green Gadget to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.2.3",
+                                  "role": "row",
+                                  "name": "PA-04 Precision Assembly EUR615 Add Precision Assembly to cart",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.0",
+                                      "role": "cell",
+                                      "name": "PA-04"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.1",
+                                      "role": "cell",
+                                      "name": "Precision Assembly"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.2",
+                                      "role": "cell",
+                                      "name": "EUR615"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.3.3",
+                                      "role": "cell",
+                                      "name": "Add Precision Assembly to cart",
+                                      "children": [
+                                        {
+                                          "ref": "0.0.1.0.1.2.3.3.0",
+                                          "role": "button",
+                                          "name": "Add Precision Assembly to cart"
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "navigation",
-          "name": "Main",
-          "landmark": "navigation"
-        }
+        "nodeCount": 47
       },
       "after": {
-        "capturedAt": 1575,
+        "capturedAt": 1648,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "navigation",
-          "name": "Main",
-          "landmark": "navigation",
+          "role": "generic",
+          "name": "",
           "children": [
             {
               "ref": "0.0",
-              "role": "button",
-              "name": "Catalogue"
-            },
-            {
-              "ref": "0.1",
-              "role": "button",
-              "name": "Checkout",
-              "state": [
-                "current"
-              ]
-            },
-            {
-              "ref": "0.2",
-              "role": "button",
-              "name": "Reports"
-            },
-            {
-              "ref": "0.3",
               "role": "group",
               "name": "",
               "children": [
                 {
-                  "ref": "0.3.0",
-                  "role": "text",
-                  "name": "Cart"
+                  "ref": "0.0.0",
+                  "role": "banner",
+                  "name": "",
+                  "landmark": "banner",
+                  "children": [
+                    {
+                      "ref": "0.0.0.0",
+                      "role": "heading",
+                      "name": "Northwind Orders"
+                    },
+                    {
+                      "ref": "0.0.0.1",
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
-                  "ref": "0.3.1",
-                  "role": "generic",
-                  "name": "Cart contains 0 items"
+                  "ref": "0.0.1",
+                  "role": "main",
+                  "name": "",
+                  "landmark": "main",
+                  "children": [
+                    {
+                      "ref": "0.0.1.0",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.0.0",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.0",
+                                      "role": "text",
+                                      "name": "Purchase order number"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.1",
+                                      "role": "textbox",
+                                      "name": "Purchase order number",
+                                      "value": ""
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.0.1",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.0",
+                                      "role": "text",
+                                      "name": "Order total (EUR)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.1",
+                                      "role": "spinbutton",
+                                      "name": "Order total (EUR)",
+                                      "value": "240"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "checkbox",
+                              "name": "Manager approval obtained"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "delivery-options",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "group",
+                                  "name": "Delivery speed",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "legend",
+                                      "name": "Delivery speed"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "radio",
+                                      "name": "Standard (3-5 days)",
+                                      "state": [
+                                        "checked"
+                                      ]
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "radio",
+                                      "name": "Express (next day, +EUR12)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "radio",
+                                      "name": "Collect in store"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.3",
+                              "role": "promo-widget",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.4",
+                              "role": "text",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.5",
+                              "role": "button",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.6",
+                              "role": "text",
+                              "name": "Signature"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.7",
+                              "role": "canvas",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.8",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.8.0",
+                                  "role": "button",
+                                  "name": "Place order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.1",
+                                  "role": "button",
+                                  "name": "Submit for slow validation"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.2",
+                                  "role": "button",
+                                  "name": "Export the order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.3",
+                                  "role": "button",
+                                  "name": ""
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "ref": "0.0.1.1",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "heading",
+                          "name": "Payment details"
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "text",
+                          "name": "Served from a different origin, in an iframe."
+                        },
+                        {
+                          "ref": "0.0.1.1.2",
+                          "role": "iframe",
+                          "name": "Payment details"
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "navigation",
-          "name": "Main",
-          "landmark": "navigation"
-        }
+        "nodeCount": 43
       },
       "diff": {
-        "added": [],
-        "removed": [],
+        "added": [
+          {
+            "ref": "0.0.1.0.0",
+            "role": "heading",
+            "name": "Checkout",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.1",
+            "role": "form",
+            "name": "",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.1.0",
+            "role": "group",
+            "name": "",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.0.0",
+            "role": "group",
+            "name": "",
+            "path": "generic > group > main > region > form > group"
+          },
+          {
+            "ref": "0.0.1.0.1.0.0.0",
+            "role": "text",
+            "name": "Purchase order number",
+            "path": "generic > group > main > region > form > group > group"
+          },
+          {
+            "ref": "0.0.1.0.1.0.0.1",
+            "role": "textbox",
+            "name": "Purchase order number",
+            "value": "",
+            "path": "generic > group > main > region > form > group > group"
+          },
+          {
+            "ref": "0.0.1.0.1.0.1",
+            "role": "group",
+            "name": "",
+            "path": "generic > group > main > region > form > group"
+          },
+          {
+            "ref": "0.0.1.0.1.0.1.0",
+            "role": "text",
+            "name": "Order total (EUR)",
+            "path": "generic > group > main > region > form > group > group"
+          },
+          {
+            "ref": "0.0.1.0.1.0.1.1",
+            "role": "spinbutton",
+            "name": "Order total (EUR)",
+            "value": "240",
+            "path": "generic > group > main > region > form > group > group"
+          },
+          {
+            "ref": "0.0.1.0.1.1",
+            "role": "checkbox",
+            "name": "Manager approval obtained",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.2",
+            "role": "delivery-options",
+            "name": "",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.2.0",
+            "role": "group",
+            "name": "Delivery speed",
+            "path": "generic > group > main > region > form > delivery-options"
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.0",
+            "role": "legend",
+            "name": "Delivery speed",
+            "path": "generic > group > main > region > form > delivery-options > group \"Delivery speed\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.1",
+            "role": "radio",
+            "name": "Standard (3-5 days)",
+            "state": [
+              "checked"
+            ],
+            "path": "generic > group > main > region > form > delivery-options > group \"Delivery speed\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.2",
+            "role": "radio",
+            "name": "Express (next day, +EUR12)",
+            "path": "generic > group > main > region > form > delivery-options > group \"Delivery speed\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.3",
+            "role": "radio",
+            "name": "Collect in store",
+            "path": "generic > group > main > region > form > delivery-options > group \"Delivery speed\""
+          },
+          {
+            "ref": "0.0.1.0.1.3",
+            "role": "promo-widget",
+            "name": "",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.4",
+            "role": "text",
+            "name": "Attach a signed PO",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.5",
+            "role": "button",
+            "name": "Attach a signed PO",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.6",
+            "role": "text",
+            "name": "Signature",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.7",
+            "role": "canvas",
+            "name": "",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.8",
+            "role": "group",
+            "name": "",
+            "path": "generic > group > main > region > form"
+          },
+          {
+            "ref": "0.0.1.0.1.8.0",
+            "role": "button",
+            "name": "Place order",
+            "path": "generic > group > main > region > form > group"
+          },
+          {
+            "ref": "0.0.1.0.1.8.1",
+            "role": "button",
+            "name": "Submit for slow validation",
+            "path": "generic > group > main > region > form > group"
+          },
+          {
+            "ref": "0.0.1.0.1.8.2",
+            "role": "button",
+            "name": "Export the order",
+            "path": "generic > group > main > region > form > group"
+          },
+          {
+            "ref": "0.0.1.0.1.8.3",
+            "role": "button",
+            "name": "",
+            "path": "generic > group > main > region > form > group"
+          },
+          {
+            "ref": "0.0.1.1",
+            "role": "region",
+            "name": "",
+            "path": "generic > group > main"
+          },
+          {
+            "ref": "0.0.1.1.0",
+            "role": "heading",
+            "name": "Payment details",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.1.1",
+            "role": "text",
+            "name": "Served from a different origin, in an iframe.",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.1.2",
+            "role": "iframe",
+            "name": "Payment details",
+            "path": "generic > group > main > region"
+          }
+        ],
+        "removed": [
+          {
+            "ref": "0.0.1.0.0",
+            "role": "heading",
+            "name": "Catalogue",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.1",
+            "role": "table",
+            "name": "Prices exclude VAT",
+            "path": "generic > group > main > region"
+          },
+          {
+            "ref": "0.0.1.0.1.0",
+            "role": "generic",
+            "name": "Prices exclude VAT",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\""
+          },
+          {
+            "ref": "0.0.1.0.1.1",
+            "role": "rowgroup",
+            "name": "",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\""
+          },
+          {
+            "ref": "0.0.1.0.1.2",
+            "role": "rowgroup",
+            "name": "",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0",
+            "role": "row",
+            "name": "SKU Product Price",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.0",
+            "role": "columnheader",
+            "name": "SKU",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.1",
+            "role": "columnheader",
+            "name": "Product",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.2",
+            "role": "columnheader",
+            "name": "Price",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.1.0.3",
+            "role": "columnheader",
+            "name": "",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"SKU Product Price\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0",
+            "role": "row",
+            "name": "BW-01 Blue Widget EUR120 Add Blue Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.0",
+            "role": "cell",
+            "name": "BW-01",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.1",
+            "role": "cell",
+            "name": "Blue Widget",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.2",
+            "role": "cell",
+            "name": "EUR120",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.3",
+            "role": "cell",
+            "name": "Add Blue Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.0.3.0",
+            "role": "button",
+            "name": "Add Blue Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"BW-01 Blue Widget EUR120 Add Blue Widget to cart\" > cell \"Add Blue Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1",
+            "role": "row",
+            "name": "RW-02 Red Widget EUR240 Add Red Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.0",
+            "role": "cell",
+            "name": "RW-02",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.1",
+            "role": "cell",
+            "name": "Red Widget",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.2",
+            "role": "cell",
+            "name": "EUR240",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.3",
+            "role": "cell",
+            "name": "Add Red Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.1.3.0",
+            "role": "button",
+            "name": "Add Red Widget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"RW-02 Red Widget EUR240 Add Red Widget to cart\" > cell \"Add Red Widget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2",
+            "role": "row",
+            "name": "GG-03 Green Gadget EUR310 Add Green Gadget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.0",
+            "role": "cell",
+            "name": "GG-03",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.1",
+            "role": "cell",
+            "name": "Green Gadget",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.2",
+            "role": "cell",
+            "name": "EUR310",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.3",
+            "role": "cell",
+            "name": "Add Green Gadget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.2.3.0",
+            "role": "button",
+            "name": "Add Green Gadget to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"GG-03 Green Gadget EUR310 Add Green Gadget to cart\" > cell \"Add Green Gadget to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3",
+            "role": "row",
+            "name": "PA-04 Precision Assembly EUR615 Add Precision Assembly to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup"
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.0",
+            "role": "cell",
+            "name": "PA-04",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.1",
+            "role": "cell",
+            "name": "Precision Assembly",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.2",
+            "role": "cell",
+            "name": "EUR615",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.3",
+            "role": "cell",
+            "name": "Add Precision Assembly to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\""
+          },
+          {
+            "ref": "0.0.1.0.1.2.3.3.0",
+            "role": "button",
+            "name": "Add Precision Assembly to cart",
+            "path": "generic > group > main > region > table \"Prices exclude VAT\" > rowgroup > row \"PA-04 Precision Assembly EUR615 Add Precision Assembly to cart\" > cell \"Add Precision Assembly to cart\""
+          }
+        ],
         "changed": [
           {
             "before": {
-              "ref": "0.0",
+              "ref": "0.0.0.1.0",
               "role": "button",
               "name": "Catalogue",
               "state": [
                 "current"
               ],
-              "path": "navigation \"Main\""
+              "path": "generic > group > banner > navigation \"Main\""
             },
             "after": {
-              "ref": "0.0",
+              "ref": "0.0.0.1.0",
               "role": "button",
               "name": "Catalogue",
-              "path": "navigation \"Main\""
+              "path": "generic > group > banner > navigation \"Main\""
             },
             "fields": [
               "state"
@@ -706,19 +2253,19 @@
           },
           {
             "before": {
-              "ref": "0.1",
+              "ref": "0.0.0.1.1",
               "role": "button",
               "name": "Checkout",
-              "path": "navigation \"Main\""
+              "path": "generic > group > banner > navigation \"Main\""
             },
             "after": {
-              "ref": "0.1",
+              "ref": "0.0.0.1.1",
               "role": "button",
               "name": "Checkout",
               "state": [
                 "current"
               ],
-              "path": "navigation \"Main\""
+              "path": "generic > group > banner > navigation \"Main\""
             },
             "fields": [
               "state"
@@ -732,19 +2279,22 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 7,
+        "waitedMs": 9,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
-      "fidelity": [],
+      "fidelity": [
+        "closed_shadow_root"
+      ],
+      "tabId": 1123631981,
       "screenshot": "screens/evt_004.png"
     },
     {
       "id": "evt_005",
       "seq": 4,
-      "timestamp": 6346,
+      "timestamp": 6359,
       "type": "input",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -760,15 +2310,14 @@
         "value": "750"
       },
       "before": {
-        "capturedAt": 6346,
+        "capturedAt": 6359,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
@@ -777,155 +2326,270 @@
               "children": [
                 {
                   "ref": "0.0.0",
-                  "role": "group",
+                  "role": "banner",
                   "name": "",
+                  "landmark": "banner",
                   "children": [
                     {
                       "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
+                      "role": "heading",
+                      "name": "Northwind Orders"
                     },
                     {
                       "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 },
                 {
                   "ref": "0.0.1",
-                  "role": "group",
+                  "role": "main",
                   "name": "",
+                  "landmark": "main",
                   "children": [
                     {
                       "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.0.0",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.0",
+                                      "role": "text",
+                                      "name": "Purchase order number"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.1",
+                                      "role": "textbox",
+                                      "name": "Purchase order number",
+                                      "value": ""
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.0.1",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.0",
+                                      "role": "text",
+                                      "name": "Order total (EUR)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.1",
+                                      "role": "spinbutton",
+                                      "name": "Order total (EUR)",
+                                      "value": "750"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "checkbox",
+                              "name": "Manager approval obtained"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "delivery-options",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "group",
+                                  "name": "Delivery speed",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "legend",
+                                      "name": "Delivery speed"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "radio",
+                                      "name": "Standard (3-5 days)",
+                                      "state": [
+                                        "checked"
+                                      ]
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "radio",
+                                      "name": "Express (next day, +EUR12)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "radio",
+                                      "name": "Collect in store"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.3",
+                              "role": "promo-widget",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.4",
+                              "role": "text",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.5",
+                              "role": "button",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.6",
+                              "role": "text",
+                              "name": "Signature"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.7",
+                              "role": "canvas",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.8",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.8.0",
+                                  "role": "button",
+                                  "name": "Place order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.1",
+                                  "role": "button",
+                                  "name": "Submit for slow validation"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.2",
+                                  "role": "button",
+                                  "name": "Export the order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.3",
+                                  "role": "button",
+                                  "name": ""
+                                }
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     },
                     {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
+                      "ref": "0.0.1.1",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "heading",
+                          "name": "Payment details"
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "text",
+                          "name": "Served from a different origin, in an iframe."
+                        },
+                        {
+                          "ref": "0.0.1.1.2",
+                          "role": "iframe",
+                          "name": "Payment details"
+                        }
+                      ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.8.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.8.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.8.2",
-                  "role": "button",
-                  "name": "Export the order"
-                },
-                {
-                  "ref": "0.8.3",
-                  "role": "button",
-                  "name": ""
                 }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
+        "nodeCount": 43
       },
       "after": {
-        "capturedAt": 6672,
+        "capturedAt": 6365,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
@@ -934,166 +2598,270 @@
               "children": [
                 {
                   "ref": "0.0.0",
-                  "role": "group",
+                  "role": "banner",
                   "name": "",
+                  "landmark": "banner",
                   "children": [
                     {
                       "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
+                      "role": "heading",
+                      "name": "Northwind Orders"
                     },
                     {
                       "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 },
                 {
                   "ref": "0.0.1",
-                  "role": "group",
+                  "role": "main",
                   "name": "",
+                  "landmark": "main",
                   "children": [
                     {
                       "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.0.0",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.0",
+                                      "role": "text",
+                                      "name": "Purchase order number"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.1",
+                                      "role": "textbox",
+                                      "name": "Purchase order number",
+                                      "value": ""
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.0.1",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.0",
+                                      "role": "text",
+                                      "name": "Order total (EUR)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.1",
+                                      "role": "spinbutton",
+                                      "name": "Order total (EUR)",
+                                      "value": "750"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "checkbox",
+                              "name": "Manager approval obtained"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "delivery-options",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "group",
+                                  "name": "Delivery speed",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "legend",
+                                      "name": "Delivery speed"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "radio",
+                                      "name": "Standard (3-5 days)",
+                                      "state": [
+                                        "checked"
+                                      ]
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "radio",
+                                      "name": "Express (next day, +EUR12)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "radio",
+                                      "name": "Collect in store"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.3",
+                              "role": "promo-widget",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.4",
+                              "role": "text",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.5",
+                              "role": "button",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.6",
+                              "role": "text",
+                              "name": "Signature"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.7",
+                              "role": "canvas",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.8",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.8.0",
+                                  "role": "button",
+                                  "name": "Place order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.1",
+                                  "role": "button",
+                                  "name": "Submit for slow validation"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.2",
+                                  "role": "button",
+                                  "name": "Export the order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.3",
+                                  "role": "button",
+                                  "name": ""
+                                }
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     },
                     {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
+                      "ref": "0.0.1.1",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "heading",
+                          "name": "Payment details"
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "text",
+                          "name": "Served from a different origin, in an iframe."
+                        },
+                        {
+                          "ref": "0.0.1.1.2",
+                          "role": "iframe",
+                          "name": "Payment details"
+                        }
+                      ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "alert",
-              "name": "Orders over EUR500 require approval"
-            },
-            {
-              "ref": "0.9",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.9.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.9.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.9.2",
-                  "role": "button",
-                  "name": "Export the order"
-                },
-                {
-                  "ref": "0.9.3",
-                  "role": "button",
-                  "name": ""
                 }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
+        "nodeCount": 43
       },
       "diff": {
-        "added": [
-          {
-            "ref": "0.8",
-            "role": "alert",
-            "name": "Orders over EUR500 require approval",
-            "path": "form"
-          }
-        ],
+        "added": [],
         "removed": [],
         "changed": []
       },
       "settle": {
-        "reason": "quiet",
-        "waitedMs": 324,
-        "mutationCount": 2,
+        "reason": "superseded",
+        "waitedMs": 1,
+        "mutationCount": 1,
         "inFlightAtEnd": 0
       },
       "network": [],
@@ -1101,174 +2869,13 @@
       "fidelity": [
         "closed_shadow_root"
       ],
-      "transient": {
-        "capturedAt": 6358,
-        "url": "http://localhost:5173/checkout",
-        "title": "Northwind Orders",
-        "scope": "scoped",
-        "root": {
-          "ref": "0",
-          "role": "form",
-          "name": "",
-          "landmark": "form",
-          "children": [
-            {
-              "ref": "0.0",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.0.0",
-                  "role": "group",
-                  "name": "",
-                  "children": [
-                    {
-                      "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
-                    },
-                    {
-                      "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
-                    }
-                  ]
-                },
-                {
-                  "ref": "0.0.1",
-                  "role": "group",
-                  "name": "",
-                  "children": [
-                    {
-                      "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
-                      ]
-                    },
-                    {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "alert",
-              "name": "Orders over EUR500 require approval"
-            },
-            {
-              "ref": "0.9",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.9.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.9.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.9.2",
-                  "role": "button",
-                  "name": "Export the order"
-                },
-                {
-                  "ref": "0.9.3",
-                  "role": "button",
-                  "name": ""
-                }
-              ]
-            }
-          ]
-        },
-        "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
-      },
+      "tabId": 1123631981,
       "screenshot": "screens/evt_005.png"
     },
     {
       "id": "evt_006",
       "seq": 5,
-      "timestamp": 6349,
+      "timestamp": 6363,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -1283,15 +2890,14 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 6349,
+        "capturedAt": 6363,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
@@ -1300,155 +2906,270 @@
               "children": [
                 {
                   "ref": "0.0.0",
-                  "role": "group",
+                  "role": "banner",
                   "name": "",
+                  "landmark": "banner",
                   "children": [
                     {
                       "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
+                      "role": "heading",
+                      "name": "Northwind Orders"
                     },
                     {
                       "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 },
                 {
                   "ref": "0.0.1",
-                  "role": "group",
+                  "role": "main",
                   "name": "",
+                  "landmark": "main",
                   "children": [
                     {
                       "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.0.0",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.0",
+                                      "role": "text",
+                                      "name": "Purchase order number"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.1",
+                                      "role": "textbox",
+                                      "name": "Purchase order number",
+                                      "value": ""
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.0.1",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.0",
+                                      "role": "text",
+                                      "name": "Order total (EUR)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.1",
+                                      "role": "spinbutton",
+                                      "name": "Order total (EUR)",
+                                      "value": "750"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "checkbox",
+                              "name": "Manager approval obtained"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "delivery-options",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "group",
+                                  "name": "Delivery speed",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "legend",
+                                      "name": "Delivery speed"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "radio",
+                                      "name": "Standard (3-5 days)",
+                                      "state": [
+                                        "checked"
+                                      ]
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "radio",
+                                      "name": "Express (next day, +EUR12)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "radio",
+                                      "name": "Collect in store"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.3",
+                              "role": "promo-widget",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.4",
+                              "role": "text",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.5",
+                              "role": "button",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.6",
+                              "role": "text",
+                              "name": "Signature"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.7",
+                              "role": "canvas",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.8",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.8.0",
+                                  "role": "button",
+                                  "name": "Place order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.1",
+                                  "role": "button",
+                                  "name": "Submit for slow validation"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.2",
+                                  "role": "button",
+                                  "name": "Export the order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.8.3",
+                                  "role": "button",
+                                  "name": ""
+                                }
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     },
                     {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
+                      "ref": "0.0.1.1",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "heading",
+                          "name": "Payment details"
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "text",
+                          "name": "Served from a different origin, in an iframe."
+                        },
+                        {
+                          "ref": "0.0.1.1.2",
+                          "role": "iframe",
+                          "name": "Payment details"
+                        }
+                      ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.8.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.8.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.8.2",
-                  "role": "button",
-                  "name": "Export the order"
-                },
-                {
-                  "ref": "0.8.3",
-                  "role": "button",
-                  "name": ""
                 }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
+        "nodeCount": 43
       },
       "after": {
-        "capturedAt": 6674,
+        "capturedAt": 6684,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
@@ -1457,157 +3178,273 @@
               "children": [
                 {
                   "ref": "0.0.0",
-                  "role": "group",
+                  "role": "banner",
                   "name": "",
+                  "landmark": "banner",
                   "children": [
                     {
                       "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
+                      "role": "heading",
+                      "name": "Northwind Orders"
                     },
                     {
                       "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 },
                 {
                   "ref": "0.0.1",
-                  "role": "group",
+                  "role": "main",
                   "name": "",
+                  "landmark": "main",
                   "children": [
                     {
                       "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.0.0",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.0",
+                                      "role": "text",
+                                      "name": "Purchase order number"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.1",
+                                      "role": "textbox",
+                                      "name": "Purchase order number",
+                                      "value": ""
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.0.1",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.0",
+                                      "role": "text",
+                                      "name": "Order total (EUR)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.1",
+                                      "role": "spinbutton",
+                                      "name": "Order total (EUR)",
+                                      "value": "750"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "checkbox",
+                              "name": "Manager approval obtained"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "delivery-options",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "group",
+                                  "name": "Delivery speed",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "legend",
+                                      "name": "Delivery speed"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "radio",
+                                      "name": "Standard (3-5 days)",
+                                      "state": [
+                                        "checked"
+                                      ]
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "radio",
+                                      "name": "Express (next day, +EUR12)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "radio",
+                                      "name": "Collect in store"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.3",
+                              "role": "promo-widget",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.4",
+                              "role": "text",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.5",
+                              "role": "button",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.6",
+                              "role": "text",
+                              "name": "Signature"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.7",
+                              "role": "canvas",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.8",
+                              "role": "alert",
+                              "name": "Orders over EUR500 require approval"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.9",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.9.0",
+                                  "role": "button",
+                                  "name": "Place order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.9.1",
+                                  "role": "button",
+                                  "name": "Submit for slow validation"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.9.2",
+                                  "role": "button",
+                                  "name": "Export the order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.9.3",
+                                  "role": "button",
+                                  "name": ""
+                                }
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     },
                     {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
+                      "ref": "0.0.1.1",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "heading",
+                          "name": "Payment details"
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "text",
+                          "name": "Served from a different origin, in an iframe."
+                        },
+                        {
+                          "ref": "0.0.1.1.2",
+                          "role": "iframe",
+                          "name": "Payment details"
+                        }
+                      ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "alert",
-              "name": "Orders over EUR500 require approval"
-            },
-            {
-              "ref": "0.9",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.9.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.9.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.9.2",
-                  "role": "button",
-                  "name": "Export the order"
-                },
-                {
-                  "ref": "0.9.3",
-                  "role": "button",
-                  "name": ""
                 }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
+        "nodeCount": 44
       },
       "diff": {
         "added": [
           {
-            "ref": "0.8",
+            "ref": "0.0.1.0.1.8",
             "role": "alert",
             "name": "Orders over EUR500 require approval",
-            "path": "form"
+            "path": "generic > group > main > region > form"
           }
         ],
         "removed": [],
@@ -1615,7 +3452,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 324,
+        "waitedMs": 320,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
@@ -1624,13 +3461,13 @@
           "id": "net_0002",
           "method": "POST",
           "url": "http://localhost:5173/api/orders",
-          "startTime": 6351,
+          "startTime": 6368,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 6354,
-          "durationMs": 3,
+          "endTime": 6372,
+          "durationMs": 4,
           "status": 409,
           "requestBody": "{\"total\":750,\"approved\":false,\"poNumber\":\"\",\"speed\":\"standard\"}",
           "responseBody": "{\"error\":\"Orders over EUR500 require approval\",\"code\":\"APPROVAL_REQUIRED\"}",
@@ -1646,15 +3483,14 @@
         "closed_shadow_root"
       ],
       "transient": {
-        "capturedAt": 6360,
+        "capturedAt": 6375,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
-        "scope": "scoped",
+        "scope": "full",
         "root": {
           "ref": "0",
-          "role": "form",
+          "role": "generic",
           "name": "",
-          "landmark": "form",
           "children": [
             {
               "ref": "0.0",
@@ -1663,150 +3499,267 @@
               "children": [
                 {
                   "ref": "0.0.0",
-                  "role": "group",
+                  "role": "banner",
                   "name": "",
+                  "landmark": "banner",
                   "children": [
                     {
                       "ref": "0.0.0.0",
-                      "role": "text",
-                      "name": "Purchase order number"
+                      "role": "heading",
+                      "name": "Northwind Orders"
                     },
                     {
                       "ref": "0.0.0.1",
-                      "role": "textbox",
-                      "name": "Purchase order number",
-                      "value": ""
+                      "role": "navigation",
+                      "name": "Main",
+                      "landmark": "navigation",
+                      "children": [
+                        {
+                          "ref": "0.0.0.1.0",
+                          "role": "button",
+                          "name": "Catalogue"
+                        },
+                        {
+                          "ref": "0.0.0.1.1",
+                          "role": "button",
+                          "name": "Checkout",
+                          "state": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "ref": "0.0.0.1.2",
+                          "role": "button",
+                          "name": "Reports"
+                        },
+                        {
+                          "ref": "0.0.0.1.3",
+                          "role": "button",
+                          "name": "Store"
+                        },
+                        {
+                          "ref": "0.0.0.1.4",
+                          "role": "group",
+                          "name": "",
+                          "children": [
+                            {
+                              "ref": "0.0.0.1.4.0",
+                              "role": "text",
+                              "name": "Cart"
+                            },
+                            {
+                              "ref": "0.0.0.1.4.1",
+                              "role": "generic",
+                              "name": "Cart contains 0 items"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 },
                 {
                   "ref": "0.0.1",
-                  "role": "group",
+                  "role": "main",
                   "name": "",
+                  "landmark": "main",
                   "children": [
                     {
                       "ref": "0.0.1.0",
-                      "role": "text",
-                      "name": "Order total (EUR)"
-                    },
-                    {
-                      "ref": "0.0.1.1",
-                      "role": "spinbutton",
-                      "name": "Order total (EUR)",
-                      "value": "750"
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "ref": "0.1",
-              "role": "checkbox",
-              "name": "Manager approval obtained"
-            },
-            {
-              "ref": "0.2",
-              "role": "delivery-options",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.2.0",
-                  "role": "group",
-                  "name": "Delivery speed",
-                  "children": [
-                    {
-                      "ref": "0.2.0.0",
-                      "role": "legend",
-                      "name": "Delivery speed"
-                    },
-                    {
-                      "ref": "0.2.0.1",
-                      "role": "radio",
-                      "name": "Standard (3-5 days)",
-                      "state": [
-                        "checked"
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.0.0",
+                          "role": "heading",
+                          "name": "Checkout"
+                        },
+                        {
+                          "ref": "0.0.1.0.1",
+                          "role": "form",
+                          "name": "",
+                          "landmark": "form",
+                          "children": [
+                            {
+                              "ref": "0.0.1.0.1.0",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.0.0",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.0",
+                                      "role": "text",
+                                      "name": "Purchase order number"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.0.1",
+                                      "role": "textbox",
+                                      "name": "Purchase order number",
+                                      "value": ""
+                                    }
+                                  ]
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.0.1",
+                                  "role": "group",
+                                  "name": "",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.0",
+                                      "role": "text",
+                                      "name": "Order total (EUR)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.0.1.1",
+                                      "role": "spinbutton",
+                                      "name": "Order total (EUR)",
+                                      "value": "750"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.1",
+                              "role": "checkbox",
+                              "name": "Manager approval obtained"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.2",
+                              "role": "delivery-options",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.2.0",
+                                  "role": "group",
+                                  "name": "Delivery speed",
+                                  "children": [
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.0",
+                                      "role": "legend",
+                                      "name": "Delivery speed"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.1",
+                                      "role": "radio",
+                                      "name": "Standard (3-5 days)",
+                                      "state": [
+                                        "checked"
+                                      ]
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.2",
+                                      "role": "radio",
+                                      "name": "Express (next day, +EUR12)"
+                                    },
+                                    {
+                                      "ref": "0.0.1.0.1.2.0.3",
+                                      "role": "radio",
+                                      "name": "Collect in store"
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "ref": "0.0.1.0.1.3",
+                              "role": "promo-widget",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.4",
+                              "role": "text",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.5",
+                              "role": "button",
+                              "name": "Attach a signed PO"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.6",
+                              "role": "text",
+                              "name": "Signature"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.7",
+                              "role": "canvas",
+                              "name": ""
+                            },
+                            {
+                              "ref": "0.0.1.0.1.8",
+                              "role": "alert",
+                              "name": "Orders over EUR500 require approval"
+                            },
+                            {
+                              "ref": "0.0.1.0.1.9",
+                              "role": "group",
+                              "name": "",
+                              "children": [
+                                {
+                                  "ref": "0.0.1.0.1.9.0",
+                                  "role": "button",
+                                  "name": "Place order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.9.1",
+                                  "role": "button",
+                                  "name": "Submit for slow validation"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.9.2",
+                                  "role": "button",
+                                  "name": "Export the order"
+                                },
+                                {
+                                  "ref": "0.0.1.0.1.9.3",
+                                  "role": "button",
+                                  "name": ""
+                                }
+                              ]
+                            }
+                          ]
+                        }
                       ]
                     },
                     {
-                      "ref": "0.2.0.2",
-                      "role": "radio",
-                      "name": "Express (next day, +EUR12)"
-                    },
-                    {
-                      "ref": "0.2.0.3",
-                      "role": "radio",
-                      "name": "Collect in store"
+                      "ref": "0.0.1.1",
+                      "role": "region",
+                      "name": "",
+                      "landmark": "region",
+                      "children": [
+                        {
+                          "ref": "0.0.1.1.0",
+                          "role": "heading",
+                          "name": "Payment details"
+                        },
+                        {
+                          "ref": "0.0.1.1.1",
+                          "role": "text",
+                          "name": "Served from a different origin, in an iframe."
+                        },
+                        {
+                          "ref": "0.0.1.1.2",
+                          "role": "iframe",
+                          "name": "Payment details"
+                        }
+                      ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "ref": "0.3",
-              "role": "promo-widget",
-              "name": ""
-            },
-            {
-              "ref": "0.4",
-              "role": "text",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.5",
-              "role": "button",
-              "name": "Attach a signed PO"
-            },
-            {
-              "ref": "0.6",
-              "role": "text",
-              "name": "Signature"
-            },
-            {
-              "ref": "0.7",
-              "role": "canvas",
-              "name": ""
-            },
-            {
-              "ref": "0.8",
-              "role": "alert",
-              "name": "Orders over EUR500 require approval"
-            },
-            {
-              "ref": "0.9",
-              "role": "group",
-              "name": "",
-              "children": [
-                {
-                  "ref": "0.9.0",
-                  "role": "button",
-                  "name": "Place order"
-                },
-                {
-                  "ref": "0.9.1",
-                  "role": "button",
-                  "name": "Submit for slow validation"
-                },
-                {
-                  "ref": "0.9.2",
-                  "role": "button",
-                  "name": "Export the order"
-                },
-                {
-                  "ref": "0.9.3",
-                  "role": "button",
-                  "name": ""
                 }
               ]
             }
           ]
         },
         "liveRegions": [],
-        "scopeRoot": {
-          "role": "form",
-          "name": "",
-          "landmark": "form"
-        }
-      }
+        "nodeCount": 44
+      },
+      "tabId": 1123631981
     }
   ],
   "narration": [],
@@ -1816,13 +3769,13 @@
       "name": "password",
       "placeholder": "<<password>>",
       "category": "password",
-      "occurrences": 7
+      "occurrences": 6
     },
     {
       "name": "user_email_1",
       "placeholder": "<<user_email_1>>",
       "category": "email",
-      "occurrences": 9
+      "occurrences": 8
     },
     {
       "name": "token",

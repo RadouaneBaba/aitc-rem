@@ -11,6 +11,15 @@ import {
 const MAX_BODY_CHARS = 4000;
 
 /**
+ * Below this, a known value is too short to replace safely in page text.
+ *
+ * A tester whose password is `a1` would otherwise have every `a1` on the page
+ * -- in a product code, in a URL, mid-word -- turned into `<<password>>`, which
+ * is the pattern-scanning mistake in another costume.
+ */
+const MIN_SECRET_LENGTH = 4;
+
+/**
  * SS7 -- redaction happens in the browser, before anything is written to disk.
  * Raw secrets never exist in a persisted artifact.
  *
@@ -22,9 +31,34 @@ const MAX_BODY_CHARS = 4000;
  * numberings for one value. Nothing is lost by doing it here, because the page
  * already holds the request bodies it just sent -- the boundary that matters is
  * the one to the service worker and to disk, and nothing crosses that unredacted.
+ *
+ * ## What is scanned, and what is read exactly
+ *
+ * The rule is about the tester's INPUT and about transport, never about what the
+ * application displayed:
+ *
+ *   scanned      typed field values, network request/response bodies,
+ *                console text, request URLs
+ *   read exactly semantic snapshot node names and own text -- what was on screen
+ *
+ * `redactText` used to run over every node of every snapshot too. On one
+ * storefront listing that produced **214 parameters, all classified as phone
+ * numbers**, and what the rule actually matches in page text is dates:
+ * `"Updated 2026-08-28 14:32"` becomes `<<phone_n>>`. A date on a page is
+ * routinely the thing a test asserts on, so the scan was destroying evidence to
+ * protect a value the tester never entered.
+ *
+ * The narrowing is deliberate and it is not a weakening. A secret reaches disk
+ * by being typed or by being transported, and both of those paths still scan.
+ * `isSecretField` -- password, one-time-code, cc-number, and the name/id
+ * heuristic -- decides by CONTEXT rather than by shape, which is why it has
+ * never had a false negative worth reporting.
  */
 export class Redactor {
   private assigned = new Map<string, string>();
+  /** raw value -> placeholder name, for `redactKnownSecrets`. Only values long
+   *  enough to be replaced in page text without hitting ordinary words. */
+  private known = new Map<string, string>();
   private counts = new Map<string, number>();
   private used = new Map<string, RedactionParameter>();
 
@@ -47,6 +81,7 @@ export class Redactor {
         name = base;
       }
       this.assigned.set(key, name);
+      if (raw.length >= MIN_SECRET_LENGTH) this.known.set(raw, name);
     }
 
     const existing = this.used.get(name);
@@ -66,6 +101,41 @@ export class Redactor {
   redactWholeValue(raw: string, base: string, category: string): string {
     if (!raw) return raw;
     return this.placeholderFor(raw, base, false, category);
+  }
+
+  /**
+   * Replace values ALREADY known to be secret, wherever they appear.
+   *
+   * This is the scan that page content gets, and it is a different kind of rule
+   * from `redactText`: not "does this look like a phone number" -- which ate 214
+   * dates on one storefront -- but "is this the exact string the tester typed
+   * into a password field". Exact values only, so it cannot touch a price, a
+   * product code or a date.
+   *
+   * It exists because capturing the whole page (2026-08-28) made a case reachable
+   * that scoped capture never saw: an application that DISPLAYS a value the
+   * tester also typed. A "show password" toggle, a confirmation screen echoing an
+   * email, a session id printed on a debug banner -- all of them now land in the
+   * snapshot, and none of them match a pattern rule.
+   *
+   * **The limitation is real and worth stating.** A secret the application
+   * displays and the tester never types cannot be recognised by anything here:
+   * nothing distinguishes it from ordinary page text. Two answers, and only
+   * these two -- a project rule in `ProjectRedactionConfig.sensitive`, which
+   * names it up front, or not putting it on the page. Snapshots taken BEFORE the
+   * tester first types a value are in the same position, because the value was
+   * not a secret yet as far as anything in this file could tell.
+   *
+   * Longest first, so a value that contains another is replaced whole.
+   */
+  redactKnownSecrets(text: string): string {
+    if (!text || !this.known.size) return text;
+    let out = text;
+    // Longest first, so a value containing another is replaced whole.
+    for (const [raw, name] of [...this.known].sort((a, b) => b[0].length - a[0].length)) {
+      if (out.includes(raw)) out = out.split(raw).join(`<<${name}>>`);
+    }
+    return out;
   }
 
   /** Scan free text and replace anything a rule recognises. */

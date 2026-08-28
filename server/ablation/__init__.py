@@ -48,17 +48,21 @@ class ConfigMetrics:
     #: a single number reporting only the second would be the repair loop
     #: marking its own homework.
     validator_final_pass: float = 0.0
-    #: SS9.9's convergence rate, as its two counts rather than as a ratio.
-    #: `repairConvergenceRate` alone is vacuously 1.0 when the critic found
-    #: nothing -- the same trap as `groundingRate` for a configuration that
-    #: abstains, met here for the fourth time. A rate is only readable beside
-    #: its denominator, so both are columns.
-    critic_findings: int = 0
-    repairs_resolved: int = 0
-    #: Repairs the loop actually ran. A different fact from `critic_findings`
-    #: -- most repairs are triggered by a validator, not by the critic -- and
-    #: the two were the same number here until it turned out that number was
-    #: neither of them.
+    #: What the judge said about the document that SHIPPED, as counts and
+    #: deliberately not as a ratio. `repairConvergenceRate` was vacuously 1.0
+    #: when the critic found nothing -- the same trap as `groundingRate` for a
+    #: configuration that abstains, met there for the fourth time and six times
+    #: now in total. `judge_fails` non-zero means a run went out carrying
+    #: something a QA lead would send back, which is exactly what a rate hides.
+    judge_findings: int = 0
+    judge_fails: int = 0
+    #: Author rounds, summed. Equal to `recordings` means nothing was ever
+    #: revised; anything above it is the loop firing.
+    revision_rounds: int = 0
+    #: Findings handed back to the author, one per (round, finding). A different
+    #: fact from `judge_findings` -- a rejected claim is a repair with no judge
+    #: finding behind it -- and the two were the same number here until it
+    #: turned out that number was neither of them.
     repair_attempts: int = 0
     tool_calls: int = 0
     tool_calls_per_step: float = 0.0
@@ -83,6 +87,10 @@ class ConfigMetrics:
     replay_assertions: int = 0
     replay_assertions_held: int = 0
     selector_rank_total: float = 0.0
+    #: Why a replay could not be attempted, when it could not. An empty
+    #: `replayed` count reads identically whether nothing was tried or
+    #: everything threw, and those are different facts about the run.
+    replay_errors: list[str] = field(default_factory=list)
     uncached_model_calls: int = 0
     prompt_tokens: int = 0
     duration_ms: float = 0.0
@@ -128,17 +136,6 @@ class ConfigMetrics:
         return self.selector_rank_total / self.replayed if self.replayed else 0.0
 
     @property
-    def repair_convergence_rate(self) -> float:
-        """How often repair fixed the finding within budget (SS9.9).
-
-        Zero, not one, when nothing was found. A configuration with no critic
-        did not converge perfectly -- it never diverged, and scoring those the
-        same is exactly how `A0` came to look identical to `A2` on grounding
-        rate. Read `Converged` with `Findings` beside it or do not read it.
-        """
-        return self.repairs_resolved / self.critic_findings if self.critic_findings else 0.0
-
-    @property
     def grounded_yield(self) -> float:
         """Grounded assertions per step -- how much usable output was produced.
 
@@ -161,10 +158,10 @@ class ConfigMetrics:
             "groundedYield": round(self.grounded_yield, 4),
             "validatorFirstPassRate": round(self.validator_first_pass, 4),
             "validatorFinalPassRate": round(self.validator_final_pass, 4),
-            "criticFindings": self.critic_findings,
-            "repairsResolved": self.repairs_resolved,
+            "judgeFindings": self.judge_findings,
+            "judgeFails": self.judge_fails,
+            "revisionRounds": self.revision_rounds,
             "repairAttempts": self.repair_attempts,
-            "repairConvergenceRate": round(self.repair_convergence_rate, 4),
             "toolCalls": self.tool_calls,
             "toolCallsPerStep": round(self.tool_calls_per_step, 3),
             "effortSpread": round(self.effort_spread, 3),
@@ -173,6 +170,7 @@ class ConfigMetrics:
             "replayAssertions": self.replay_assertions,
             "assertionsHeldRate": round(self.assertions_held_rate, 4),
             "meanSelectorRank": round(self.mean_selector_rank, 3),
+            "replayErrors": list(self.replay_errors),
             "uncachedModelCalls": self.uncached_model_calls,
             "promptTokens": self.prompt_tokens,
             "durationMs": round(self.duration_ms, 1),
@@ -211,8 +209,9 @@ class AblationReport:
                 ("config", "Config", 6),
                 ("toolCallsPerStep", "Calls/step", 11),
                 ("effortSpread", "Spread", 7),
-                ("criticFindings", "Findings", 9),
-                ("repairConvergenceRate", "Converged", 10),
+                ("judgeFindings", "Judged", 7),
+                ("judgeFails", "Unsigned", 9),
+                ("revisionRounds", "Rounds", 7),
                 ("executionRate", "Executes", 9),
                 ("replayAssertions", "Rechecked", 10),
                 ("assertionsHeldRate", "Held", 6),
@@ -270,49 +269,64 @@ class AblationReport:
 
 
 def _a1_vs_a2(a1: ConfigMetrics, a2: ConfigMetrics) -> str:
-    """The critic-and-repair comparison, stated whichever way it comes out.
+    """What the ORACLE was worth, stated whichever way it comes out.
+
+    The arms were redefined with the rebuild and this paragraph with them. A1
+    and A2 used to differ by "critic and repair loop", and comparing those
+    measured a loop that resolved one finding in nine. They now differ by
+    whether anybody said what SHOULD have happened -- which is the measurement
+    this project has never been able to make, because until the oracle existed
+    there was nothing to compare against.
 
     SS3.5 pre-authorises the null result -- "if A1 is roughly A2, that is a
     genuine finding worth knowing in month two rather than month five" -- so
-    this must not be written to make the feature look good. It must also not be
-    read on grounding rate alone: A1 and A2 propose assertions with the same
-    stage and the same tools, so the rate was never where the difference was
-    going to show. What A2 adds is a second opinion on whether the output is any
-    good, and the honest columns for that are how many findings it raised and
-    how many of them it managed to resolve.
+    this must not be written to make the feature look good. Grounding rate is
+    the wrong place to look for the difference: both arms retrieve with the same
+    stage and the same tools, so the rate was never going to move. The oracle
+    changes WHAT gets asserted, not whether the assertion can be traced, and the
+    columns that show that are Yield and the judge's.
     """
-    if not a2.critic_findings:
-        return (
-            "A2's critic raised no findings at all on this set, so A1 and A2 ran the same "
-            "pipeline and their rows should be read as one. That is a result about these "
-            "recordings, not about the critic: output the critic has nothing to say about "
-            "is output that was already good enough."
+    parts: list[str] = []
+
+    yield_gap = a2.grounded_yield - a1.grounded_yield
+    if abs(yield_gap) < 0.05:
+        parts.append(
+            f"Yield is within 5 points across the two ({a1.grounded_yield:.2f} against "
+            f"{a2.grounded_yield:.2f}), so on this set being told what should have happened "
+            f"did not change how much the author was willing to claim."
+        )
+    else:
+        direction = "more" if yield_gap > 0 else "less"
+        parts.append(
+            f"A2 produced {direction} grounded output per step than A1 "
+            f"({a1.grounded_yield:.2f} -> {a2.grounded_yield:.2f}, {yield_gap:+.2f}), which is "
+            f"what the oracle is for: it changes what is worth asserting."
         )
 
-    resolved = f"{a2.repairs_resolved} of {a2.critic_findings}"
-    unresolved = a2.critic_findings - a2.repairs_resolved
-    parts = [
-        f"A2's critic raised {a2.critic_findings} finding(s) and the repair loop resolved "
-        f"{resolved} within budget ({a2.repair_convergence_rate:.0%})."
-    ]
-    if unresolved:
+    if not (a1.judge_findings or a2.judge_findings):
         parts.append(
-            f"{unresolved} went to the human with the finding stated, which is the designed "
-            f"outcome on exhaustion rather than a failure of the loop."
+            "The judge had nothing to say about either arm. That is a result about these "
+            "recordings rather than about the judge -- output nobody objects to is output "
+            "that was already good enough -- and it is only readable because the count is "
+            "printed rather than a convergence rate over it."
         )
-    gap = a2.validator_final_pass - a2.validator_first_pass
+    else:
+        parts.append(
+            f"The judge raised {a1.judge_findings} finding(s) against A1 and "
+            f"{a2.judge_findings} against A2, of which {a1.judge_fails} and {a2.judge_fails} "
+            f"respectively still stood on the document that shipped."
+        )
+        if a2.judge_fails:
+            parts.append(
+                f"{a2.judge_fails} went out with the finding recorded, which is the designed "
+                f"outcome on exhaustion rather than a failure of the loop."
+            )
+
+    revised = a2.revision_rounds - a2.recordings
     parts.append(
-        f"A2's gate went from {a2.validator_first_pass:.0%} on the first attempt to "
-        f"{a2.validator_final_pass:.0%} after repair ({gap:+.0%}); A1 has no second "
-        f"attempt and sits at {a1.validator_first_pass:.0%}."
+        f"A2 revised {revised} time(s) across {a2.recordings} recording(s); a document is "
+        f"rewritten at most once, and never merely because a finding was weak."
     )
-    if abs(a1.grounded_yield - a2.grounded_yield) < 0.05:
-        parts.append(
-            "Yield is within 5 points across the two, which is expected rather than "
-            "disappointing: both arms propose assertions with the same stage and the same "
-            "tools, so the critic was never going to move it. The columns that separate "
-            "them are Findings and Converged."
-        )
     return " ".join(parts)
 
 
@@ -327,6 +341,8 @@ def run_ablation(
     run_prefix: str = "abl",
     replay: bool = False,
     replay_parameters: dict[str, str] | None = None,
+    replay_base_url: str | None = None,
+    replay_storage_state: Path | None = None,
 ) -> AblationReport:
     """Run every configuration over every recording.
 
@@ -355,7 +371,14 @@ def run_ablation(
                 options=options,
             )
             if replay:
-                _replay(metrics, result, recording, replay_parameters or {})
+                _replay(
+                    metrics,
+                    result,
+                    recording,
+                    replay_parameters or {},
+                    replay_base_url,
+                    replay_storage_state,
+                )
             _accumulate(metrics, result)
             report.runs.append(
                 {
@@ -375,7 +398,7 @@ def _accumulate(metrics: ConfigMetrics, result: PipelineResult) -> None:
     assert run_metrics is not None
 
     metrics.recordings += 1
-    metrics.steps += len(result.draft.steps)
+    metrics.steps += len(result.document.steps)
     metrics.assertions += run_metrics.assertionsTotal or 0
     metrics.grounded += run_metrics.assertionsGrounded or 0
     metrics.ungrounded += run_metrics.assertionsUngrounded or 0
@@ -386,16 +409,17 @@ def _accumulate(metrics: ConfigMetrics, result: PipelineResult) -> None:
     if result.report.hard_failed:
         metrics.hard_failures += 1
 
-    # Aggregated over findings rather than averaged over runs, so a run with one
+    # Summed over findings rather than averaged over runs, so a run with one
     # finding does not weigh as much as a run with ten.
     #
-    # Both halves come from the same source now. `repairs_resolved` used to be
-    # counted from `trace.repairAttempts` -- every resolved repair, including
-    # the validator-triggered ones -- while `critic_findings` counted only what
-    # the critic said. Once the numerator stops being a subset of the
-    # denominator the ratio can exceed 1, which is a rate that means nothing.
-    metrics.critic_findings += run_metrics.criticFindingsRaised or 0
-    metrics.repairs_resolved += run_metrics.criticFindingsResolved or 0
+    # Not a rate, and that is the decision rather than an omission. `Converged`
+    # answered 1-of-9 while measuring how much of what the critic said the loop
+    # was ALLOWED to act on, and this project has met that trap in six columns.
+    # `Unsigned` is what the judge still objected to on the document that
+    # SHIPPED -- a count, of a thing that is either true of the artifact or not.
+    metrics.judge_findings += run_metrics.judgeFindings or 0
+    metrics.judge_fails += run_metrics.judgeFails or 0
+    metrics.revision_rounds += run_metrics.revisionRounds or 0
     metrics.repair_attempts += run_metrics.repairAttempts or 0
 
     # Running means, so the row stays correct across a growing recording set.
@@ -420,6 +444,8 @@ def _replay(
     result: Any,
     recording: Recording,
     parameters: dict[str, str],
+    base_url: str | None = None,
+    storage_state: Path | None = None,
 ) -> None:
     """Fill SS3.5's correctness column for one run.
 
@@ -427,16 +453,22 @@ def _replay(
     is not counted at all. It is an absence of evidence about the test case, and
     scoring it as a failure would make the column measure the harness.
     """
-    from server.runners import replay_all
+    from server.runners import DEFAULT_BASE_URL, replay_all
 
     try:
         outcomes = replay_all(
             result.ir,
             recording=recording,
             out_dir=result.run.root,
+            base_url=base_url or DEFAULT_BASE_URL,
             parameters=parameters,
+            storage_state=storage_state,
         )
-    except Exception:  # noqa: BLE001 - a broken replay must not lose the run
+    except Exception as exc:  # noqa: BLE001 - a broken replay must not lose the run
+        # Losing the run to a replay failure would be worse; losing the FACT of
+        # the failure is how `Executes: 0.0` stayed unexamined for a year while
+        # reading as a measurement. The run survives and says what happened.
+        metrics.replay_errors.append(f"{type(exc).__name__}: {exc}")
         return
 
     for outcome in outcomes:

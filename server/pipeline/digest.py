@@ -244,6 +244,21 @@ def _event_block(
             "  -- THE TESTER DECLARED A NEW TEST CASE HERE: a scenario must start at this event --"
         )
 
+    # A tab change, before anything else about the event.
+    #
+    # SS18 milestone 21. The recorder follows a tab opened from a recorded tab,
+    # so a payment provider or a PDF now lands in the same session -- and
+    # without this line the index reads as one continuous page and the author
+    # writes "the tester continued" for "a payment window opened". It is the
+    # same shape as the `scenario_break` bug: a session-level fact that no
+    # per-event block carried, silently absent rather than wrong.
+    #
+    # `previous.tabId` rather than the session's origin tab, because what
+    # matters is the MOVE. Both ids being absent is the single-tab case and
+    # prints nothing.
+    if previous is not None and event.tabId is not None and previous.tabId != event.tabId:
+        out.append("      -- A DIFFERENT BROWSER TAB. The tester moved to another window here --")
+
     seconds = event.timestamp / 1000.0
     target = _target(event)
     out.append(f"  {event.id}  {event.type.value}{target}  @{seconds:.1f}s")

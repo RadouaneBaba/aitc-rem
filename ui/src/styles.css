@@ -310,6 +310,18 @@ button.merge { margin-top: 8px; width: 100%; }
 .suggestions { border-left: 3px dashed var(--line); padding-left: 14px; }
 .bugreport { border-left: 3px solid var(--danger); padding-left: 14px; }
 
+/* The author's own refusal, in the tester's language.
+   Not styled as a warning: a step with no verdict because the recording does
+   not contain one is the DESIGNED outcome, and a visible gap beats an invisible
+   falsehood. It reads as a statement, and it is never collapsed -- a gap a
+   reviewer has to go looking for is one the tool may as well have hidden. */
+.whynot {
+  border-left: 3px solid var(--muted);
+  padding: 6px 0 6px 10px;
+  margin: 0;
+  line-height: 1.5;
+}
+
 /* SS9.9 -- never collapsed by default. A finding a reviewer has to go looking
    for is one the repair loop may as well have swallowed. */
 .critic { list-style: none; margin: 0; padding: 0; }
@@ -443,4 +455,59 @@ kbd {
 :where(button, a, input, textarea, [tabindex]):focus-visible {
   outline: var(--focus);
   outline-offset: var(--focus-offset);
+}
+
+/* --------------------------------------------------------------------------
+   The confirmation screen.
+
+   Deliberately unlike the rest of this UI. Everything else here is a console
+   for someone reviewing a draft; this is one question asked of a tester who has
+   just pressed Stop and is about to move on to the next test. Wide cards, big
+   pictures, three buttons, no panes.
+   -------------------------------------------------------------------------- */
+.confirm { max-width: 760px; margin: 0 auto; padding: 24px 20px 60px; }
+.confirm-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 6px; }
+.confirm-head h1 { font-size: 22px; margin: 0; }
+.confirm-head button { margin-left: auto; }
+.confirm-lead { margin: 0 0 22px; line-height: 1.5; }
+.confirm .ok { color: var(--accent); }
+.confirm .bad { color: var(--danger); }
+
+.confirm button.secondary { background: var(--panel); }
+.confirm button.ghost { border-color: transparent; color: var(--muted); }
+.confirm button.ghost:hover { color: var(--ink); }
+
+.confirm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
+
+.confirm-card {
+  border: 1px solid var(--line); border-radius: 10px; padding: 16px;
+  background: var(--panel);
+}
+.confirm-card h3 { font-size: 15px; margin: 0 0 12px; }
+/* Answered cards recede rather than disappear: a tester scanning back for the
+   one they got wrong has to be able to find it. */
+.confirm-card.answered { opacity: 0.72; }
+.confirm-card.answered.confirmed { box-shadow: inset 3px 0 0 var(--accent); }
+.confirm-card.answered.corrected { box-shadow: inset 3px 0 0 var(--warn); }
+.confirm-card.answered.rejected { box-shadow: inset 3px 0 0 var(--danger); }
+
+.confirm-shot {
+  display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.confirm-pair { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 14px; }
+.confirm-pair dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.confirm-pair dd { margin: 0; }
+
+.confirm-buttons { display: flex; gap: 8px; }
+.confirm-flag { margin: 10px 0 0; font-size: 13px; }
+
+.confirm-edit textarea { width: 100%; margin-bottom: 6px; }
+.confirm-edit p { margin: 0 0 10px; font-size: 13px; }
+.confirm-edit button { margin-right: 8px; }
+
+.confirm-actions {
+  display: flex; align-items: center; gap: 12px; margin-top: 26px;
+  padding-top: 18px; border-top: 1px solid var(--line);
 }

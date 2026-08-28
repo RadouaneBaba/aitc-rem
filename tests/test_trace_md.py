@@ -27,7 +27,7 @@ def investigation(
     return StepInvestigation(
         id=ident,
         stepId="step_003",
-        stage=PipelineStage.name,
+        stage=PipelineStage.author,
         initialUncertainty=uncertainties or [],
         toolCallIds=tool_calls or [],
         budgetUsed=len(tool_calls or []),
@@ -48,8 +48,7 @@ def trace(*investigations: StepInvestigation) -> AgentTrace:
         config={
             "ablation": "A2",
             "toolsEnabled": True,
-            "criticEnabled": False,
-            "repairEnabled": False,
+            "expectationsEnabled": True,
         },
         toolCalls=[],
         modelCalls=[],

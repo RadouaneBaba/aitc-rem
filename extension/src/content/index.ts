@@ -15,6 +15,7 @@ import type {
   NetworkCall,
   SelectedFile,
   SemanticSnapshot,
+  SettleReason,
 } from '../types/recording';
 import { isInteractiveElement, nameOf, rawValueOf, roleOf } from './a11y';
 import { diffSnapshots } from './diff';
@@ -32,6 +33,9 @@ import { waitForSettle } from './settle';
  */
 
 const RAPID_SEQUENCE_MS = 150;
+/** Longest `stop()` will wait for in-flight captures. One settle window (5s)
+ *  plus a margin: a page that never settles must not hang the popup. */
+const DRAIN_TIMEOUT_MS = 6000;
 const DRAG_THRESHOLD_PX = 12;
 const NETWORK_LEAD_MS = 120;
 
@@ -57,6 +61,47 @@ class Recorder {
   private networkIncomplete = false;
   private navPending: { url: string; at: number } | null = null;
 
+  /**
+   * Captures that have started and not yet been sent.
+   *
+   * `capture()` builds `before` synchronously and then AWAITS settle -- up to
+   * five seconds. So at the moment Stop is pressed there is routinely an action
+   * still in flight, and it is the LAST one the tester performed, which is the
+   * action a test's verdict is most often about.
+   *
+   * Measured on a public demo site: five actions driven, four recorded, and the
+   * missing one was the add-to-cart the recording was about. Nothing reported
+   * it -- the export page assembled from IndexedDB before the event arrived, so
+   * the session looked complete and was not.
+   */
+  private inFlightCaptures = new Set<Promise<void>>();
+
+  /**
+   * Settle windows still open, so the two things that must end one can.
+   *
+   * **1. `stop()`.** `waitForSettle` restarts its quiet window for as long as
+   * any request from the action is in flight, and `inFlightFor` bounds an
+   * action's window by the START OF THE NEXT ACTION -- which the last action of
+   * a session does not have. So one analytics beacon fired after the final
+   * click holds that click to the full 5s timeout, and the tester is already
+   * pressing Stop.
+   *
+   * **2. The next action.** `inFlightFor` bounds request ATTRIBUTION by the
+   * next action; nothing bounded the settle itself, so an `after` snapshot kept
+   * accumulating the page's response to whatever the tester did next. Measured
+   * on the checkout fixture: `evt_007` (enter an order total) and `evt_008`
+   * (press Place order) are **2 ms apart** with a 317 ms quiet window, so
+   * evt_007's `after` contained the rejection that evt_008 caused. The author
+   * then cited a literal that really was in evt_007's stored snapshot,
+   * `evidence_retrieved` and `contains_at` both passed, and the assertion was
+   * false about the moment it named. The replay caught it; nothing else could.
+   *
+   * Cutting short costs an `after` taken a little early, said out loud as
+   * `recording_stopped` or `superseded`. Not cutting short cost the event in
+   * case 1 and told a lie in case 2.
+   */
+  private openSettles = new Set<{ cancel(reason?: SettleReason): void }>();
+
   private pendingInput: PendingInput | null = null;
   private lastEventAt = -Infinity;
   private lastClick: { el: Element; at: number } | null = null;
@@ -77,10 +122,49 @@ class Recorder {
     this.seq = 0;
   }
 
-  stop(): void {
+  /**
+   * Stop, and do not return until everything already started has been sent.
+   *
+   * The worker awaits this (`broadcast` in the service worker awaits every
+   * `sendMessage`), which is what stops the export page assembling a session
+   * that is still missing its last action.
+   *
+   * Bounded by the settle timeout plus a margin: a page that never settles must
+   * not leave a tester staring at a popup that will not close.
+   */
+  async stop(): Promise<void> {
     this.recording = false;
     this.flushPendingInput();
     this.picker.cancel();
+
+    // Cut short before draining, or the drain just waits out the same timeout.
+    for (const settle of this.openSettles) settle.cancel('recording_stopped');
+    this.openSettles.clear();
+
+    const pending = [...this.inFlightCaptures];
+    if (!pending.length) return;
+    await Promise.race([
+      Promise.allSettled(pending),
+      new Promise((resolve) => setTimeout(resolve, DRAIN_TIMEOUT_MS)),
+    ]);
+  }
+
+  /** Start a capture and keep a handle on it, so `stop()` can wait for it. */
+  private track(promise: Promise<void>): void {
+    this.inFlightCaptures.add(promise);
+    const done = () => this.inFlightCaptures.delete(promise);
+    // Both arms, rather than `.finally`: a capture that threw must still be
+    // forgotten, and must not surface as an unhandled rejection.
+    //
+    // A throw is REPORTED rather than swallowed. A capture that fails loses the
+    // tester's action with no trace anywhere -- the recording simply comes back
+    // one event short and looks complete -- which is the most expensive kind of
+    // silence this recorder can produce.
+    promise.then(done, (error: unknown) => {
+      done();
+      // eslint-disable-next-line no-console
+      console.error('[aitc-rem] capture failed, this action is lost:', error);
+    });
   }
 
   /**
@@ -272,7 +356,7 @@ class Recorder {
 
     this.lastClick = { el, at: this.clock() };
     this.flushPendingInput();
-    void this.capture('click', el, ev);
+    this.track(this.capture('click', el, ev));
   };
 
   onFocusIn = (ev: FocusEvent): void => {
@@ -294,11 +378,11 @@ class Recorder {
     const input = el as HTMLInputElement;
 
     if (tag === 'select') {
-      void this.capture('select', el, ev);
+      this.track(this.capture('select', el, ev));
       return;
     }
     if (input.type === 'file') {
-      void this.capture('file_select', el, ev);
+      this.track(this.capture('file_select', el, ev));
       return;
     }
     // Checkbox and radio changes arrive with their own click event already.
@@ -306,7 +390,7 @@ class Recorder {
 
     if (isTextEntry(el)) {
       this.pendingInput = null;
-      void this.capture('input', el, ev);
+      this.track(this.capture('input', el, ev));
     }
   };
 
@@ -323,7 +407,7 @@ class Recorder {
     if (this.clickTriggeredSubmit(el)) return;
 
     this.flushPendingInput();
-    void this.capture('submit', el, ev);
+    this.track(this.capture('submit', el, ev));
   };
 
   /** Was this submit the direct consequence of a click just recorded? */
@@ -357,7 +441,7 @@ class Recorder {
     ]
       .filter(Boolean)
       .join('+');
-    void this.capture('keypress', el, ev, { keys: chord });
+    this.track(this.capture('keypress', el, ev, { keys: chord }));
   };
 
   private flushPendingInput(): void {
@@ -365,7 +449,7 @@ class Recorder {
     this.pendingInput = null;
     if (!pending || !this.recording) return;
     if (valueOf(pending.el) === pending.initialValue) return;
-    void this.capture('input', pending.el, null);
+    this.track(this.capture('input', pending.el, null));
   }
 
   /* --------------------------- capture --------------------------- */
@@ -376,6 +460,19 @@ class Recorder {
     ev: Event | null,
     extra: { keys?: string } = {},
   ): Promise<void> {
+    // A new action ENDS the previous one's settle window.
+    //
+    // First thing, and synchronously, because this listener runs in the capture
+    // phase -- before the application's own handlers. The cancelled settle
+    // resolves on the microtask checkpoint that follows this listener, so the
+    // previous `after` is built from the page as it stood when this action
+    // began and before the application reacted to it. Move this below any
+    // `await` and the snapshot it protects is gone.
+    //
+    // See `openSettles` for what this cost when it was missing.
+    for (const settle of this.openSettles) settle.cancel('superseded');
+    this.openSettles.clear();
+
     const at = this.clock();
     const actionIndex = this.actionStarts.push(at) - 1;
     const flags = new Set<FidelityFlag>();
@@ -388,13 +485,24 @@ class Recorder {
     }
     if (this.networkIncomplete) flags.add('network_incomplete');
 
+    // The target is described FIRST, and the order is load-bearing.
+    //
+    // `describeTarget` runs the operated control's value through
+    // `redactFieldValue`, which is where a password field's value becomes a
+    // known secret. Building `before` ahead of that meant the snapshot of the
+    // page the tester was looking at when they typed their password was built
+    // by a redactor that did not yet know the password -- so an application
+    // displaying that same value kept it, in the one snapshot where it mattered
+    // most. Both calls are synchronous, so `before` is still the pre-action
+    // state: nothing has awaited yet.
+    const target = this.describeTarget(el, ev, flags);
+
     // `before` is built synchronously, inside the capture-phase listener: by
     // the time an await resolves the application has already begun responding,
     // and the pre-action state is gone.
     const beforeResult = buildSnapshot(el, document, this.redactor, { at });
     beforeResult.flags.forEach((f) => flags.add(f));
 
-    const target = this.describeTarget(el, ev, flags);
     const files = fileListOf(el);
     if (files.length) flags.add('file_content_omitted');
 
@@ -421,7 +529,9 @@ class Recorder {
       },
     });
 
+    this.openSettles.add(handle);
     const settle = await handle.done;
+    this.openSettles.delete(handle);
     if (settle.reason === 'timeout') flags.add('settle_timeout');
 
     const afterResult = buildSnapshot(el, document, this.redactor, { at: this.clock() });
@@ -572,11 +682,19 @@ document.addEventListener('change', recorder.onChange, true);
 document.addEventListener('submit', recorder.onSubmit, true);
 document.addEventListener('keydown', recorder.onKeyDown, true);
 
-chrome.runtime.onMessage.addListener((message: WorkerInbound | RecorderState) => {
-  if (!message || typeof message !== 'object') return;
+chrome.runtime.onMessage.addListener((message: WorkerInbound | RecorderState, _sender, sendResponse) => {
+  if (!message || typeof message !== 'object') return undefined;
   if (message.type === 'start') recorder.start(message.startedAt);
-  if (message.type === 'stop') recorder.stop();
+  if (message.type === 'stop') {
+    // Answered asynchronously, and the worker waits for the answer. That is
+    // what keeps the last action in the recording: without it the export page
+    // reads IndexedDB while the final capture is still inside its settle
+    // window, and the session is assembled one event short.
+    void recorder.stop().then(() => sendResponse({ type: 'ack' }));
+    return true;
+  }
   if (message.type === 'pick') void recorder.pickAssertion();
+  return undefined;
 });
 
 // A frame that loads mid-session has to find out that recording is already in

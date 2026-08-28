@@ -128,3 +128,55 @@ describe('Redactor', () => {
     expect(rr.redactFieldValue(demo!, 'public')).toBe('public');
   });
 });
+
+/**
+ * Capturing the whole page (2026-08-28) made a case reachable that scoped
+ * capture never saw: the application DISPLAYING a value the tester also typed.
+ * The login page of this project's own fixture app prints its demo credentials,
+ * and under scoped capture that text was simply outside the snapshot.
+ */
+describe('secrets the application displays', () => {
+  it('replaces an exact value already known to be secret, wherever it appears', () => {
+    const r = new Redactor();
+    const field = document.createElement('input');
+    field.type = 'password';
+    r.redactFieldValue(field, 'hunter2swordfish');
+
+    expect(r.redactKnownSecrets('Demo credentials: tester@example.com / hunter2swordfish')).toBe(
+      'Demo credentials: tester@example.com / <<password>>',
+    );
+  });
+
+  it('leaves page content alone, which is the whole reason it is exact', () => {
+    const r = new Redactor();
+    const field = document.createElement('input');
+    field.type = 'password';
+    r.redactFieldValue(field, 'hunter2swordfish');
+
+    // The values the pattern scan used to eat. 214 of them on one storefront.
+    for (const text of ['4 990,00 DH', 'SG-001', 'Updated 2026-08-28 14:32:10', '9 of 24']) {
+      expect(r.redactKnownSecrets(text)).toBe(text);
+    }
+  });
+
+  it('will not replace a value short enough to collide with ordinary text', () => {
+    const r = new Redactor();
+    const field = document.createElement('input');
+    field.type = 'password';
+    r.redactFieldValue(field, 'a1');
+
+    // Every "a1" on the page would otherwise become <<password>> -- the
+    // pattern-scanning mistake in another costume.
+    expect(r.redactKnownSecrets('Model a1 costs 500')).toBe('Model a1 costs 500');
+  });
+
+  it('cannot know about a secret the tester never typed', () => {
+    // Stated as a test because it is the boundary of what this can do, and a
+    // limitation nobody has written down is one somebody will assume away. The
+    // answers are a project rule naming the value up front, or not putting it
+    // on the page.
+    const r = new Redactor();
+    const displayed = 'Your temporary password is swordfish99';
+    expect(r.redactKnownSecrets(displayed)).toBe(displayed);
+  });
+});

@@ -199,8 +199,41 @@ something real, that switch has to happen first. Ask before assuming it has.
 
 ## After you press Stop
 
-Press **Stop & export**, then **Send to aitc-rem**. The browser opens the review
-screen.
+Press **Stop & export**, then **Send to aitc-rem**. The browser opens the
+confirmation screen.
+
+### The confirmation screen ← the most valuable minute you will spend
+
+This is the one place the tool asks you something, and it is deliberately not an
+open question. It shows you a guess and two buttons:
+
+> **You filtered the list to in-stock products.**
+> *(screenshot of the moment)*
+> **Should have:** the list should drop from 24 products to 9
+> **Actually:** the count changed from 24 to 9
+>
+> `Right`  `Not right`  `Edit`
+
+**Why it exists.** The recording can only tell the tool what the application
+*did*. It cannot tell it whether that was *correct* — so without you, every
+expected result is a restatement of what happened, and a test made of those
+passes on a broken build. One click each is the whole cost of fixing that.
+
+- **Right** — the guess becomes `confirmed`, and the test case is written
+  against it.
+- **Not right** — this is the valuable one. It becomes a **bug report**, with
+  what should have happened beside what did.
+- **Edit** — correct the sentence and it is yours.
+
+**You can skip it,** and nothing breaks: every guess stays `inferred`, the
+scenarios get `@needs-review`, and a draft appears anyway. Skipping is the
+default and the tested path. But a screen you clicked through is the difference
+between a test that describes your application and one that checks it.
+
+Answering it starts a second run, so the draft you end up with is the one
+written against your answers.
+
+### Then the review screen
 
 **A draft takes a couple of minutes.** That is not the tool struggling — the
 free model tier allows five requests a minute and one recording needs about
@@ -320,7 +353,13 @@ model is one line in `config/project.yaml` — ask whoever set this up.
 Said plainly, so you do not go looking:
 
 - **Filing the Jira ticket for you.** The ticket is built and written to disk,
-  ready to paste. It is not posted.
-- **Recording a second tab.** If the flow opens a popup — an OAuth sign-in, a
-  payment window — what happens in it is not captured. Everything in the tab you
-  started in still is.
+  ready to paste. `jira-push` will post it if it has been given credentials.
+- **A tab you open yourself.** A tab the flow opens *for* you — an OAuth
+  sign-in, a payment window, a PDF receipt — is now recorded and reads as part
+  of the same session. A tab you open from scratch, to check your email
+  mid-session, is deliberately not: it is not part of what you were testing.
+- **A secret the application shows you that you never typed.** Anything you type
+  is redacted in the browser before it is stored. A password the *page* prints,
+  which you never entered, cannot be told apart from ordinary text — so either
+  do not put it on the page, or have it named up front in the project's
+  redaction settings.

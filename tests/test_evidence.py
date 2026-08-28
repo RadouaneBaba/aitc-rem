@@ -58,7 +58,7 @@ def runner(store: EvidenceStore, tmp_path: Path) -> ToolRunner:
         store=store,
         storage=storage,
         run=storage.run(store.recording.id, "run_test"),
-        stage=PipelineStage.name,
+        stage=PipelineStage.author,
     )
 
 
@@ -214,7 +214,7 @@ def test_a_call_writes_a_hashed_content_addressed_response(runner: ToolRunner):
     assert call_id == "tc_0001"
     record = runner.calls[0]
     assert record.tool == "get_snapshot"
-    assert record.stage == PipelineStage.name
+    assert record.stage == PipelineStage.author
 
     # The stored bytes must re-hash to the recorded value, because that is
     # exactly what evidence_retrieved does before accepting an assertion.
@@ -248,16 +248,19 @@ def test_an_unknown_tool_is_logged_and_lists_what_exists(runner: ToolRunner):
 
 
 def test_every_tool_in_the_spec_is_registered():
-    # SS8.1 lists twelve.
+    # SS8.1 listed twelve. `get_full_snapshot` is gone: it existed to be the
+    # escape hatch that justified scoped capture, nothing in the extension ever
+    # asked for it, and on the server it merged scoped snapshots of data that
+    # had never been recorded. `get_snapshot` returns the page now.
     assert sorted(TOOLS) == sorted(
         [
             "find_text",
             "get_console",
             "get_diff",
             "get_events",
-            "get_full_snapshot",
             "get_narration",
             "get_neighbouring_segments",
+            "see",
             "get_network",
             "get_objective",
             "get_snapshot",
@@ -272,7 +275,6 @@ def test_every_tool_is_callable_and_serialisable(runner: ToolRunner):
     hash it is stored under cannot be recomputed."""
     args: dict[str, dict] = {
         "get_snapshot": {"eventId": "evt_002"},
-        "get_full_snapshot": {"eventId": "evt_002"},
         "query_element": {"eventId": "evt_002", "role": "alert"},
         "get_diff": {"eventId": "evt_002"},
         "get_network": {"eventId": "evt_002"},
@@ -283,6 +285,7 @@ def test_every_tool_is_callable_and_serialisable(runner: ToolRunner):
         "search_step_library": {"query": "submits the order"},
         "get_objective": {},
         "get_neighbouring_segments": {"segmentId": "seg_001"},
+        "see": {"eventId": "evt_002"},
     }
     for tool in TOOLS:
         call_id, _ = runner.call(tool, args[tool])
@@ -292,13 +295,45 @@ def test_every_tool_is_callable_and_serialisable(runner: ToolRunner):
         assert response_hash(stored) == record.responseHash
 
 
-def test_get_full_snapshot_says_what_it_is(runner: ToolRunner):
-    # The recorder only ever captured scoped snapshots and is no longer running.
-    # Presenting a merged view as a whole-page capture would be a small lie in
-    # exactly the place the project cannot afford one.
-    _, response = runner.call("get_full_snapshot", {"eventId": "evt_002"})
-    assert response["coverage"] == "merged_scoped"
-    assert "scoped" in response["note"]
+def test_get_diff_counts_exactly_and_shows_the_readable_half(runner: ToolRunner):
+    """A page-wide diff arrives with a tail, and the counts must not depend on it.
+
+    Capturing the whole document is what makes an expected result possible at
+    all, and it is also what makes a grid re-render report forty wrapper nodes
+    beside the four product names that matter. So the rows are ranked and cut,
+    and the counts above them are always the true ones -- "how much changed" and
+    "what changed" are different questions, and an agent reading a truncated
+    list as a total would conclude the page barely moved.
+    """
+    from server.evidence.tools import MAX_DIFF_ROWS
+
+    named = [f.diff_node(f"0.{i}", "text", f"Product {i}") for i in range(10)]
+    nameless = [f.diff_node(f"1.{i}", "group", "") for i in range(MAX_DIFF_ROWS + 20)]
+    store = runner.store
+    store.event("evt_003").diff = f.SnapshotDiff(
+        added=nameless + named, removed=[], changed=[]
+    )
+
+    _, response = runner.call("get_diff", {"eventId": "evt_003"})
+
+    assert response["summary"]["added"] == len(named) + len(nameless)
+    assert len(response["added"]) == MAX_DIFF_ROWS
+    # Every named node survives the cut, and they come first.
+    shown = [n["name"] for n in response["added"]]
+    assert shown[:10] == [f"Product {i}" for i in range(10)]
+    assert "full=true" in response["note"]
+
+
+def test_get_diff_full_holds_nothing_back(runner: ToolRunner):
+    store = runner.store
+    store.event("evt_003").diff = f.SnapshotDiff(
+        added=[f.diff_node(f"1.{i}", "group", "") for i in range(60)], removed=[], changed=[]
+    )
+
+    _, response = runner.call("get_diff", {"eventId": "evt_003", "full": True})
+
+    assert len(response["added"]) == 60
+    assert "note" not in response
 
 
 def test_find_text_tells_the_agent_when_a_claim_cannot_be_grounded(runner: ToolRunner):

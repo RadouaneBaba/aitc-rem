@@ -120,6 +120,41 @@ describe('waitForSettle', () => {
     handle.cancel();
   });
 
+  it('a window ended by the next action says so, and stops absorbing the page', async () => {
+    // The mechanism behind `superseded`. Nothing bounds a settle window by the
+    // next action -- `inFlightFor` bounds request ATTRIBUTION, not this -- so
+    // an `after` snapshot went on accumulating the page's response to whatever
+    // the tester did NEXT and attributed it to this event.
+    //
+    // Measured on the checkout fixture: evt_007 (enter an order total) and
+    // evt_008 (press Place order) are 2 ms apart with a 317 ms quiet window, so
+    // evt_007's `after` contained the rejection evt_008 caused. An assertion
+    // bound to it passed `evidence_retrieved` AND `contains_at` -- the literal
+    // really was in the stored snapshot -- and was false about the moment it
+    // named. Only replaying the test case against the app caught it.
+    //
+    // An early `after` is the price and it is the right one: it can produce an
+    // empty diff, which is visible and honest, where the alternative produced a
+    // wrong one that reads as right.
+    const { handle } = harness();
+    let settled = false;
+    void handle.done.then(() => (settled = true));
+
+    handle.cancel('superseded');
+    const info = await handle.done;
+    expect(info.reason).toBe('superseded');
+    expect(settled).toBe(true);
+
+    // And it is final: the page continuing to change afterwards must not
+    // reopen the window or overwrite the reason.
+    document.getElementById('app')!.insertAdjacentHTML(
+      'beforeend',
+      '<div role="alert">Orders over EUR500 require approval</div>',
+    );
+    await wait(20);
+    expect((await handle.done).reason).toBe('superseded');
+  });
+
   it('mutations postpone settle rather than triggering it', async () => {
     // Real timers: happy-dom delivers MutationObserver records on a task that
     // fake timers do not run, so a faked version of this test would only prove

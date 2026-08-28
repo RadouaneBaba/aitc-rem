@@ -205,9 +205,16 @@ def _step_facts(step: Step) -> list[str]:
         for hint in step.selectorHints:
             out.append(f"- `{hint.strategy.value}`: `{hint.value}` ({hint.stability.value})")
 
-    if step.libraryRef:
+    # Why this step has no verdict, in the author's own words.
+    #
+    # This is the half the old pipeline never had. A claim that could not be
+    # proved was DELETED, the scenario quietly ended without a `Then`, and a
+    # style warning said so in a vocabulary nobody outside the pipeline reads.
+    # 27 of those warnings turned out to be a readout of a capture bug, and not
+    # one of them told a reviewer what to do about it.
+    if step.whyNot:
         out.append("")
-        out.append(f"Reused verbatim from step library entry `{step.libraryRef}`.")
+        out.append(f"**No expected result here.** {step.whyNot}")
 
     for note in step.criticNotes or []:
         out.append("")

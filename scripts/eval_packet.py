@@ -291,19 +291,31 @@ def render_gate(run: Path) -> list[str]:
     out = ["**Rejections:** " + ("none" if not rejected else ""), *rejected, ""]
     out += ["**Warnings:** " + ("none" if not warned else ""), *warned, ""]
 
-    critic = _load(run / "critic.json") or {}
-    findings = critic.get("findings") or []
-    if critic.get("failed"):
-        out.append(f"**Critic:** did not run — `{_flat(critic['failed'], 120)}`")
+    # The judge, not the critic. `critic.json` has not been written since the
+    # rebuild, and this block read it and printed "ran, found nothing" -- a
+    # confident statement about a stage that does not exist. A packet that omits
+    # an input does not produce a cautious verdict, it produces a wrong one.
+    judge = _load(run / "judge.json") or {}
+    findings = judge.get("findings") or []
+    if judge.get("failed"):
+        out.append(f"**Judge:** did not run — `{_flat(judge['failed'], 120)}`")
     elif findings:
-        out += ["**Critic findings:**", ""]
+        out += ["**The pipeline's own judge said:**", ""]
         for finding in findings:
             out.append(
-                f"- `{finding.get('kind', '?')}` on `{finding.get('stepId') or 'scenario'}` — "
-                f"{_flat(finding.get('message') or finding.get('text', ''), 220)}"
+                f"- `{finding.get('check', '?')}` ({finding.get('severity', '?')}) on "
+                f"`{finding.get('stepId') or 'scenario'}` — "
+                f"{_flat(finding.get('what', ''), 220)}"
             )
+        out += [
+            "",
+            "*These are the in-pipeline judge's, on its own prompt. They are not this "
+            "rubric's verdict and must not be treated as one -- read the document.*",
+        ]
+    elif judge:
+        out.append("**Judge:** ran, found nothing.")
     else:
-        out.append("**Critic:** ran, found nothing.")
+        out.append("**Judge:** no `judge.json` — this run predates the stage, or it was off.")
     out.append("")
 
     # Grounding beside yield, always. A rate alone is vacuously 1.0 for a run
@@ -315,21 +327,19 @@ def render_gate(run: Path) -> list[str]:
         ("validator pass (first)", metrics.get("validatorFirstPassRate", "—")),
         ("validator pass (final)", metrics.get("validatorFinalPassRate", "—")),
         (
-            "critic findings raised / resolved",
-            f"{metrics.get('criticFindingsRaised', '—')} / "
-            f"{metrics.get('criticFindingsResolved', '—')}",
+            "judge findings (total / still standing)",
+            f"{metrics.get('judgeFindings', '—')} / {metrics.get('judgeFails', '—')}",
         ),
-        ("repair attempts", metrics.get("repairAttempts", "—")),
+        ("author rounds", metrics.get("revisionRounds", "—")),
+        ("findings handed back", metrics.get("repairAttempts", "—")),
         ("tool calls total", metrics.get("toolCallsTotal", "—")),
         ("tool calls per step", metrics.get("toolCallsPerStep") or {}),
     ]
     out += [f"| {label} | `{value}` |" for label, value in rows]
     out.append("")
 
-    split = _load(run / "split.json") or {}
-    if split:
-        summary = {k: v for k, v in split.items() if k != "groups"}
-        out += [f"**Splitter:** `{json.dumps(summary)}`", ""]
+    # `split.json` is gone with `split.py`: the author decides scenario
+    # boundaries while it writes, with the whole session in view.
     return out
 
 

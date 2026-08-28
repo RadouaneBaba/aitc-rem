@@ -89,6 +89,7 @@ export interface TestCaseIR {
    * Exploratory/abandoned segments -- shown, not hidden. A verbatim transcript is unusable; silent deletion is untrustworthy.
    */
   omitted: OmittedSegment[];
+  examples?: ScenarioExamples;
   /**
    * SS9.8 -- STRICTLY QUARANTINED. Never rendered as steps, never exported as test cases, always labelled unverified.
    */
@@ -128,9 +129,13 @@ export interface Step {
   /**
    * Traceability into the recording. One of the two backlinks that carry the whole trust story (SS10): this one proves the sentence came from the recording.
    *
-   * @minItems 1
+   * Empty is legal, and only for a step that exists to CHECK something. An expected result is about what the application did and does not need an action of its own -- `Then the number of free rooms drops from 3 to 2` is a step nobody clicked, and inventing a click to hang it on would put a sentence in the feature file describing something that never happened. Such a step carries its backlink on the assertion's own `evidence.eventId` instead.
+   *
+   * This was `minItems: 1` and the author's worked example showed a verdict-only step with no events, so the prompt taught a shape the schema rejected -- and it only surfaced the first time a real model took the example at its word, several stages downstream, as a Pydantic error during assembly. Worked examples outweigh rules; when the two disagree the example is usually right and the rule is the thing to change.
+   *
+   * The net that matters is `event_coverage`, which requires every recorded event to land in exactly one step or in an explicit omission. That is a statement about events, not about steps, and a step with no events cannot violate it.
    */
-  eventIds: [string, ...string[]];
+  eventIds: string[];
   /**
    * -> StepInvestigation in the trace. Renders as the 'why this step' panel (SS13.3).
    */
@@ -141,16 +146,18 @@ export interface Step {
    */
   selectorHints?: SelectorHint[];
   assertions: Assertion[];
-  /**
-   * Set when reused from the step library. The library_verbatim validator enforces that the text matches the entry exactly.
-   */
-  libraryRef?: string;
   confidence: Confidence;
   /**
    * A specific question for the human. A first-class outcome, not a failure -- an agent that asks is more useful than one that guesses.
    */
   escalation?: string;
   fidelity: FidelityFlag[];
+  /**
+   * Why this step has no expected result, in language the tester can act on: 'the product list was never captured before or after this click, so nothing here shows the order changed'.
+   *
+   * Refusal used to be something DONE TO the author -- a claim was proposed, could not be proved, and was deleted, so the scenario quietly ended with no `Then` while 27 style warnings said so in a vocabulary nobody outside the pipeline reads. It is now something the author WRITES, which means it can explain itself and a reviewer can close the gap. Never rendered into the feature body, which is prose and nothing else.
+   */
+  whyNot?: string;
   criticNotes?: string[];
 }
 /**
@@ -231,6 +238,15 @@ export interface OmittedSegment {
    * Which step this omission followed, so the UI can place the '3 exploratory actions omitted' marker.
    */
   afterStepId?: string;
+}
+/**
+ * A `Scenario Outline`'s table, when the author decided this flow is one behaviour exercised with several sets of values.
+ *
+ * Distinct from `parameters`, which lifts REDACTION placeholders into an Examples row and is a rendering setting. This is a judgement about test design: a recording that adds 13 items and then 18 comes out as two near-identical scenarios and reads as a transcript, where one outline over two rows reads as a test somebody designed.
+ */
+export interface ScenarioExamples {
+  columns: string[];
+  rows: string[][];
 }
 /**
  * SS9.8 -- a prompt for the tester, not an artifact. Must never contaminate grounded output.

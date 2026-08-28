@@ -11,6 +11,7 @@ indistinguishable from model failures.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -33,9 +34,37 @@ class ToolInvocation:
 
 
 @dataclass
+class ImagePart:
+    """Pixels, on their way to a multimodal model.
+
+    The whole point of the accessibility-tree snapshot is that a model can read
+    it; the whole point of this is the cases where it cannot. When the tree does
+    not say whether a list re-sorted, or a control is a canvas, or the change
+    was purely visual, the screenshot does -- and no deterministic system can do
+    that at all.
+
+    `digest` rather than the bytes is what identifies this in a cache key. A
+    cassette keyed on base64 PNGs would be enormous, and it would miss on a
+    re-encode of the same picture, which is a cache that costs storage and
+    returns nothing.
+    """
+
+    mime: str
+    data: bytes = field(repr=False)
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha256(self.data).hexdigest()
+
+
+@dataclass
 class Message:
     role: Role
     content: str | None = None
+    #: Images to show alongside `content`. Providers differ on where these are
+    #: allowed -- Gemini will not carry bytes inside a function response -- so
+    #: each adapter decides how to place them; see `gemini._to_contents`.
+    images: list[ImagePart] = field(default_factory=list)
     #: Present on assistant turns that requested tools.
     tool_calls: list[ToolInvocation] = field(default_factory=list)
     #: Present on tool turns, naming the invocation being answered.
@@ -60,6 +89,9 @@ class Message:
             out["tool_call_id"] = self.tool_call_id
         if self.name:
             out["name"] = self.name
+        if self.images:
+            # By digest. See `ImagePart`: this is a cache key, not a payload.
+            out["images"] = [{"mime": i.mime, "sha256": i.digest} for i in self.images]
         return out
 
 

@@ -260,6 +260,40 @@ def test_what_the_recorder_could_not_capture_is_stated_rather_than_hidden():
     assert "not captured" in digest_of(f.event("evt_001", fidelity=["closed_shadow_root"]))
 
 
+def test_moving_to_another_tab_is_announced():
+    # SS18 milestone 21. The recorder follows a tab opened from a recorded one,
+    # so a payment provider or a PDF lands in the same session. Without a line
+    # here the index reads as one continuous page and the author writes "the
+    # tester continued" for "a payment window opened" -- the `scenario_break`
+    # bug in a third costume: a session-level fact no per-event block carried,
+    # silently absent rather than wrong.
+    store = EvidenceStore(
+        f.recording(
+            events=[
+                f.event("evt_001", 0, at=0.0, tabId=7),
+                f.event("evt_002", 1, at=1000.0, tabId=9),
+                f.event("evt_003", 2, at=2000.0, tabId=9),
+            ]
+        )
+    )
+    lines = build_digest(store).text.splitlines()
+    announced = [i for i, line in enumerate(lines) if "A DIFFERENT BROWSER TAB" in line]
+    assert len(announced) == 1, "announced on the move, not on every event in the new tab"
+    # And it lands ABOVE the event it belongs to, so the author reads it before
+    # anything else about that action.
+    assert "evt_002" in lines[announced[0] + 1]
+
+
+def test_a_single_tab_session_says_nothing_about_tabs():
+    # The negative case, and it matters: every recording made before multi-tab
+    # existed has no `tabId` at all, and a line claiming a tab change on those
+    # would be a fabrication in the one document the author is told to trust.
+    store = EvidenceStore(
+        f.recording(events=[f.event("evt_001", 0, at=0.0), f.event("evt_002", 1, at=1000.0)])
+    )
+    assert "DIFFERENT BROWSER TAB" not in build_digest(store).text
+
+
 # --------------------------------------------------------------------------
 # the cost
 # --------------------------------------------------------------------------

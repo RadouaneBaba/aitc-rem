@@ -177,6 +177,7 @@ async function startRecording(objective: string | undefined, tab: chrome.tabs.Ta
     startedAtIso: new Date().toISOString(),
     startUrl: tab.url ?? '',
     tabId: tab.id ?? -1,
+    tabIds: tab.id === undefined ? [] : [tab.id],
     origins: tab.url ? [safeOrigin(tab.url)].filter(Boolean) : [],
     parameters: [],
     annotations: [],
@@ -192,7 +193,7 @@ async function startRecording(objective: string | undefined, tab: chrome.tabs.Ta
     objective,
     startedAt: session.startedAt,
   };
-  await broadcast(session.tabId, message);
+  await broadcast(session.tabIds, message);
   await startNarration(session);
   await chrome.action.setBadgeText({ text: 'REC' });
   await chrome.action.setBadgeBackgroundColor({ color: '#b3261e' });
@@ -203,15 +204,22 @@ async function stopRecording(): Promise<void> {
   await stopNarration();
   const session = await getSession();
   if (session) {
-    await broadcast(session.tabId, { type: 'stop' });
+    await broadcast(session.tabIds, { type: 'stop' });
     // Marked rather than deleted -- the export page still needs it, but the
     // popup has to return to idle so a second recording can be started.
-    await setSession({ ...session, stopped: true });
+    //
+    // `stoppedAt` is what lets `ingest` tell a genuinely late event from a
+    // stray one. It is a session-relative ms, on the same clock the events use.
+    await setSession({ ...session, stopped: true, stoppedAt: Date.now() - session.startedAt });
   }
   await chrome.action.setBadgeText({ text: '' });
 }
 
-async function broadcast(tabId: number, message: unknown): Promise<void> {
+async function broadcast(tabIds: number[] | undefined, message: unknown): Promise<void> {
+  await Promise.all((tabIds ?? []).map((tabId) => broadcastToTab(tabId, message)));
+}
+
+async function broadcastToTab(tabId: number, message: unknown): Promise<void> {
   if (tabId < 0) return;
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId });
@@ -224,6 +232,51 @@ async function broadcast(tabId: number, message: unknown): Promise<void> {
     chrome.tabs.sendMessage(tabId, message).catch(() => undefined);
   }
 }
+
+/**
+ * A tab opened from a tab we are recording joins the recording.
+ *
+ * Real flows open tabs -- a payment provider, a PDF, a confirmation page -- so
+ * "works on a real session" is not true without this. `openerTabId` is the test
+ * rather than "any new tab": a tester opening their email in another tab mid-
+ * session is not part of what they were testing, and recording it would put
+ * events in the session that no step should ever claim.
+ *
+ * The new tab's content script starts on its own `document_idle` and has no way
+ * to know a recording is in progress, so it is told -- with the SAME
+ * `startedAt`, because `performance.now()` is per-document and every frame's
+ * timestamps are made comparable by sharing one wall-clock zero. A tab given
+ * its own zero would interleave its events wrongly and no downstream stage
+ * could tell.
+ */
+chrome.tabs.onCreated.addListener((tab) => {
+  void (async () => {
+    const session = await getSession();
+    const opener = tab.openerTabId;
+    if (!session || session.stopped || tab.id === undefined || opener === undefined) return;
+    if (!(session.tabIds ?? []).includes(opener)) return;
+
+    await setSession({ ...session, tabIds: [...(session.tabIds ?? []), tab.id] });
+
+    // The content script is injected at document_idle and the tab is created
+    // before it exists, so `start` is sent when the tab reports it is ready
+    // rather than now. `onUpdated` fires more than once; the content script
+    // ignores a `start` it has already had.
+    const announce = (updatedId: number, info: chrome.tabs.TabChangeInfo) => {
+      if (updatedId !== tab.id || info.status !== 'complete') return;
+      void getSession().then((current) => {
+        if (!current || current.stopped) return;
+        void broadcastToTab(updatedId, {
+          type: 'start',
+          recordingId: current.recordingId,
+          objective: current.objective,
+          startedAt: current.startedAt,
+        } satisfies StartRecording);
+      });
+    };
+    chrome.tabs.onUpdated.addListener(announce);
+  })();
+});
 
 /**
  * The tab to record. The active tab is usually right, but not when the popup
@@ -258,14 +311,34 @@ function safeOrigin(url: string): string {
 
 async function ingest(message: EventCaptured, sender: chrome.runtime.MessageSender): Promise<void> {
   const session = await getSession();
-  // A frame can emit one last event while the stop is still propagating.
-  if (!session || session.stopped) return;
+  if (!session) return;
+
+  // A frame can emit one last event while the stop is still propagating, and
+  // dropping it outright cost the session its LAST action -- which is where a
+  // test's verdict lives.
+  //
+  // `capture()` builds `before` synchronously and then awaits settle, up to 5
+  // seconds. A tester who clicks the thing they were checking and reaches
+  // straight for Stop is the normal case, not an edge one, and that action
+  // resolves after the stop has already been recorded. Measured on a public
+  // demo site: five actions driven, four recorded, and the missing one was the
+  // add-to-cart the recording was about.
+  //
+  // So the question is not "has the session stopped" but "did this action
+  // happen before it stopped". Anything the tester genuinely did during the
+  // recording is kept; anything after Stop is still refused.
+  if (session.stopped && message.event.timestamp > (session.stoppedAt ?? 0)) return;
 
   const tabId = sender.tab?.id ?? session.tabId;
   const frameId = sender.frameId ?? 0;
 
   const event = message.event;
   event.target.frame = await framePathFor(tabId, frameId);
+  // Available on every event since the recorder was written, and never kept.
+  // Without it nothing downstream can tell "the tester continued" from "a
+  // payment window opened", and the author writes the first sentence for the
+  // second thing.
+  event.tabId = tabId;
 
   const order = eventOrder++;
 
@@ -413,7 +486,11 @@ chrome.runtime.onMessage.addListener((message: WorkerInbound, sender, sendRespon
         if (!session || session.stopped) {
           return sendResponse({ type: 'error', message: 'Not recording' });
         }
-        await broadcast(session.tabId, { type: 'pick' });
+        // Every recorded tab, not just the first: the tester points at what is
+        // in front of them, and after a payment window opens that is a
+        // different tab. A picker armed in only one of them silently does
+        // nothing, which reads as the feature being broken.
+        await broadcast(session.tabIds, { type: 'pick' });
         return sendResponse({ type: 'ack' });
       }
       /* ------------------------ narration ------------------------ */

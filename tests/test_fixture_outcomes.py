@@ -80,15 +80,14 @@ def run_fixture(name: str, tmp_path: Path) -> PipelineResult:
     storage = Storage(recordings_dir=tmp_path / "recordings", runs_dir=tmp_path / "runs")
     model = CassetteClient(_Unreachable(), CASSETTES, mode="read_only")
 
-    # A2 with bug mode on, matching what the recordings are run with -- the
-    # cassette key is the exact request, so a different configuration is a
-    # different tape and every one of these would skip forever.
+    # A2, matching what the recordings are run with -- the cassette key is the
+    # exact request, so a different configuration is a different tape and every
+    # one of these would skip forever.
     options = PipelineOptions.for_config(
         AblationConfig.A2,
         model_name=DEFAULT_MODEL,
         budget=8,
         project=config,
-        bug_mode_enabled=True,
     )
     try:
         return run_pipeline(recording, model, storage=storage, run_id="run_001", options=options)
@@ -168,6 +167,11 @@ def test_narrated_reaches_the_narrated_rank(tmp_path):
             assert claim.evidence and claim.evidence.toolCallId
 
 
+@pytest.mark.skip(
+    reason="bug mode is no longer a stage: a bug report comes from a REJECTED "
+    "expectation, so this needs a confirmed expectations file to run against. "
+    "Rewrite it once a real session has been through the confirmation screen."
+)
 def test_bugged_writes_a_report_whose_actual_is_bound(tmp_path):
     # SS14.2. The `actual` is the one sentence a developer reads before
     # deciding whether to go and reproduce something, and it is yielded into

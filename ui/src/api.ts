@@ -38,10 +38,19 @@ export interface Step {
   escalation?: string;
   fidelity: string[];
   selectorHints?: { strategy: string; value: string; stability: string }[];
-  /** SS9.9 -- what the critic said about this step and nothing resolved. Never
-   *  in the feature file (its body is prose and nothing else) and never
-   *  collapsed by default: an unresolved finding that a reviewer has to go
-   *  looking for is one the loop may as well have swallowed. */
+  /** Why this step has no expected result, in the tester's own language.
+   *
+   *  The most valuable thing the author writes and it reached nothing until
+   *  now: a claim that could not be proved used to be deleted, the scenario
+   *  ended silently without a `Then`, and a style warning said so in a
+   *  vocabulary nobody outside the pipeline reads. Never in the feature file --
+   *  its body is prose and nothing else -- and never collapsed here, because a
+   *  gap a reviewer has to go looking for is one the tool may as well have
+   *  hidden. */
+  whyNot?: string;
+  /** Historical. The critic is deleted; the judge that replaced it hands its
+   *  findings to the author and never to the tester. Kept only so an old run
+   *  still parses. */
   criticNotes?: string[];
 }
 
@@ -195,6 +204,42 @@ export interface RunSummary {
   hasBug?: boolean;
 }
 
+/**
+ * SS-none: this is new. What SHOULD have happened, per action.
+ *
+ * The pipeline can only license claims about what the application DID. This is
+ * the one input that says what it should have done, and it is answered with
+ * three buttons rather than a text field because a tester will click and will
+ * not write.
+ */
+export type ExpectationSource = 'inferred' | 'confirmed' | 'corrected' | 'stated' | 'rejected';
+
+export interface Expectation {
+  id: string;
+  eventIds: string[];
+  action: string;
+  expected: string;
+  observed?: string;
+  source: ExpectationSource;
+  screenshot?: string;
+  note?: string;
+}
+
+export interface ExpectationSet {
+  schemaVersion: string;
+  recordingId: string;
+  createdAt: string;
+  confirmedAt?: string;
+  expectations: Expectation[];
+}
+
+export interface ExpectationAnswer {
+  id: string;
+  source: ExpectationSource;
+  expected?: string;
+  note?: string;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -286,4 +331,16 @@ export const api = {
 
   fileUrl: (rec: string, run: string, name: string) =>
     `/api/runs/${rec}/${run}/files/${encodeURIComponent(name)}`,
+
+  /** 404 while the guess is still running, which is the normal first seconds
+   *  after Stop. The confirmation screen retries rather than erroring. */
+  expectations: (rec: string) => call<ExpectationSet>(`/api/recordings/${rec}/expectations`),
+
+  /** Answering enqueues a fresh run. The answers are an input to authoring, not
+   *  an edit to its output, so the pipeline has to run again to use them. */
+  answerExpectations: (rec: string, answers: ExpectationAnswer[]) =>
+    call<{ job: Job; expectations: ExpectationSet }>(
+      `/api/recordings/${rec}/expectations`,
+      json({ answers }),
+    ),
 };
