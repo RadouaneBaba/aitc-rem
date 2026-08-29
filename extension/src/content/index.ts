@@ -13,6 +13,7 @@ import type {
   EventType,
   FidelityFlag,
   NetworkCall,
+  RedactionLevel,
   SelectedFile,
   SemanticSnapshot,
   SettleReason,
@@ -115,10 +116,14 @@ class Recorder {
 
   /* -------------------------- lifecycle -------------------------- */
 
-  start(startedAt: number): void {
+  start(startedAt: number, redaction: RedactionLevel = 'full'): void {
     this.recording = true;
     this.startedAt = startedAt;
-    this.redactor = new Redactor();
+    // A fresh Redactor per session, so placeholder numbering restarts and one
+    // recording's `<<user_email_1>>` is never another's. The level is fixed
+    // here for the same reason: redaction happens before anything is
+    // persisted, so it cannot be revisited later in the session.
+    this.redactor = new Redactor(undefined, redaction);
     this.seq = 0;
   }
 
@@ -684,7 +689,7 @@ document.addEventListener('keydown', recorder.onKeyDown, true);
 
 chrome.runtime.onMessage.addListener((message: WorkerInbound | RecorderState, _sender, sendResponse) => {
   if (!message || typeof message !== 'object') return undefined;
-  if (message.type === 'start') recorder.start(message.startedAt);
+  if (message.type === 'start') recorder.start(message.startedAt, message.redaction);
   if (message.type === 'stop') {
     // Answered asynchronously, and the worker waits for the answer. That is
     // what keeps the last action in the recording: without it the export page
@@ -701,5 +706,9 @@ chrome.runtime.onMessage.addListener((message: WorkerInbound | RecorderState, _s
 // progress; the worker owns that state.
 chrome.runtime.sendMessage({ type: 'query-state' } satisfies WorkerInbound, (state?: RecorderState) => {
   if (chrome.runtime.lastError) return;
-  if (state?.recording && state.startedAt !== undefined) recorder.start(state.startedAt);
+  // A frame joining mid-session must redact exactly as the others do, or one
+  // document's typed values reach disk raw while the rest are placeholders.
+  if (state?.recording && state.startedAt !== undefined) {
+    recorder.start(state.startedAt, state.redaction);
+  }
 });

@@ -8,6 +8,15 @@ what that describes was designed and never ran, and a how-to written from a spec
 documents features that do not exist. Everything below has been executed. Where
 something is built but unproven, it says so.
 
+**This file is the OPERATOR's document, and the split is deliberate.** `/help`
+in the running tool is the how-to-USE guide: record, confirm, review, export,
+and nothing a reader would need a terminal for. It is not a shorter version of
+this file -- it stopped being one on 2026-08-29, because a page that was half
+CLI invocations and half `project.yaml` keys was documenting the machine to
+somebody who only wanted to do the task. Everything here is what you run; what
+the tester does is [RECORDING.md](RECORDING.md) and `/help`; why any of it is
+shaped this way is [DESIGN_NOTES.md](DESIGN_NOTES.md).
+
 ---
 
 ## The shortest version
@@ -178,6 +187,7 @@ All in `config/project.yaml`, all with a default that produces good output.
 
 | | |
 |---|---|
+| `style` | which worked `.feature` the author is shown. `automation` (default: every action, specific values), `business` (few steps, plain language, one verdict per scenario) or `data-driven` (a repeated flow becomes one `Scenario Outline` with the values in an `Examples` table; anything that happened once stays a plain scenario). It changes the EXAMPLE, never what may be claimed. |
 | `voice` | subject of every step. `I` switches to the classic Cucumber register. |
 | `parameters` | `inline` quotes values in the step text; `outline` lifts them into an `Examples` table. |
 | `exports` | `xlsx` is on by default — for a large part of the audience the workbook *is* the deliverable. `jira` builds an issue. |
@@ -192,9 +202,39 @@ and read by human reviewers, so record demo and public applications on one. A
 paid endpoint with a no-training term makes the question moot — set
 `origin_policy: off`.
 
+**Redaction is not here, and deliberately.** It happens in the browser before
+anything is written to disk, so by the time this file could be read the decision
+has already been taken. The recorder popup owns it, under *Redaction*, before
+you press Start — and the level travels on the recording, so two sessions made
+under different settings can sit in one project and each still means what it
+meant when it was made.
+
+| | |
+|---|---|
+| `full` | the default. Emails, cards, tokens and anything typed into a password field become placeholders. |
+| `secrets_only` | the pattern scan is off; passwords are still hidden. For an application whose real data looks sensitive — an order reference that scans as a card number. |
+| `off` | nothing is hidden. |
+
+Below `full`, `no_placeholder_leak` warns instead of refusing to render — you
+cannot ask for the raw values and also gate on their absence — and the run is
+**refused** unless `origin_policy` is `off`.
+
+**Adding a Gherkin style** is writing `server/pipeline/styles/<name>.md`: one
+good feature file in that style, with its annotations beside it, and the name in
+`STYLES`. Nothing else in the pipeline changes. That is the point — every
+attempt here to change output with a *rule* measured at or near zero uptake, and
+every improvement came from a better example.
+
 A `Scenario Outline` appears when the **author** decided the flow was genuinely
 repeated with different values. That is a judgement about test design and is
 distinct from `parameters: outline`, which is a rendering setting.
+
+**What a verdict can say.** A claim carries the SHAPE of what it asserts, and
+the gate re-checks that shape against the stored retrieval: `contains` (the
+default), `first_of` (sorting and ranking), `count` (*"the list drops to 9"*)
+and `absent` (*"the error is gone"*). Without it the check was substring
+containment, so a sentence saying FIRST was proved by a string appearing
+anywhere.
 
 ---
 

@@ -31,6 +31,16 @@ ORIGINS_PATH = REPO_ROOT / "config" / "allowed_origins.yaml"
 #: are the ones worth listing in the file as examples.
 KNOWN_VOICES = ("the tester", "the user", "I", "the admin")
 
+#: House Gherkin style. Each name is a file in `server/pipeline/styles/` holding
+#: one good feature file written in it, which is what the author is shown.
+#:
+#: A list rather than an enum in the schema because a style is a WORKED EXAMPLE
+#: and not a code path: adding one is writing a good `.feature`, and nothing
+#: else in the pipeline changes. That is the whole reason this became a config
+#: knob rather than the three-branches-in-a-prompt shape that was cut once
+#: already for measuring near-zero uptake.
+STYLES = ("automation", "business", "data-driven")
+
 TRACE_MODES = ("sidecar", "none")
 PARAMETER_MODES = ("inline", "outline")
 
@@ -73,6 +83,19 @@ class ProjectConfig:
     #: one value. Outline earns its keep when a project genuinely runs several
     #: data rows.
     parameters: str = "inline"
+
+    #: Which worked feature file the author is shown, and therefore how the
+    #: output reads.
+    #:
+    #: automation -- every action, specific values, a check whenever there is
+    #:               something worth checking. For whoever writes the step
+    #:               definitions.
+    #: business   -- few steps, plain language, one verdict at the end of each
+    #:               scenario. For whoever decides the behaviour is right.
+    #:
+    #: It changes the EXAMPLE, never the rules and never what may be claimed. A
+    #: business-style document is bound exactly as tightly as an automation one.
+    style: str = "automation"
 
     #: Filename stem for the rendered feature, formatted with `caseId`, `title`
     #: and `recordingId`.
@@ -161,6 +184,8 @@ def load_project_config(path: Path | None = None) -> ProjectConfig:
     fields: dict[str, Any] = {}
     if isinstance(data.get("voice"), str) and data["voice"].strip():
         fields["voice"] = data["voice"].strip()
+    if isinstance(data.get("style"), str) and data["style"].strip().lower() in STYLES:
+        fields["style"] = data["style"].strip().lower()
     if isinstance(data.get("tags"), list):
         fields["tags"] = tuple(str(t).strip().lstrip("@") for t in data["tags"] if str(t).strip())
     if data.get("trace") in TRACE_MODES:

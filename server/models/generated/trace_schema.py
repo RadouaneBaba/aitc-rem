@@ -268,6 +268,8 @@ class RepairTrigger(StrEnum):
 class RepairAttempt(StrictModel):
     """
     SS9.9 -- findings are not merely reported; the author re-runs with them as input. Bounded at one revision round: the rebuild deleted the routing table that decided WHICH stage re-runs, because the author wrote the document and is the only thing that knows which part of it is wrong.
+
+    `resolved` was required and is now a deprecated optional -- see its own description.
     """
 
     model_config = ConfigDict(
@@ -281,7 +283,10 @@ class RepairAttempt(StrictModel):
     """
     finding: str
     targetStepId: str | None = None
-    resolved: bool
+    resolved: bool | None = None
+    """
+    DEPRECATED and no longer written. It was required, and hardcoded `false` at all three construction sites, because what was resolved between two whole-document rewrites is genuinely not knowable -- matching a round-2 finding to the round-1 one it descended from is a guess. The reasoning was right and the field was not: a required boolean that is always false is a column of noise that reads like a measurement. Kept OPTIONAL rather than deleted because every model here is `additionalProperties: false`, so removing it outright stops every trace already on disk from parsing -- which is how it was noticed, when `prove_grounding.py` failed to read thirty existing runs. Nothing writes it; everything still reads it. What is reported instead is `judgeFindings` and `judgeFails`, counts of what is still true of the document that shipped.
+    """
     exhausted: bool | None = None
     """
     Budget ran out with the finding unresolved. The step is surfaced to the human with the finding stated plainly -- never silently accepted.

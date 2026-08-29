@@ -20,25 +20,12 @@ import { JobBanner } from './components/JobBanner';
 import { TrustStrip } from './components/TrustStrip';
 import { ShortcutSheet } from './components/ShortcutSheet';
 import { Confirm } from './components/Confirm';
-
-/**
- * Which recording, if any, the tester is being asked to confirm.
- *
- * A query parameter rather than a router: there are exactly two screens here,
- * and the extension's export page needs a URL it can link to the moment the
- * tester presses Send. Read once -- the confirmation screen is a destination,
- * not a tab somebody flips back and forth to.
- */
-function confirmTarget(): string | null {
-  try {
-    return new URLSearchParams(window.location.search).get('confirm');
-  } catch {
-    return null;
-  }
-}
+import { ConfirmBanner } from './components/ConfirmBanner';
+import { Help } from './components/Help';
+import { useRoute } from './route';
 
 export function App() {
-  const [confirming, setConfirming] = useState<string | null>(confirmTarget);
+  const [route, go] = useRoute();
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selected, setSelected] = useState<RunSummary | null>(null);
   const [body, setBody] = useState<RunBody | null>(null);
@@ -193,23 +180,27 @@ export function App() {
   // Showing them "Looking for a run..." at the one moment they still remember
   // what they were checking is how the most valuable screen in the product goes
   // unused.
-  if (confirming) {
+  if (route.name === 'confirm') {
     return (
       <Confirm
-        recordingId={confirming}
+        recordingId={route.recordingId}
         onDone={() => {
-          setConfirming(null);
-          window.history.replaceState(null, '', window.location.pathname);
+          go({ name: 'review' });
           refresh();
         }}
       />
     );
   }
 
+  if (route.name === 'help') {
+    return <Help onBack={() => go({ name: 'review' })} />;
+  }
+
   if (!body || !selected) {
     return (
       <div className="empty">
         <JobBanner onFinished={refresh} />
+        <ConfirmBanner onOpen={(recordingId) => go({ name: 'confirm', recordingId })} />
         {error ? <p className="error">{error}</p> : <p>Looking for a run…</p>}
         {!error && runs.length === 0 && (
           <p className="muted">
@@ -238,9 +229,13 @@ export function App() {
           testCases={body.ir.testCases}
           onError={setError}
         />
+        <button onClick={() => go({ name: 'help' })} title="How to use this">
+          Help
+        </button>
       </header>
 
       <JobBanner onFinished={refresh} />
+      <ConfirmBanner onOpen={(recordingId) => go({ name: 'confirm', recordingId })} />
       <TrustStrip trace={body.trace} />
 
       {error && (

@@ -10,7 +10,13 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from server.models import ValidatorAction, ValidatorName, ValidatorResult, ValidatorStatus
+from server.models import (
+    RedactionLevel,
+    ValidatorAction,
+    ValidatorName,
+    ValidatorResult,
+    ValidatorStatus,
+)
 from server.pipeline.coverage import reads_back_as_step
 from server.pipeline.validators.base import ValidationContext, passed, result, skipped, strings_in
 
@@ -63,7 +69,26 @@ def no_placeholder_leak(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     Hard fail: do not render. SS7 promises that raw secrets never exist in a
     persisted artifact, and a tool that breaks that promise once has broken it
     permanently.
+
+    **Unless the recording says redaction was turned down**, in which case this
+    warns instead. That is not the validator being weakened to make output pass
+    -- the rule the project treats as absolute -- and the distinction is worth
+    being exact about.
+
+    Weakening a validator means loosening what counts as a leak. Nothing here is
+    loosened: the same scan runs, finds the same strings and reports the same
+    message. What changes is the consequence, and only for a recording whose
+    metadata records that a human deliberately turned the pattern scan off
+    before recording. You cannot ask a tool for raw values and also ask it to
+    refuse to write them down; leaving this fatal would mean the setting existed
+    and silently produced no output at all, which is a worse failure than the
+    honest one. The default is untouched, and the level travels with the
+    recording rather than being read from whatever the project is configured to
+    do today.
     """
+    level = getattr(ctx.recording.metadata, "redaction", None) or RedactionLevel.full
+    fatal = level == RedactionLevel.full
+
     leaks: list[tuple[str, str]] = []
 
     for case in ctx.ir.testCases:
@@ -77,14 +102,23 @@ def no_placeholder_leak(ctx: ValidationContext) -> Iterable[ValidatorResult]:
 
     if leaks:
         unique = sorted({f"{where}: {what}" for where, what in leaks})
+        found = "; ".join(unique[:6])
         yield result(
             ValidatorName.no_placeholder_leak,
-            ValidatorStatus.fail,
-            ValidatorAction.hard_fail,
+            ValidatorStatus.fail if fatal else ValidatorStatus.warn,
+            ValidatorAction.hard_fail if fatal else ValidatorAction.none,
             ctx,
             message=(
-                "output contains something that looks like a live secret, which redaction "
-                "should have replaced with a placeholder: " + "; ".join(unique[:6])
+                "output contains something that looks like a live secret, which "
+                f"redaction should have replaced with a placeholder: {found}"
+                if fatal
+                else (
+                    f"this recording was made with redaction set to {level.value!r}, and the "
+                    f"output contains text that looks like a live secret: {found}. It has "
+                    f"been written anyway, because you asked for the raw values -- but the "
+                    f"feature file and its sidecar now hold them, so treat these files the "
+                    f"way you would treat a .env."
+                )
             ),
         )
         return

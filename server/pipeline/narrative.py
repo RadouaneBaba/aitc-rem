@@ -8,10 +8,12 @@ answers `When` every time, which is how Phase 1 shipped seven `When`s in a row.
 The drafting stage sees the whole session, so it chooses the keyword and this
 module lays out what it chose -- collapsing runs into `And`, placing expected
 results after the steps that produced them, and breaking the scenario into
-beats. Where a scenario's shape is illegal, `gherkin_style` says so rather than
-this module silently rewriting it: a keyword quietly mutated in the renderer is
-how every `Given` disappeared from both real recordings without anything
-failing.
+beats. Where a scenario's shape is wrong, the author is asked about it rather
+than this module silently rewriting it: a keyword quietly mutated in the
+renderer is how every `Given` disappeared from both real recordings without
+anything failing. (`gherkin_style` was the validator that used to say so; it
+went with the other nine, because "is this scenario shaped right" is a judgement
+and a regex loses that question to a model reading it. The judge asks it now.)
 
 The one rule still enforced here is positional and cannot be a matter of
 opinion: `Given` belongs to the opening block. See `_opening_block`.

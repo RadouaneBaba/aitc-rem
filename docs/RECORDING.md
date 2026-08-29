@@ -9,6 +9,9 @@ sheet, a Jira ticket. You then read the draft, fix what is wrong, and approve it
 It works with no help from you at all. Everything below is about making the
 output good rather than merely correct, and the two are not the same thing.
 
+**There is a shorter version of this inside the tool**, at `/help` — the "Help"
+button in the top right of the review screen.
+
 ---
 
 ## Before you press record: the objective

@@ -15,6 +15,7 @@ neither should have to know which stage wrote it.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,6 +44,10 @@ class Investigation:
     """What one agentic decision cost, and what it concluded."""
 
     answer: dict[str, Any] = field(default_factory=dict)
+    #: The answer turn's raw text, kept because a model answers in the SHAPE of
+    #: its worked example and an example with two fenced blocks gets two fenced
+    #: blocks back. The author's `.feature` body arrives in one of them.
+    answer_text: str = ""
     tool_call_ids: list[str] = field(default_factory=list)
     uncertainties: list[str] = field(default_factory=list)
     narrative: list[str] = field(default_factory=list)
@@ -110,12 +115,31 @@ def investigate(
     step_id: str | None = None,
     segment_id: str | None = None,
     tool_names: list[str] | None = None,
+    needs_retrieval: Callable[[dict[str, Any]], str] | None = None,
 ) -> Investigation:
     """Run one investigation to an answer, retrieving as the model asks.
 
     `tool_names` narrows what this stage may reach for. More tools measurably
     means worse tool choice, and a stage that needs six should not be handed
     twelve and trusted to ignore the rest.
+
+    `needs_retrieval` reads a finished answer and returns a sentence when that
+    answer makes a claim nothing was retrieved for -- or "" when it is fine. It
+    is the mirror image of the budget nudge below, and it exists because the
+    two failures are symmetrical and only one of them was handled: a model that
+    investigates past its budget is told to stop, and a model that answers
+    without investigating at all was told nothing.
+
+    Measured, on `keyhole` against a real model: the author wrote two correct
+    verdicts, made **zero** tool calls, had both silently refused by the
+    citation check, and shipped scenarios ending on a `When`. It had six tools
+    and declined them, because the session index already prints the string it
+    wanted to quote -- and the index is a SUMMARY, which is exactly why a claim
+    resting on it points at nothing.
+
+    The nudge is deterministic, bounded by the same `MAX_FORCED_TURNS` and
+    unable to invent anything: it says go and look, and the model still chooses
+    what to look at and still cites only what comes back.
     """
     messages = [
         Message(role="system", content=system_prompt),
@@ -146,6 +170,20 @@ def investigate(
 
         if not response.wants_tools:
             out.answer = parse_json_answer(response.text)
+            out.answer_text = response.text or ""
+            missing = (
+                needs_retrieval(out.answer)
+                if needs_retrieval and tools_enabled and not out.tool_call_ids
+                else ""
+            )
+            if missing and forced < MAX_FORCED_TURNS:
+                forced += 1
+                out.narrative.append("answered without retrieving anything; asked to look")
+                messages.append(Message(role="assistant", content=response.text))
+                messages.append(Message(role="user", content=missing))
+                out.answer = {}
+                out.answer_text = ""
+                continue
             break
 
         if not tools_enabled:

@@ -142,7 +142,18 @@ export interface Trace {
     message?: string;
     stepId?: string;
   }[];
-  metrics?: { groundingRate: number; assertionsTotal: number; toolCallsTotal: number };
+  metrics?: {
+    groundingRate: number;
+    assertionsTotal: number;
+    toolCallsTotal: number;
+    /** What the QA read sent back. `judgeFails` is what a lead would refuse to
+     *  sign; `judgeFindings` counts those plus the ones they would sign after an
+     *  edit. Both are counts and never rates -- a rate over a run that claimed
+     *  nothing reads perfect, which is the trap this project has now met in
+     *  seven columns. */
+    judgeFindings?: number;
+    judgeFails?: number;
+  };
 }
 
 export interface ReviewDoc {
@@ -343,4 +354,20 @@ export const api = {
       `/api/recordings/${rec}/expectations`,
       json({ answers }),
     ),
+
+  /** Recordings whose guesses nobody has answered yet.
+   *
+   *  The confirmation screen used to be reachable only from the extension's
+   *  export page, via a query parameter read once at mount and cleared on
+   *  dismiss -- so missing that one link lost it for good. 14 expectation sets
+   *  reached disk and all 14 stayed `inferred`, which means every stage
+   *  downstream has only ever read guesses nobody checked. */
+  pendingExpectations: () =>
+    call<{ pending: PendingConfirmation[] }>('/api/expectations/pending'),
+};
+
+export type PendingConfirmation = {
+  recordingId: string;
+  count: number;
+  createdAt?: string;
 };

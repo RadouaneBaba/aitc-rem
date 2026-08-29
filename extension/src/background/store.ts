@@ -1,4 +1,9 @@
-import type { CapturedEvent, RedactionParameter, TesterAnnotation } from '../types/recording';
+import type {
+  CapturedEvent,
+  RedactionLevel,
+  RedactionParameter,
+  TesterAnnotation,
+} from '../types/recording';
 
 /**
  * An MV3 service worker is evicted after roughly 30 seconds of inactivity, and
@@ -39,6 +44,12 @@ export interface SessionMeta {
    *  A plain array rather than a Set because this is stored in IndexedDB. */
   tabIds: number[];
   origins: string[];
+  /** How much redaction the tester chose before starting. Absent means `full`,
+   *  which is every session recorded before the setting existed. Kept on the
+   *  session rather than read at export time because it has to reach the
+   *  content script the moment recording starts -- redaction happens before
+   *  anything is persisted, so a decision made afterwards is no decision. */
+  redaction?: RedactionLevel;
   parameters: RedactionParameter[];
   annotations: TesterAnnotation[];
   eventCount: number;

@@ -25,10 +25,24 @@ somebody ticks becomes `confirmed`. The expensive half was never the guess, it
 was getting a busy person to write a sentence -- so this trades a model call for
 a click.
 
-One call, no retrieval. `digest.py` renders 34 events of a commercial session in
-~1,600 tokens and the drafting stage declined to retrieve on 30 of 30
-investigations against it; there is no reason to think this question needs more
-than that one did.
+**It retrieves, and for one reason: a guess nobody can tick is not an oracle.**
+This ran with no tools at all until 2026-08-29, on the argument that
+`digest.py` renders 34 events of a commercial session in ~1,600 tokens and the
+drafting stage declined to retrieve on 30 of 30 investigations against it. That
+argument was about a stage licensing claims from a summary, and it does not
+transfer, because this stage is not writing a claim -- it is writing a QUESTION
+for a human, and the whole prompt below turns on the difference between *"the
+list should update"* and *"the list should drop from 24 products to 9"*. The
+index carries a diff shape and a sample of changed text; the second number
+routinely is not in it. A stage told to be specific and given nothing to be
+specific from writes the vague version, and the vague version is the one the
+tester cannot answer.
+
+Bounded hard at `GUESS_BUDGET`, and the bound is the latency argument surviving
+intact: `POST /api/recordings` guesses while the tester is still sitting there,
+and a screen that takes two minutes to appear is a screen nobody waits for.
+Three tools, not six -- more tools measurably means worse tool choice, and the
+question here is only ever *what was on the page, and what changed*.
 """
 
 from __future__ import annotations
@@ -49,10 +63,20 @@ from server.models import (
 from server.pipeline.digest import build_digest
 from server.pipeline.investigate import investigate
 
-#: No retrieval. See the module docstring; also, this call happens while the
-#: tester is still sitting there, and a screen that takes two minutes to appear
-#: is a screen nobody waits for.
-GUESS_BUDGET = 0
+#: Retrievals this stage may spend, over the WHOLE session rather than per
+#: expectation. Small on purpose: the tester is waiting for this screen, and an
+#: oracle that arrives after they have closed the tab is worth nothing. Enough
+#: for the two or three moments where the index does not carry the value the
+#: expectation has to name, and not enough to walk the session.
+GUESS_BUDGET = 4
+
+#: What it may reach for. `get_diff` and `get_snapshot` answer "what changed"
+#: and "what was on the page"; `find_text` confirms the exact wording of a value
+#: worth putting in front of a human. `see` is deliberately absent -- a
+#: screenshot is ~1k tokens and this stage is the one with a person waiting on
+#: it -- and so is `get_network`: a status code is not something a tester can
+#: recognise as a description of what they just did.
+EXPECTATION_TOOLS = ["get_diff", "get_snapshot", "find_text"]
 
 #: Narration or an annotation this far either side of an event still counts as
 #: being about it. An outcome annotation lands AFTER the thing it points at,
@@ -80,6 +104,21 @@ the feature were broken.
 
 Write about the thing under test, not about the interface reacting. "A panel
 should open" is not an expectation; what the panel should SAY is.
+
+You can go and look. The session index is a summary: it shows the shape of what
+changed and a sample of the text, so the exact value your expectation needs is
+often not in it. When you are about to write a vague expectation because you do
+not know the number, retrieve instead:
+
+  get_diff(eventId)              what changed at this moment
+  get_snapshot(eventId, when)    what was on the page, before or after
+  find_text(text)                where a value appears, and its exact wording
+
+Retrieve only for that. Most expectations need nothing -- the index already
+names the value, or the action is setup and gets no expectation at all. You have
+a small budget for the whole session, so spend it on the moments where being
+specific is the difference between a question a tester can answer and one they
+cannot.
 
 Not every action deserves one. Signing in, navigating and opening a page are
 usually setup: skip them unless the sign-in is what is being tested. Between six
@@ -129,9 +168,17 @@ def propose_expectations(
     *,
     model_name: str,
     temperature: float = 0.0,
+    tools_enabled: bool = True,
     config: ProjectConfig | None = None,
 ) -> ExpectationSet:
-    """One model call over the session index. Returns guesses, all unconfirmed."""
+    """One investigation over the session index. Returns guesses, all unconfirmed.
+
+    `tools_enabled` is threaded from the run rather than hardcoded, so a
+    configuration with no tools does not get a stage quietly reaching for them.
+    A0 never reaches here -- it disables the oracle outright -- but a stage whose
+    tool access depends on which caller happened to construct it is the shape of
+    defect this file exists to avoid.
+    """
     config = config or ProjectConfig()
     digest = build_digest(store)
 
@@ -144,7 +191,8 @@ def propose_expectations(
         stage=PipelineStage.expectations,
         label="expectations",
         budget=GUESS_BUDGET,
-        tools_enabled=False,
+        tools_enabled=tools_enabled,
+        tool_names=EXPECTATION_TOOLS,
         temperature=temperature,
     )
     return _parse(result.answer, store)
@@ -275,4 +323,4 @@ def _clean(value: Any) -> str:
     return " ".join(value.split()).strip()
 
 
-__all__ = ["GUESS_BUDGET", "empty_set", "propose_expectations"]
+__all__ = ["EXPECTATION_TOOLS", "GUESS_BUDGET", "empty_set", "propose_expectations"]

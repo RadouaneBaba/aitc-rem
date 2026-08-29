@@ -1,8 +1,22 @@
-"""Validators that check the output against what the recording actually shows."""
+"""Validators that check the output against what the recording actually shows.
+
+Four regexes lived here -- `PAST_REFERENCE`, `RESULT_CLAUSE`, `DISPLAY_CLAIM`
+and `MUTATION_WORDS` -- and they were deleted on 2026-08-29 as residue of
+`mutation_claimed`, which went with the other nine validators. Each was a very
+carefully reasoned attempt to tell "the tester submitted the form" from "the
+form was submitted" by pattern, and their comments were worth reading: they
+record a repair loop spending its budget hedging a sentence into "attempts to
+save" and then into "clicks Save", which is the mechanics language the feature
+file exists to keep out.
+
+They are gone rather than kept for reference because a regex guessing whether a
+sentence is meaningful will always lose that question to a model reading it, and
+the judge asks it now. The reasoning survives in `docs/DESIGN_NOTES.md`; dead
+patterns in a live module read as rules somebody still relies on.
+"""
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 
 from server.models import (
@@ -12,82 +26,6 @@ from server.models import (
     ValidatorStatus,
 )
 from server.pipeline.validators.base import ValidationContext, passed, result, skipped
-
-#: A mutation word pointing BACKWARDS at something an earlier step did. "the
-#: shopping bag displays the item previously added" is a claim about what is on
-#: screen now; the adding happened two steps ago and this step made no request
-#: at all. Read as a mutation claim it fails a validator that is right about
-#: everything except which step it is talking about.
-#:
-#: Narrow on purpose. It takes an explicit past-reference marker next to the
-#: verb, so "the order is saved" still claims a mutation and still has to prove
-#: one -- which is the whole point of this check.
-PAST_REFERENCE = re.compile(
-    r"\b(previously|earlier|already|beforehand)\s+\w*(ed|en)\b"
-    r"|\b(\w+(ed|en))\s+(previously|earlier|already|beforehand)\b",
-    re.IGNORECASE,
-)
-
-#: A step's text says what the TESTER did; an expected result says what the
-#: APPLICATION did. Only the second is a claim that state changed, and this
-#: pattern is how the first is told from the second.
-#:
-#: "the tester submits the payment method" describes pressing a button. Read as
-#: a claim about persistence it fails a validator that no rewrite can satisfy:
-#: every honest verb for that action -- saves, submits, adds -- is a mutation
-#: word, so the repair loop spent its budget making the sentence worse, first
-#: hedging it into "attempts to save" and then into "clicks Save", which is the
-#: mechanics language SS11.1 exists to keep out.
-#:
-#: A claim of persistence in a step's own text looks different: it is a RESULT
-#: clause. "the tester submits the order and it is saved" asserts something,
-#: and still has to prove it.
-RESULT_CLAUSE = re.compile(
-    r"\b(is|are|was|were|been|becomes?|gets?)\s+(\w+\s+){0,2}"
-    r"(saved|created|placed|updated|deleted|removed|added|confirmed|approved|"
-    r"uploaded|submitted)\b",
-    re.IGNORECASE,
-)
-
-#: A claim about what is ON SCREEN, where the mutation word is part of what the
-#: screen says rather than the claim's own verb.
-#:
-#: The same conflation `RESULT_CLAUSE` fixes for a step's text, arriving one
-#: level up, and this one is a deadlock rather than merely a bad rejection. The
-#: `hardpaths` recording shows a status message reading "Payment method saved".
-#: `bind._unwitnessed` requires a claim to quote the value it rests on, so every
-#: admissible sentence about that message contains the word "saved" -- and the
-#: only sentence that does not ("a confirmation appears") is refused by
-#: `bind._existence_only`. Between the two rules, nothing could be said at all.
-#:
-#: The discriminator is ORDER, and it is why this is narrow rather than a
-#: loosening: the display verb must come FIRST. "the order is shown as placed"
-#: asserts what the page says. "the order is placed and a confirmation is
-#: shown" asserts persistence and still has to prove a successful request.
-DISPLAY_CLAIM = re.compile(
-    r"\b(is|are|was|were)\s+(display|shown|render)\w*\b"
-    r"|\b(displays?|shows?|reads?|states?|indicates?)\b",
-    re.IGNORECASE,
-)
-
-#: Vocabulary that claims the application changed something. Kept narrow on
-#: purpose: a step saying "opens the order form" must not be read as a mutation
-#: and rejected for lacking a POST.
-MUTATION_WORDS = re.compile(
-    r"\b("
-    r"saves?|saved|saving|"
-    r"submits?|submitted|"
-    r"creates?|created|"
-    r"places?|placed|"
-    r"updates?|updated|"
-    r"deletes?|deleted|removes?|removed|"
-    r"adds?|added|"
-    r"confirms?|confirmed|"
-    r"approves?|approved|"
-    r"uploads?|uploaded"
-    r")\b",
-    re.IGNORECASE,
-)
 
 
 def event_coverage(ctx: ValidationContext) -> Iterable[ValidatorResult]:

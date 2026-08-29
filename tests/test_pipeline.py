@@ -15,7 +15,13 @@ import pytest
 
 from server.ablation import run_ablation, write_report
 from server.llm import CompletionRequest, ScriptedModelClient, answer, calls
-from server.models import AblationConfig, Recording, ValidatorStatus
+from server.models import (
+    AblationConfig,
+    ExpectationSet,
+    PipelineStage,
+    Recording,
+    ValidatorStatus,
+)
 from server.pipeline.run import PipelineOptions, run_pipeline
 from server.storage.paths import Storage
 from tests import factories as f
@@ -95,13 +101,18 @@ def sends_it_back(check: str = "verdict_fails_on_broken_build", severity: str = 
 
 
 def document_over(request: CompletionRequest, *, literal: str | None = None) -> str:
-    """A document covering whatever events the index lists.
+    """A feature file covering whatever events the index lists, plus its annotations.
 
     The stand-in reads the session index it was handed, exactly as the author
     does, so the same fake works on the two-event fixture and on a recording
     made by the extension. Accounting for every event is not optional --
     `event_coverage` is the net under the author's freedom to choose step
     boundaries, and a fake that ignored it would let a regression through.
+
+    It emits the shape the author emits now: Gherkin prose, and one annotation
+    per step line in document order. A fake still emitting the old JSON-only
+    shape would exercise only the fallback, which is exactly the trap this
+    project already fell into once with the `scenario_break` factory.
     """
     import re
 
@@ -115,40 +126,34 @@ def document_over(request: CompletionRequest, *, literal: str | None = None) -> 
         events = ["evt_001", "evt_002"]
     head, tail = events[:1], events[1:] or events[:1]
 
-    step_two: dict = {
-        "id": "step_002",
-        "keyword": "When",
-        "role": "test_step",
-        "text": "the tester places the order",
-        "events": tail,
-    }
+    body = [
+        "Feature: Order checkout",
+        "",
+        "  An order is placed and confirmed.",
+        "",
+        "  Scenario: Submitting a valid order shows the confirmation",
+        "    Given the tester fills in the purchase order",
+        "    When the tester places the order",
+    ]
+    annotations: list[dict] = [
+        {"kind": "step", "id": "step_001", "role": "setup", "events": head},
+        {"kind": "step", "id": "step_002", "role": "test_step", "events": tail},
+    ]
     if literal:
-        step_two["expected"] = "the confirmation banner appears"
-        step_two["evidence"] = {"eventId": tail[-1], "literal": literal}
+        body.append("    Then the confirmation banner appears")
+        annotations.append(
+            {"kind": "verdict", "evidence": {"eventId": tail[-1], "literal": literal}}
+        )
     else:
-        step_two["whyNot"] = "Nothing retrieved for this step names the outcome."
+        annotations[-1]["whyNot"] = "Nothing retrieved for this step names the outcome."
 
     return json.dumps(
         {
-            "feature": "Order checkout",
+            "feature": "\n".join(body) + "\n",
+            "title": "Order checkout",
             "description": "An order is placed and confirmed.",
             "tags": ["checkout"],
-            "scenarios": [
-                {
-                    "name": "Submitting a valid order shows the confirmation",
-                    "steps": ["step_001", "step_002"],
-                }
-            ],
-            "steps": [
-                {
-                    "id": "step_001",
-                    "keyword": "Given",
-                    "role": "setup",
-                    "text": "the tester fills in the purchase order",
-                    "events": head,
-                },
-                step_two,
-            ],
+            "annotations": annotations,
         }
     )
 
@@ -371,7 +376,20 @@ def test_a_leaked_secret_prevents_the_feature_file_from_being_written(storage: S
 
 
 def judging_model(judge, *, author_literal: str | None = CONFIRMATION) -> ScriptedModelClient:
-    """A well-behaved author with a judge of the caller's choosing."""
+    """A well-behaved author with a judge of the caller's choosing.
+
+    "Well-behaved" has to include RETRIEVING, and for a long time this fixture
+    did not. It answered on the first turn quoting a literal it had never
+    looked up, so `_attach_claim` refused every verdict it wrote and each of
+    these judge tests ran against a document with no assertions in it. Nothing
+    said so, because a refused claim never becomes an assertion and so
+    `evidence_retrieved` had nothing to reject -- the same hole
+    `_revision_feedback` now closes, met first in the test suite.
+
+    Same shape as the `scenario_break` factory trap already in CLAUDE.md: a
+    fixture that can build an input the real path cannot survive is a fixture
+    that keeps a test green over a path that never ran.
+    """
 
     def behave(request: CompletionRequest):
         stage = stage_of(request)
@@ -381,6 +399,9 @@ def judging_model(judge, *, author_literal: str | None = CONFIRMATION) -> Script
             return answer(json.dumps({"suggestions": []}))
         if stage == "judge":
             return judge(request)
+
+        if author_literal and not [m for m in request.messages if m.role == "tool"]:
+            return calls(("find_text", {"query": author_literal}))
         return answer(document_over(request, literal=author_literal))
 
     return ScriptedModelClient(behave)
@@ -451,8 +472,10 @@ def test_an_unresolved_finding_is_recorded_as_exhausted_rather_than_dropped(stor
     assert result.trace.repairAttempts
     last = result.trace.repairAttempts[-1]
     assert last.exhausted
-    assert not last.resolved
     assert last.trigger.value == "judge"
+    # And it says what was wrong in sentences, not in a category. A finding the
+    # author is meant to act on has to be readable by the author.
+    assert last.finding
 
 
 def test_the_first_attempt_gate_is_the_first_attempts(storage: Storage):
@@ -554,6 +577,12 @@ def test_a_judge_that_fails_degrades_the_run_rather_than_ending_it(storage: Stor
             return answer(json.dumps({"suggestions": []}))
         if stage == "judge":
             raise RuntimeError("the provider is having a day")
+        # Retrieves first, like any author whose claims are meant to survive:
+        # a stand-in that quotes without looking has every verdict refused, and
+        # this test would then be measuring the refusal path rather than the
+        # judge's failure.
+        if not [m for m in request.messages if m.role == "tool"]:
+            return calls(("find_text", {"query": CONFIRMATION}))
         return answer(document_over(request, literal=CONFIRMATION))
 
     result = run_pipeline(
@@ -615,6 +644,74 @@ def test_a0_has_no_tools_and_cannot_ground_anything(storage: Storage):
     assert not result.report.hard_failed
     # And the truncation policy is declared rather than applied silently.
     assert result.trace.config.a0Truncation is not None
+
+
+def test_the_oracle_may_retrieve_so_its_guess_names_a_value(storage: Storage):
+    """An expectation nobody can tick is not an oracle.
+
+    This stage ran with no tools until 2026-08-29, and the argument for that was
+    about a stage LICENSING a claim from a summary. It does not transfer: this
+    one writes a QUESTION for a human, and the difference between "the list
+    should update" and "the list should drop from 24 products to 9" is a value
+    the session index does not always carry. Bounded at `GUESS_BUDGET`, because
+    the tester is waiting on the screen this feeds.
+    """
+
+    def behave(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return signs_it_off(request)
+        if stage == "expectations":
+            if not [m for m in request.messages if m.role == "tool"]:
+                return calls(("get_diff", {"eventId": "evt_002"}))
+            return answer(
+                json.dumps(
+                    {
+                        "expectations": [
+                            {
+                                "eventIds": ["evt_002"],
+                                "action": "You placed the order.",
+                                "expected": f"the page should say {CONFIRMATION!r}",
+                                "observed": "it did",
+                                "fromTester": False,
+                            }
+                        ]
+                    }
+                )
+            )
+        return answer(document_over(request, literal=None))
+
+    result = run_pipeline(
+        recording(), ScriptedModelClient(behave), storage=storage, run_id="run_oracle"
+    )
+
+    # The retrieval happened, and it is attributed to the stage that made it
+    # rather than to the author -- `_calls_per_step` reads the trace, and its
+    # claim is that effort is what the run spent on a step, whoever spent it.
+    retrieved = [c for c in result.trace.toolCalls if c.stage == PipelineStage.expectations]
+    assert retrieved, "the oracle asked for a tool and did not get one"
+
+    assert result.expectations is not None
+    assert CONFIRMATION in result.expectations.expectations[0].expected
+
+
+def test_the_oracle_cannot_retrieve_where_the_configuration_has_no_tools(storage: Storage):
+    """`tools_enabled` is threaded from the run, not decided inside the stage.
+
+    A0 disables the oracle outright, so this can never fire there today -- which
+    is exactly why it is pinned. A stage whose tool access depends on which
+    caller happened to construct it is the defect, not the symptom.
+    """
+    result = run_pipeline(
+        recording(),
+        fabricating_model(),
+        storage=storage,
+        run_id="run_oracle_a0",
+        options=PipelineOptions(tools_enabled=False),
+    )
+    assert result.trace.toolCalls == []
 
 
 def test_the_ablation_produces_the_table(storage: Storage):
@@ -1108,3 +1205,175 @@ def test_a0_makes_no_retrieval_of_any_kind(storage: Storage):
     # scenario that explains itself read identically in a metrics table and not
     # at all alike to a person.
     assert all(s.why_not for s in result.document.steps)
+
+
+def _rejected_set(recording_id: str, *event_ids: str) -> ExpectationSet:
+    """The oracle a tester produces by pressing "Not right" on one action.
+
+    `rejected` is the strongest source in the file: it says the recording
+    contains a bug, and `author._apply_rejections` stamps `bug=True` on the step
+    deterministically rather than asking the author to notice.
+    """
+    from server.models import Expectation, ExpectationSource
+
+    return ExpectationSet(
+        schemaVersion="1.0",
+        recordingId=recording_id,
+        createdAt=f.NOW,
+        expectations=[
+            Expectation(
+                id="exp_001",
+                eventIds=list(event_ids),
+                action="You placed the order.",
+                expected="the order should have been held for approval",
+                observed="the order was confirmed",
+                source=ExpectationSource.rejected,
+            )
+        ],
+    )
+
+
+def test_a_rejected_expectation_produces_a_bug_report_instead_of_a_crash(storage: Storage):
+    """Pressing "Not right" must reach a written bug report, not a ValidationError.
+
+    `BugDetail.environment` is required by the schema and `_bug_detail` did not
+    pass it, so every construction raised out of `_assemble` and killed the run.
+    Nothing caught it because the path needs a step that is BOTH `bug=True` and
+    carries an accepted assertion, and that needs a human to have answered the
+    confirmation screen -- which, across 14 expectations on disk, nobody ever
+    had. The crash was unreachable and therefore invisible, and the work that
+    makes the screen reachable is what would have shipped it.
+    """
+    rec = recording()
+    result = run_pipeline(
+        rec,
+        grounded_model(),
+        storage=storage,
+        run_id="run_rejected",
+        # Both events, because one rejected expectation routinely spans the
+        # action and the check -- "you placed the order" is a form filled and a
+        # button pressed. Which of them the author hangs its verdict on is its
+        # decision, and the report has to survive either answer.
+        options=PipelineOptions(expectations=_rejected_set(rec.id, "evt_001", "evt_002")),
+    )
+
+    case = result.ir.testCases[0]
+    assert case.kind == "bug_report"
+    assert case.bug is not None
+    # The expected result stands exactly as written -- a bug report's whole
+    # point is that the test SHOULD fail on this build.
+    assert case.bug.expected
+    assert case.bug.actual == "the order was confirmed"
+
+    # The environment is what a triager needs to reproduce, and the URL comes
+    # from the failing step's own event rather than from `startUrl`.
+    assert case.bug.environment.browser == "Chrome/140"
+    assert case.bug.environment.viewport == "1280x800"
+    assert case.bug.environment.url == "https://demo.local/checkout"
+
+    # A bug report is not Gherkin -- `render_document` skips it and `bug_md`
+    # writes it -- so the run must have produced the markdown and no feature.
+    assert list(result.run.root.glob("*.bug.md"))
+
+
+def test_an_author_that_quotes_without_looking_is_told_so(storage: Storage):
+    """The hole that shipped a document with no verdicts and a clean gate.
+
+    When the author quotes a literal it never retrieved, `_attach_claim` drops
+    the claim and writes a `whyNot` -- so it never becomes an assertion, so
+    `evidence_retrieved` has nothing to reject, so the loop sees a green gate
+    and stops. Measured on a live run of `keyhole`: the author wrote two
+    correct verdicts quoting a count that was plainly in the session index,
+    made zero tool calls, had both silently refused, and shipped a feature file
+    whose scenarios end on a `When`.
+
+    Every validator was right. The gate is not the thing that was wrong -- the
+    author simply never learned that the one thing it had to do, it had not
+    done. It is also the finding the author can always act on, because the fix
+    is entirely in its hands.
+    """
+
+    def never_looks(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return signs_it_off(request)
+        return answer(document_over(request, literal=CONFIRMATION))
+
+    result = run_pipeline(
+        recording(), ScriptedModelClient(never_looks), storage=storage, run_id="run_001"
+    )
+
+    # The claim really was dropped, and the gate really was clean about it --
+    # that half was never in doubt.
+    assert result.document.refused
+    assert not [r for r in result.report.results if r.status == ValidatorStatus.fail]
+
+    # What is new is that the author was told, in a sentence naming the fix.
+    told = [a.finding for a in result.trace.repairAttempts]
+    assert told, "a refused claim reached nobody, which is how this shipped"
+    assert "the confirmation banner appears" in told[0]
+    assert "Retrieve the thing you are claiming" in told[0]
+    # And it spent the round it was worth spending.
+    assert result.revision_rounds == 2
+
+
+def test_an_author_that_writes_verdicts_without_looking_is_sent_back_to_look(storage: Storage):
+    """The nudge, and why it is code rather than another sentence in the prompt.
+
+    The prompt already says this plainly and at length. Measured on `keyhole`
+    against a real model: six tools offered, ZERO called, two correct verdicts
+    written quoting a count -- both silently refused by the citation check, and
+    the document shipped with scenarios ending on a `When`. The author had read
+    the string in the session index and reasonably concluded it had evidence.
+
+    It is the mirror of the budget nudge that has always been in `investigate`:
+    a model going past its budget is told to stop, and a model that never
+    started was told nothing.
+    """
+    turns: list[int] = []
+
+    def looks_only_when_told(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return signs_it_off(request)
+
+        nudged = any(
+            "made no retrievals" in (m.content or "") for m in request.messages if m.role == "user"
+        )
+        turns.append(1)
+        if nudged and not [m for m in request.messages if m.role == "tool"]:
+            return calls(("find_text", {"query": CONFIRMATION}))
+        return answer(document_over(request, literal=CONFIRMATION))
+
+    result = run_pipeline(
+        recording(), ScriptedModelClient(looks_only_when_told), storage=storage, run_id="run_001"
+    )
+
+    assert result.trace.toolCalls, "the author was never sent back to look"
+    # And the verdict it wrote all along now stands, on evidence it actually has.
+    claims = [a for c in result.ir.testCases for s in c.steps for a in s.assertions]
+    assert [a.text for a in claims] == ["the confirmation banner appears"]
+    assert claims[0].evidence.toolCallId == result.trace.toolCalls[0].id
+    assert not result.document.refused
+
+
+def test_a_document_of_pure_refusals_is_not_nudged(storage: Storage):
+    # Forcing a retrieval out of an author that claimed nothing is the
+    # mandatory-tool-call anti-pattern: it lifted calls-per-step from 1.56 to
+    # 2.17 and flattened the effort spread from 1.08 to 0.16, which is an agent
+    # that stopped deciding. Refusing IS an answer.
+    from server.pipeline.author import _unretrieved_verdicts
+
+    assert _unretrieved_verdicts({"annotations": [{"kind": "step", "whyNot": "nothing showed"}]}) == ""
+    assert _unretrieved_verdicts({}) == ""
+    assert _unretrieved_verdicts(
+        {"annotations": [{"kind": "verdict", "evidence": {"literal": "Order confirmed"}}]}
+    )

@@ -224,7 +224,7 @@ def test_a_call_writes_a_hashed_content_addressed_response(runner: ToolRunner):
 
 
 def test_call_ids_are_sequential_and_carry_their_step(runner: ToolRunner):
-    runner.call("get_objective", step_id="step_001")
+    runner.call("find_text", {"query": "Order confirmed"}, step_id="step_001")
     runner.call("get_diff", {"eventId": "evt_002"}, step_id="step_001")
     assert [c.id for c in runner.calls] == ["tc_0001", "tc_0002"]
     assert all(c.stepId == "step_001" for c in runner.calls)
@@ -247,27 +247,52 @@ def test_an_unknown_tool_is_logged_and_lists_what_exists(runner: ToolRunner):
     assert runner.calls[0].error
 
 
-def test_every_tool_in_the_spec_is_registered():
-    # SS8.1 listed twelve. `get_full_snapshot` is gone: it existed to be the
-    # escape hatch that justified scoped capture, nothing in the extension ever
-    # asked for it, and on the server it merged scoped snapshots of data that
-    # had never been recorded. `get_snapshot` returns the page now.
+def test_the_registry_is_the_six_tools_some_stage_actually_offers():
+    """Every registered tool must be reachable, or it is a worse tool list.
+
+    SS8.1 listed twelve. Six were offered to NO stage -- reachable only through
+    `coverage.py`, the one `investigate()` caller that passed no `tool_names`
+    and so received the whole registry by accident -- and one of those six,
+    `search_step_library`, had already had its module deleted underneath it and
+    degraded to "no library configured" for anything that called it.
+
+    The rule they broke is measured, not aesthetic: more tools means worse tool
+    choice, which is the entire reason `tool_names` exists. Making one tool feel
+    obligatory lifted calls-per-step from 1.56 to 2.17 and collapsed the effort
+    spread from 1.08 to 0.16.
+
+    `get_full_snapshot` went earlier and for its own reason: it existed to be
+    the escape hatch that justified scoped capture, and `get_snapshot` returns
+    the whole page now.
+    """
     assert sorted(TOOLS) == sorted(
         [
             "find_text",
-            "get_console",
             "get_diff",
-            "get_events",
             "get_narration",
-            "get_neighbouring_segments",
-            "see",
             "get_network",
-            "get_objective",
             "get_snapshot",
-            "query_element",
-            "search_step_library",
+            "see",
         ]
     )
+
+
+def test_every_tool_is_offered_to_at_least_one_stage():
+    """The check that would have caught the six, and catches the next one."""
+    from server.pipeline.author import AUTHOR_TOOLS
+    from server.pipeline.coverage import COVERAGE_TOOLS
+    from server.pipeline.expectations import EXPECTATION_TOOLS
+    from server.pipeline.judge import JUDGE_TOOLS
+
+    offered = set(AUTHOR_TOOLS) | set(JUDGE_TOOLS) | set(COVERAGE_TOOLS) | set(EXPECTATION_TOOLS)
+    orphans = set(TOOLS) - offered
+    assert not orphans, (
+        f"{sorted(orphans)} are registered and no stage may call them. Either give "
+        f"a stage the tool or delete it -- an unreachable tool is dead weight in "
+        f"the one list where length costs accuracy."
+    )
+    unknown = offered - set(TOOLS)
+    assert not unknown, f"{sorted(unknown)} are offered to a stage and do not exist"
 
 
 def test_every_tool_is_callable_and_serialisable(runner: ToolRunner):
@@ -275,18 +300,13 @@ def test_every_tool_is_callable_and_serialisable(runner: ToolRunner):
     hash it is stored under cannot be recomputed."""
     args: dict[str, dict] = {
         "get_snapshot": {"eventId": "evt_002"},
-        "query_element": {"eventId": "evt_002", "role": "alert"},
         "get_diff": {"eventId": "evt_002"},
         "get_network": {"eventId": "evt_002"},
-        "get_console": {"eventId": "evt_002"},
         "get_narration": {"fromMs": 0, "toMs": 1000},
-        "get_events": {},
         "find_text": {"query": "Order confirmed"},
-        "search_step_library": {"query": "submits the order"},
-        "get_objective": {},
-        "get_neighbouring_segments": {"segmentId": "seg_001"},
         "see": {"eventId": "evt_002"},
     }
+    assert set(args) == set(TOOLS), "a new tool needs a row here, or it is never called"
     for tool in TOOLS:
         call_id, _ = runner.call(tool, args[tool])
         record = next(c for c in runner.calls if c.id == call_id)

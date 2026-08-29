@@ -128,8 +128,8 @@
         "keyword": {
           "title": "StepKeyword",
           "type": "string",
-          "enum": ["Given", "When", "Then", "And"],
-          "description": "Chosen by the drafting stage, which sees the whole flow, and checked by gherkin_style. It was derived from role plus position while the model was shown one segment at a time and could not know where the scenario turned; an author with the session in view can, and the derivation rule it replaced could silently strip every Given from a file."
+          "enum": ["Given", "When", "Then", "And", "But"],
+          "description": "The keyword the author WROTE, read back off the feature file it wrote.\n\nIt was derived from `role` plus position, which was right while the model was shown one segment at a time and could not know where the scenario turned -- asked for a keyword with no view of the flow it answered `When` every time, and Phase 1 shipped seven of them in a row. An author that writes the whole document in Gherkin has already decided, in the one place where the decision is visible to a reader, so deriving it a second time could only disagree with the file.\n\n`But` is here because the author's own parser has always accepted it and this enum did not, which made a perfectly ordinary negative step a validation error waiting for the first model that wrote one."
         },
         "text": { "type": "string", "description": "Intent, not mechanics. 'Submits the order' beats 'clicks the blue button'." },
         "role": {
@@ -212,9 +212,51 @@
           "title": "EvidenceKind",
           "type": "string",
           "enum": ["semantic_node", "url", "network", "console", "narration", "annotation", "a11y_node"]
-        }
+        },
+        "predicate": { "$ref": "#/$defs/Predicate" }
       },
       "required": ["literal", "toolCallId", "eventId", "kind"],
+      "additionalProperties": false
+    },
+
+    "Predicate": {
+      "title": "Predicate",
+      "description": "WHAT is being claimed about the retrieval, not merely that a string is in it.\n\nWithout this the gate is substring containment, and `Then the first product is 'The Autumnal Hamper'` is proved by that string appearing ANYWHERE in the response. The sentence says FIRST; the check says PRESENT. Sorting, ranking, pagination and every negative assertion are inexpressible, so an author asked for a verdict on a sort could only ever restate that the page still says what the tester set the dropdown to.\n\nAbsent means `contains`, which is the historical behaviour, so an assertion written before this existed means exactly what it always did.\n\nThree things about the design are load-bearing and were each a way to ship this broken:\n\n1. A predicate addresses nodes by ROLE and NAME, never by a css id or a `ref`. The node model is ref/role/name/value/children and there are no ids anywhere; `ref` is a structural path that is stable only WITHIN one snapshot, so a predicate binds to exactly one stored response and cannot be re-pointed to another event the way a bare literal can.\n\n2. It is evaluated against the STORED response, which is the full one. `get_snapshot` renders a capped view to the model, and the ranking that cap uses puts named nodes first -- so `first_of` evaluated against the capped view would return the first NAMED node rather than the first in document order, and on a product grid the nameless wrapper nodes are exactly what ranks to the back. It would confidently return the wrong answer and pass the gate.\n\n3. It has THREE outcomes, not two. A predicate that cannot be evaluated at all -- container absent, role mismatch, the response is not a snapshot -- is neither true nor false, and treating it as either is a different failure. Pass builds a laundering machine that puts a green badge on an unchecked claim; reject silently kills true claims whenever a response shape changes. It goes to `whyNot`.",
+      "type": "object",
+      "properties": {
+        "form": {
+          "title": "PredicateForm",
+          "type": "string",
+          "enum": ["contains", "first_of", "count", "absent"],
+          "description": "contains  -- the literal appears in the response. The default, and what every assertion written before this meant.\nfirst_of  -- the literal names the FIRST child of `container`, in document order. This is what makes a sort or a ranking checkable.\ncount     -- `container` holds exactly `n` children of role `role`. 'the list drops from 24 products to 9'.\nabsent    -- the literal does NOT appear. The judge's most frequent unmet ask, and the only form whose citation cannot be resolved by searching for its own literal."
+        },
+        "container": {
+          "$ref": "#/$defs/NodeRef",
+          "description": "Which part of the page the claim is about. Required by first_of and count; meaningless to contains and absent, which are about the whole response."
+        },
+        "role": {
+          "type": "string",
+          "description": "Which children `count` counts, e.g. 'listitem'. Absent counts every child."
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The expected count, for `count`."
+        }
+      },
+      "required": ["form"],
+      "additionalProperties": false
+    },
+
+    "NodeRef": {
+      "title": "NodeRef",
+      "description": "A node named the way the accessibility tree names it. Never a css selector: the recorder is black-box and reads the live accessibility tree, so role plus accessible name is the only address that exists for it -- and it is the address a human reading the test can also check.",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "name": { "type": "string", "description": "The accessible name. Matched case-insensitively, and a container with no name is addressed by role alone." }
+      },
+      "required": ["role"],
       "additionalProperties": false
     },
 

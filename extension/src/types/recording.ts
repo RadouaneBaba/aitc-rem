@@ -1,5 +1,17 @@
 /* Generated from schema/recording.schema.json. Do not edit. */
 
+/**
+ * How much redaction was in force WHEN THIS WAS RECORDED. Absent means `full`, which is every recording made before the setting existed.
+ *
+ * It is a property of the recording rather than of the project, and that is the whole design. Redaction happens in the browser before anything is persisted, so by the time the server sees a recording the decision has already been taken and cannot be revisited -- a project-level setting read at run time would describe what is configured NOW rather than what was done THEN, and two recordings made under different settings sit side by side in one project all the time.
+ *
+ * full         -- the default. Pattern rules over the tester's input and over transport (typed values, request and response bodies, console text, request URLs), plus exact replacement of known typed secrets wherever they appear.
+ * secrets_only -- the pattern rules are OFF; exact known secrets are still replaced. For an application whose real data looks like the patterns -- an order reference that scans as a card number, a product code that scans as a phone number -- where the scan destroys the values the test is about.
+ * off          -- nothing is redacted. Values the tester typed reach disk verbatim.
+ *
+ * What this changes downstream: `no_placeholder_leak` is the only `hard_fail` in the gate and it refuses to render a feature file containing secret-shaped text. Under `full` that stays. Below `full` it drops to a warning, said loudly -- you cannot ask for raw values and also gate on their absence, and leaving it fatal would mean the setting silently produced no output at all. And `off` is refused outright unless `origin_policy` is `off` too: free-tier prompts are training-eligible and human-reviewable, so unredacted values must not be sent to one.
+ */
+export type RedactionLevel = "full" | "secrets_only" | "off";
 export type EventType =
   | "click"
   | "input"
@@ -100,6 +112,7 @@ export interface RecordingMetadata {
    */
   origins: string[];
   recorderVersion?: string;
+  redaction?: RedactionLevel;
   /**
    * SS6.6 -- milliseconds from the recording's zero to the first audio sample. The microphone takes a moment to open, so narration audio does NOT start when the recording does, and transcription timestamps are relative to the audio rather than to the session. Without this every spoken sentence is shifted by however long the mic took, which attributes it to the wrong step. Absent when no audio was captured.
    */

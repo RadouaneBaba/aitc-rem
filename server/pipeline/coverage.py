@@ -39,6 +39,20 @@ from server.pipeline.investigate import investigate
 
 COVERAGE_BUDGET = 4
 
+#: What this stage may reach for.
+#:
+#: It passed nothing at all until 2026-08-29 -- the ONE `investigate()` caller
+#: that did not constrain its set -- so it was handed the entire registry,
+#: twelve tools including six offered to no stage on purpose and one whose
+#: module had already been deleted. The whole reason `tool_names` exists is that
+#: more tools measurably means worse tool choice, and this stage was the one
+#: place the rule was not applied.
+#:
+#: Three, not six. "What else should have been tested here" is answered from the
+#: page and what changed on it; a request body and a spoken sentence are about
+#: what DID happen, which the finished test case in the prompt already covers.
+COVERAGE_TOOLS = ["get_diff", "get_snapshot", "find_text"]
+
 #: How many a run may propose per test case. Not a quality filter -- a filter
 #: on usefulness. Twenty suggestions is a wall of text a tester scrolls past,
 #: and the three that mattered are in it somewhere.
@@ -219,6 +233,7 @@ def suggest_coverage(
             budget=budget if tools_enabled else 0,
             tools_enabled=tools_enabled,
             temperature=temperature,
+            tool_names=COVERAGE_TOOLS,
         )
         result.model_calls.extend(enquiry.model_calls)
         enquiry.finish()

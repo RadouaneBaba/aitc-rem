@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from server.evidence.predicate import evaluate
 from server.models import (
     Assertion,
     Provenance,
@@ -20,7 +21,6 @@ from server.models import (
 )
 from server.pipeline.validators.base import (
     ValidationContext,
-    contains_literal,
     passed,
     result,
     skipped,
@@ -148,15 +148,25 @@ def evidence_retrieved(ctx: ValidationContext) -> Iterable[ValidatorResult]:
             )
             continue
 
-        if not contains_literal(stored, evidence.literal):
+        # The claim in the form it was actually made. With no predicate this is
+        # the containment check it has always been; with one, the same stored
+        # response is asked the question the sentence asks -- is this first, are
+        # there this many, is this really not here -- because a sentence saying
+        # FIRST and a check saying PRESENT is how a sort assertion shipped that
+        # would pass on a build with sorting removed.
+        #
+        # `stored` is the full response even where the model was shown a smaller
+        # view, which is what makes a positional check mean anything.
+        verdict = evaluate(stored, evidence.literal, evidence.predicate)
+        if not verdict.holds:
             yield result(
                 ValidatorName.evidence_retrieved,
                 ValidatorStatus.fail,
                 ValidatorAction.reject,
                 ctx,
                 message=(
-                    f"{evidence.literal!r} does not appear in the response to "
-                    f"{call.id} ({call.tool}). The retrieval happened, "
+                    f"{evidence.literal!r} against the response to {call.id} "
+                    f"({call.tool}): {verdict.why}. The retrieval happened, "
                     f"but it does not say this."
                 ),
                 test_case_id=case.id,

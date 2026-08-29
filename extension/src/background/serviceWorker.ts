@@ -11,7 +11,12 @@ import {
   type WorkerInbound,
 } from '../shared/messages';
 import { recordingId as newRecordingId } from '../shared/ids';
-import type { AnnotationKind, FramePath, TesterAnnotation } from '../types/recording';
+import type {
+  AnnotationKind,
+  FramePath,
+  RedactionLevel,
+  TesterAnnotation,
+} from '../types/recording';
 import {
   allEvents,
   allObservations,
@@ -166,7 +171,11 @@ async function framePathFor(tabId: number, frameId: number): Promise<FramePath> 
 
 /* ---------------------------- lifecycle ---------------------------- */
 
-async function startRecording(objective: string | undefined, tab: chrome.tabs.Tab): Promise<SessionMeta> {
+async function startRecording(
+  objective: string | undefined,
+  tab: chrome.tabs.Tab,
+  redaction: RedactionLevel = 'full',
+): Promise<SessionMeta> {
   await clearAll();
   eventOrder = 0;
 
@@ -179,6 +188,7 @@ async function startRecording(objective: string | undefined, tab: chrome.tabs.Ta
     tabId: tab.id ?? -1,
     tabIds: tab.id === undefined ? [] : [tab.id],
     origins: tab.url ? [safeOrigin(tab.url)].filter(Boolean) : [],
+    redaction,
     parameters: [],
     annotations: [],
     eventCount: 0,
@@ -192,6 +202,7 @@ async function startRecording(objective: string | undefined, tab: chrome.tabs.Ta
     recordingId: session.recordingId,
     objective,
     startedAt: session.startedAt,
+    redaction,
   };
   await broadcast(session.tabIds, message);
   await startNarration(session);
@@ -271,6 +282,10 @@ chrome.tabs.onCreated.addListener((tab) => {
           recordingId: current.recordingId,
           objective: current.objective,
           startedAt: current.startedAt,
+          // A tab that joins mid-session must redact the same way the others
+          // are, or one document's typed values reach disk raw while the
+          // rest do not.
+          redaction: current.redaction,
         } satisfies StartRecording);
       });
     };
@@ -439,6 +454,7 @@ async function currentState(): Promise<RecorderState> {
           startedAt: session.startedAt,
           eventCount: session.eventCount,
           origins: session.origins,
+          redaction: session.redaction,
           annotationCount: session.annotations.length,
         }
       : { eventCount: 0, origins: [], annotationCount: 0 }),
@@ -451,7 +467,7 @@ chrome.runtime.onMessage.addListener((message: WorkerInbound, sender, sendRespon
       case 'start': {
         const tab = await targetTab();
         if (!tab) return sendResponse({ type: 'error', message: 'No recordable tab' });
-        await startRecording(message.objective, tab);
+        await startRecording(message.objective, tab, message.redaction);
         return sendResponse(await currentState());
       }
       case 'stop':

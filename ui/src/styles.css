@@ -511,3 +511,100 @@ kbd {
   display: flex; align-items: center; gap: 12px; margin-top: 26px;
   padding-top: 18px; border-top: 1px solid var(--line);
 }
+
+/* -------------------------------------------------------------------------
+   The unanswered-guesses banner.
+
+   Styled as an invitation rather than an error, because it is not one: the
+   draft already exists and was built on the guesses alone. It uses the
+   attention colour rather than the danger colour for the same reason -- a red
+   bar on the review screen says something is broken, and nothing is.
+   ------------------------------------------------------------------------- */
+
+.confirm-banner {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-md);
+  margin-bottom: var(--s-3);
+}
+.confirm-banner span { flex: 1; }
+.confirm-banner code { font-size: 12px; }
+
+/* -------------------------------------------------------------------------
+   The how-to page.
+
+   One column, read top to bottom, at a measure that does not fight the eye.
+   It is the only screen here a person READS rather than works in, so it does
+   not use the three-pane grid and does not try to.
+   ------------------------------------------------------------------------- */
+
+.help {
+  max-width: 760px; margin: 0 auto; padding: var(--s-5);
+  line-height: 1.55;
+}
+.help > header {
+  display: flex; align-items: center; gap: var(--s-3);
+  margin-bottom: var(--s-5); padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+.help h1 { font-size: 22px; margin: 0; }
+.help h2 {
+  font-size: 17px; margin: var(--s-5) 0 var(--s-3);
+  padding-top: var(--s-4); border-top: 1px solid var(--line);
+}
+.help h3 { font-size: 14px; margin: var(--s-4) 0 var(--s-2); }
+.help p { margin: 0 0 var(--s-3); }
+.help ul { margin: 0 0 var(--s-3); padding-left: var(--s-5); }
+.help li { margin-bottom: var(--s-2); }
+
+/* A note is context that changes what you would do, not an aside. It is set
+   apart rather than shrunk, because the two most load-bearing facts on this
+   page -- a vague objective is worse than none, and nobody has ever answered
+   the confirmation screen -- are both in one. */
+.help .note {
+  background: var(--subtle-bg);
+  border-left: 3px solid var(--accent-line);
+  padding: var(--s-3) var(--s-4);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+
+.help table.compare { width: 100%; border-collapse: collapse; margin: 0 0 var(--s-3); }
+.help table.compare th {
+  text-align: left; font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line);
+}
+.help table.compare td {
+  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.help table.compare td:first-child { width: 40%; }
+
+/* -------------------------------------------------------------------------
+   The journey diagram.
+
+   The one thing worth drawing rather than describing: where the tool is
+   WAITING FOR YOU. It used to draw which stages run a model, which is a fact
+   about the architecture -- true, worth documenting elsewhere, and of no use
+   to somebody deciding what to do next.
+   ------------------------------------------------------------------------- */
+
+.pipeline { margin: 0 0 var(--s-5); }
+.pipeline svg { width: 100%; height: auto; }
+.pipeline figcaption {
+  color: var(--muted); font-size: 13px; margin-top: var(--s-2);
+}
+
+.stage { stroke: var(--line); fill: var(--panel); }
+/* The two states a reader acts on: yours, and not yours. `you` is the warm
+   one, because the whole failure this page exists to fix is a step nobody
+   realised was theirs. */
+.stage-auto { fill: var(--subtle-bg); }
+.stage-you { fill: var(--warn-bg); stroke: var(--warn-line); }
+.stage-name { font-size: 12px; font-weight: 600; fill: var(--ink); }
+.stage-kind { font-size: 9px; fill: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.stage-what { font-size: 9px; fill: var(--muted); }
+.stage-arrow { stroke: var(--line); stroke-width: 1.5; }
+.stage-arrow-tip { fill: var(--line); }

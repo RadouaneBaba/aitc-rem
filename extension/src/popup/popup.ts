@@ -1,4 +1,4 @@
-import type { AnnotationKind } from '../types/recording';
+import type { AnnotationKind, RedactionLevel } from '../types/recording';
 import type { NarrationStatus, RecorderState, WorkerInbound } from '../shared/messages';
 import { coachObjective } from './objective';
 
@@ -79,9 +79,55 @@ function coach(): void {
 objectiveField.addEventListener('input', coach);
 coach();
 
+/**
+ * How much to redact, chosen before recording starts.
+ *
+ * It lives here rather than in `config/project.yaml` because redaction happens
+ * in the browser BEFORE anything is persisted -- by the time a server setting
+ * could be consulted the decision has already been taken and cannot be
+ * revisited. It is also genuinely per-recording: one session of a demo app and
+ * one of a system whose order references scan as card numbers can sit in the
+ * same project, and the level travels with each recording so the server never
+ * has to guess which was which.
+ *
+ * Remembered, because somebody who had to turn it down once will have to again,
+ * and burying it in a `<details>` is enough friction for a setting this narrow.
+ */
+const redactionField = $('redaction') as HTMLSelectElement;
+const redactionHint = $('redaction-hint');
+
+const REDACTION_HINTS: Record<string, string> = {
+  full: 'Emails, card numbers, tokens and anything you type into a password field are replaced with a placeholder before anything reaches the disk.',
+  secrets_only:
+    'For applications whose real data looks sensitive — an order reference that scans as a card number, a code that scans as a phone number. Passwords are still hidden; nothing is guessed at by shape.',
+  off: 'Nothing is hidden. Values you type are saved exactly as you type them, and this recording can only be processed against a paid model endpoint that does not train on it.',
+};
+
+function describeRedaction(): void {
+  redactionHint.textContent = REDACTION_HINTS[redactionField.value] ?? '';
+  redactionField.setAttribute('data-level', redactionField.value);
+  ($('redaction-details') as HTMLDetailsElement).open = redactionField.value !== 'full';
+}
+
+void chrome.storage.local.get('redaction').then((stored) => {
+  if (typeof stored.redaction === 'string') redactionField.value = stored.redaction;
+  describeRedaction();
+});
+
+redactionField.addEventListener('change', () => {
+  void chrome.storage.local.set({ redaction: redactionField.value });
+  describeRedaction();
+});
+
 $('start').addEventListener('click', async () => {
   const objective = objectiveField.value.trim();
-  render(await send<RecorderState>({ type: 'start', objective: objective || undefined }));
+  render(
+    await send<RecorderState>({
+      type: 'start',
+      objective: objective || undefined,
+      redaction: redactionField.value as RedactionLevel,
+    }),
+  );
 });
 
 $('stop').addEventListener('click', async () => {

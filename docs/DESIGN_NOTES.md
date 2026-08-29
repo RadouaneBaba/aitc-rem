@@ -15,6 +15,84 @@ about to change code.
 
 ---
 
+## What the 2026-08-29 follow-up changed, and the measurement behind each
+
+[COMPLAINT.md](COMPLAINT.md) is the review this answers. Its §1 is the finding
+everything else follows from, and it is worth stating in full because it is this
+project's own most-repeated law broken in the most literal way available:
+
+> **No model in this pipeline had ever seen a `.feature` file.**
+
+The author emitted JSON, `narrative.py` composed the body, a renderer wrote the
+file. The output read like an assembled array because it *was* one. Two of four
+shipped features carried the tell — *"When the order is not processed"*, a state
+written as an action with no verdict; a verdict repeated as both an `And` and a
+`Then`. And the worked example that was supposed to teach a model to write
+Gherkin contained no Gherkin at all.
+
+**The author writes the file now**, and three things about how were each a way
+to ship it broken:
+
+* **The join is by the line each annotation echoes, not by ordinal.** The first
+  real model wrote six lines and returned five annotations, having forgotten a
+  `Given`. Under a positional join that is not one line losing its events — it
+  is every later line silently attributed to its neighbour, which is worse than
+  a degraded run because it is wrong and quiet.
+* **A format slip falls back and costs no revision round.** Prose-first
+  emission was rejected once on exactly that objection (COMPLAINT §7), and the
+  objection was right; the fallback is what answers it.
+* **A style is a worked example, not a rule.** Three styles were cut once on
+  the argument that prompt rules measure near-zero uptake here. That argument
+  dies when the model writes the file: a style becomes *here is a good feature
+  file in this style*, which is the one mechanism that has always worked. Adding
+  one is writing a `.feature`.
+
+**A claim now says WHAT it claims.** The gate was substring containment, so
+*"Then the first product is 'The Autumnal Hamper'"* was proved by that string
+appearing anywhere: the sentence said FIRST and the check said PRESENT. The
+judge caught it three times and the revision could not fix it, because there was
+nothing to fix it with. `order()` and `count()` as TOOLS were proposed and
+killed (COMPLAINT §7) — a response listing twelve products contains the name
+whether it is first or last, so the claim passes while wearing a tool named
+`order`, which launders a presence check and puts a green badge on it. It had to
+be a check the validator performs.
+
+*Seen working, live, first run:* the author wrote *"the product list contains 3
+items"* with a `count` predicate, which held — and *"contains 9 items"* citing
+the wrong event's snapshot, which the predicate refused with *"the list holds 3
+here, not 9"*. Under the old gate the second would have passed, because
+`"Showing 9 of 24 products"` is somewhere in the session.
+
+**And two holes that were invisible precisely because everything was green:**
+
+* **A refused claim reached nobody.** When the author quotes a literal it never
+  retrieved, the claim is dropped and a `whyNot` written — so it never becomes
+  an assertion, so `evidence_retrieved` has nothing to reject, so the loop sees
+  a clean gate and stops. Measured on `keyhole`: two correct verdicts, **zero**
+  tool calls, both silently refused, scenarios shipped ending on a `When`. Every
+  validator was right. The author simply never learned that the one thing it had
+  to do, it had not done.
+* **The oracle was unreachable in practice.** 14 expectation sets on disk, all
+  14 still `inferred`. The screen opened only on `?confirm=<id>`, read once,
+  linked from one place, cleared on dismiss. Everything downstream had only ever
+  read guesses nobody checked.
+
+**The nudge is the one addition that is code where a prompt would be natural**,
+so it is worth defending. The prompt already said, at length, that a verdict
+costs a retrieval. The model read that, saw the string it wanted to quote
+printed in the session index, and reasonably concluded it had evidence — the
+index is a SUMMARY, which is exactly why a claim resting on it points at
+nothing. `investigate`'s `needs_retrieval` is the mirror of the budget nudge
+that had always been there: a model going past its budget was told to stop, and
+a model that never started was told nothing. It counts verdicts, counts
+retrievals, and where there are some of the first and none of the second says go
+and look. It fires on nothing else — a document of pure refusals is a legitimate
+answer, and forcing a call out of it would be the mandatory-tool-call
+anti-pattern that lifted calls/step 1.56 → 2.17 and flattened the effort spread
+from 1.08 to 0.16.
+
+---
+
 ## Layout
 
 ```
@@ -26,8 +104,9 @@ config/          allowed_origins.yaml (the pre-send gate) + project.yaml (house 
 server/
   api/           app.py = the endpoints, jobs.py = the JobRunner seam,
                  review.py = every human edit, and the record of it
-  config/        ProjectConfig: voice, tags, sidecar, parameter rendering
-  evidence/      store.py = the recording, indexed. tools.py = the 12 tools + ToolRunner
+  config/        ProjectConfig: style, voice, tags, sidecar, parameter rendering
+  evidence/      store.py = the recording, indexed. tools.py = the six tools + ToolRunner
+                 (twelve until 2026-08-29; six were offered to no stage at all)
   pipeline/      segment.py (code, hints only) -> digest.py (code, the session
                  index) -> draft.py (agentic, writes the whole document) ->
                  split.py (agentic, only when a scenario is over a size floor)
@@ -512,9 +591,13 @@ voice now, and `with_subject` is the deterministic net.
 **A mandatory tool call is not investigation.** Search-before-invent runs on
 every step by construction, so counting it as effort lifted calls/step 1.56 ->
 2.17 and collapsed SS3.3's Spread from 1.08 to 0.16 -- an agent that looked like
-it had stopped adapting when nothing had changed. `ROUTINE_TOOLS` is excluded
-from `_calls_per_step`; `toolCallsTotal` still counts them, because they are
-real calls that cost real quota.
+it had stopped adapting when nothing had changed.
+
+*The mechanism is gone, 2026-08-29.* `ROUTINE_TOOLS` was the exclusion list that
+kept those calls out of `_calls_per_step`, and it went with the step library it
+existed for. `_calls_per_step` attributes a call to a step by the `eventId` in
+its arguments and filters by no name at all. The lesson is what to keep: an
+author obliged to call something is not investigating.
 
 **Grounding is provenance, not correctness, and `Executes` alone is vacuous.**
 A test case that asserts nothing cannot have an assertion fail -- the same trap

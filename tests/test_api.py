@@ -20,8 +20,9 @@ from pathlib import Path
 import pytest
 
 from server.api.app import create_app
+from server.llm import CompletionRequest, ScriptedModelClient, answer
 from server.storage.paths import Storage
-from tests.test_pipeline import grounded_model, recording
+from tests.test_pipeline import grounded_model, recording, stage_of
 
 TestClient = pytest.importorskip("fastapi.testclient").TestClient
 
@@ -29,6 +30,45 @@ TestClient = pytest.importorskip("fastapi.testclient").TestClient
 @pytest.fixture
 def storage(tmp_path: Path) -> Storage:
     return Storage(recordings_dir=tmp_path / "recordings", runs_dir=tmp_path / "runs")
+
+
+def guessing_model() -> ScriptedModelClient:
+    """The grounded author, plus a guesser that actually proposes something.
+
+    `grounded_model` answers the expectations stage with an empty list, which is
+    right for tests about the spine and wrong for tests about the confirmation
+    screen: an empty set is a recording with nothing to ask about, and it is
+    correctly not put in front of anybody.
+    """
+    inner = grounded_model()
+
+    def behave(request: CompletionRequest):
+        if stage_of(request) == "expectations":
+            return answer(
+                json.dumps(
+                    {
+                        "expectations": [
+                            {
+                                "eventIds": ["evt_002"],
+                                "action": "You placed the order.",
+                                "expected": "the order should have been confirmed",
+                                "observed": "a confirmation banner appeared",
+                            }
+                        ]
+                    }
+                )
+            )
+        return inner.complete(request)
+
+    return ScriptedModelClient(behave)
+
+
+@pytest.fixture
+def guessing_client(storage: Storage):
+    app = create_app(storage=storage, model_factory=guessing_model)
+    with TestClient(app) as client:
+        client.app.state.storage = storage
+        yield client
 
 
 @pytest.fixture
@@ -808,3 +848,69 @@ def test_a_run_that_leaked_a_secret_cannot_be_exported(client, tmp_path):
 
     assert response.status_code == 409, response.text
     assert "redaction" in response.text
+
+
+# --------------------------------------------------------------------------
+# the oracle has a route
+# --------------------------------------------------------------------------
+
+
+def test_unanswered_guesses_are_reported_so_somebody_can_be_asked(guessing_client):
+    """The oracle was reachable from exactly one link, once.
+
+    The confirmation screen opened only on `?confirm=<id>`, read once at mount
+    and cleared on dismiss, linked from the extension's export page and nowhere
+    else. The measured consequence: **14 expectation sets on disk, all 14 still
+    `inferred`** -- so every stage downstream has only ever read guesses nobody
+    checked, and what asking a human is worth has never been measurable.
+
+    `confirmedAt` was already in the schema for exactly this question. Nothing
+    had ever read it.
+    """
+    recording_id, _run_id = a_run(guessing_client)
+
+    pending = guessing_client.get("/api/expectations/pending")
+    assert pending.status_code == 200
+    rows = pending.json()["pending"]
+    assert [row["recordingId"] for row in rows] == [recording_id]
+    assert rows[0]["count"] >= 1
+
+
+def test_a_recording_whose_guesses_were_answered_stops_being_reported(guessing_client):
+    recording_id, _run_id = a_run(guessing_client)
+    stored = guessing_client.get(f"/api/recordings/{recording_id}/expectations").json()
+
+    answered = guessing_client.post(
+        f"/api/recordings/{recording_id}/expectations",
+        json={
+            "answers": [
+                {"id": item["id"], "source": "confirmed"} for item in stored["expectations"]
+            ]
+        },
+    )
+    assert answered.status_code == 200, answered.text
+    guessing_client.app.state.jobs.wait(30)
+
+    assert guessing_client.get("/api/expectations/pending").json()["pending"] == []
+
+
+def test_answering_none_of_them_still_clears_the_prompt(guessing_client):
+    # `confirmedAt` is set by the act of answering the screen, not by agreeing
+    # with any particular guess. Someone who read them and had nothing to change
+    # has been asked, and asking again would be nagging -- "never asked" and
+    # "asked and agreed" is the distinction the field exists to keep.
+    recording_id, _run_id = a_run(guessing_client)
+
+    guessing_client.post(f"/api/recordings/{recording_id}/expectations", json={"answers": []})
+    guessing_client.app.state.jobs.wait(30)
+
+    assert guessing_client.get("/api/expectations/pending").json()["pending"] == []
+
+
+def test_an_unknown_api_path_is_a_404_and_not_the_app_shell(client):
+    # The UI has real routes now, so the server serves index.html for anything
+    # it does not recognise. Letting that swallow `/api` would turn "no such
+    # endpoint" into an HTML body a JSON client cannot parse -- and it silently
+    # un-did the download path-traversal guard when it did.
+    response = client.get("/api/there-is-no-such-thing")
+    assert response.status_code == 404

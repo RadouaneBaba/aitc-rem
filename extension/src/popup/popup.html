@@ -60,6 +60,17 @@
         kept with the recording, so you can play back what you actually said.
         <strong>Everything you say is written down.</strong></p>
 
+      <details id="redaction-details">
+        <summary>Redaction</summary>
+        <label for="redaction">What to hide before anything is saved</label>
+        <select id="redaction">
+          <option value="full">Everything that looks sensitive (recommended)</option>
+          <option value="secrets_only">Only what I type into password fields</option>
+          <option value="off">Nothing</option>
+        </select>
+        <p class="hint" id="redaction-hint"></p>
+      </details>
+
       <div class="row"><button class="primary" id="start">Start recording</button></div>
     </div>
 

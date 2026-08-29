@@ -8,10 +8,35 @@ green, 4 of 4 claims grounded, and three of the four proving nothing**.
 Read by `.claude/agents/qa-judge.md` against a packet from
 `scripts/eval_packet.py`. Verdicts go in [LEDGER.md](LEDGER.md).
 
+> **Stale, and knowingly so — read this first (2026-08-29).** This file names
+> fourteen validators and, in its layer table, the stages `bind`, `split` and
+> `_second_chance`. Ten of the validators and all three stages were deleted in
+> the 2026-08-28 rebuild. **A judge asked to name the failing layer will
+> otherwise name one that does not exist.**
+>
+> The gate is now five checks: `evidence_retrieved`, `event_coverage`,
+> `gherkin_parses`, `no_placeholder_leak`, `suggestions_quarantined`. The
+> pipeline's own judge (`server/pipeline/judge.py`) additionally asks
+> `claim_within_evidence` and `refusal_is_true`, which this rubric does not
+> have — deliberately, since the rubric is the out-of-band instrument and that
+> judge is part of the machine.
+>
+> The layers that still exist are `tester`, `digest`, `drafting-prompt`,
+> `narrative`, `validator` and `architecture`. Where the table below says
+> `bind`, the author's own citation check is what refused the sentence, and the
+> layer is `drafting-prompt` or `architecture`. Where it says `split`, the
+> author chooses scenario boundaries as it writes, so the layer is
+> `drafting-prompt`.
+>
+> This file is NOT edited to make a verdict pass, which is why the correction
+> is a note rather than a rewrite: the five checks below are unchanged and are
+> what a verdict is scored against.
+
 **This rubric is the COMPLEMENT of the gate.** Every check below is one no
 validator can perform. If a validator already does it, it is not the judge's
 job — otherwise this is a second gate, and a second gate is exactly the kind of
-work that feels productive and finds nothing. The fourteen are:
+work that feels productive and finds nothing. The fourteen that existed
+when this was written were:
 `evidence_retrieved`, `assertion_grounding`, `provenance_supported`,
 `evidence_discriminates`, `element_exists`, `mutation_claimed`,
 `event_coverage`, `gherkin_parses`, `gherkin_style`, `library_verbatim`,

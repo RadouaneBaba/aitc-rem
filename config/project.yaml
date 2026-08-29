@@ -4,6 +4,27 @@
 # setting below has a default that produces good output, so deleting this file
 # changes nothing except that you lose the ability to disagree with it.
 
+# Which worked feature file the author is shown, and therefore how the output
+# reads. It changes the EXAMPLE, never the rules and never what may be claimed:
+# a business-style document is bound exactly as tightly as an automation one.
+#
+#   automation -> every action, specific values, a check wherever there is
+#                 something worth checking. For whoever writes the step
+#                 definitions.
+#   business   -> few steps, plain language, one verdict at the end of each
+#                 scenario. For whoever decides the behaviour is right.
+#   data-driven -> a repeated flow becomes one `Scenario Outline` with the
+#                 values in an `Examples` table. For a session where the tester
+#                 did the same thing several times with different inputs; it
+#                 writes plain scenarios for everything that happened once.
+#
+# Adding a fourth is writing `server/pipeline/styles/<name>.md` -- one good
+# feature file in that style, with its annotations beside it. Nothing else in
+# the pipeline changes, which is the point: every attempt in this project's
+# history to change output with a RULE measured at or near zero uptake, and
+# every improvement came from a better example.
+style: automation
+
 # Subject of every step sentence. "I" switches to the classic Cucumber register
 # ("When I sign in"); "the tester" and "the user" stay third person.
 voice: the tester
@@ -104,3 +125,21 @@ narration:
 #   warn      -> run, and say which origins were unknown. The default.
 #   off       -> do not check. For a paid, no-training endpoint.
 origin_policy: warn
+
+# Redaction is NOT configured here, and that is deliberate.
+#
+# It happens in the browser, before anything is written to disk, so by the time
+# this file could be read the decision has already been taken and cannot be
+# revisited. The recorder popup owns it -- under "Redaction", before you press
+# Start -- and the level travels with the recording in
+# `metadata.redaction`, so a session of a demo app and a session of a system
+# whose order references scan as card numbers can sit in the same project and
+# each still means what it meant when it was made.
+#
+# Two things follow from a recording made below `full`:
+#
+#   * `no_placeholder_leak` warns instead of refusing to render. You cannot ask
+#     for the raw values and also gate on their absence.
+#   * the run is REFUSED unless `origin_policy` is `off`. Free-tier prompts may
+#     be used for training and read by human reviewers, and this is the one
+#     mistake nobody can take back.

@@ -33,10 +33,12 @@ from server.config import ProjectConfig
 from server.evidence.store import EvidenceStore
 from server.evidence.tools import ToolRunner
 from server.llm.client import ModelClient
+from server.llm.gemini import DEFAULT_MODEL
 from server.models import (
     AblationConfig,
     AgentTrace,
     BugDetail,
+    BugEnvironment,
     Confidence,
     ExpectationSet,
     IRDocument,
@@ -93,7 +95,11 @@ class PipelineOptions:
     ablation: AblationConfig = AblationConfig.A2
     tools_enabled: bool = True
     budget: int = AUTHOR_BUDGET
-    model_name: str = "gemini-2.5-flash"
+    #: Read from the provider module rather than pinned here. It was
+    #: `gemini-2.5-flash`, which is no longer served to new keys at all, and
+    #: only `cmd_serve` passing `--model` kept that from being fatal -- anything
+    #: constructing `PipelineOptions()` directly got a dead model.
+    model_name: str = DEFAULT_MODEL
     temperature: float = 0.0
     fallback_enabled: bool = True
     cassette_mode: str = "read_write"
@@ -258,12 +264,19 @@ def run_pipeline(
     store = EvidenceStore(recording=recording, segments=segments)
     runner = ToolRunner(store=store, storage=storage, run=run, stage=PipelineStage.author)
 
-    # -- 2. expectations (agentic, one call, no retrieval) -----------------
+    # -- 2. expectations (agentic, retrieves, small budget) ----------------
     #
     # The oracle, and the only stage that says what SHOULD have happened.
     # Everything else here can license claims only about what was observed,
     # which is why the tool was structurally unable to write a test that fails
     # on the build it recorded.
+    #
+    # It retrieves because the expectation has to name a VALUE for a human to
+    # tick, and the index does not always carry one. Bounded at
+    # `GUESS_BUDGET`, because the tester is waiting on this screen. Its
+    # retrievals go through the same runner and so reach `trace.toolCalls`
+    # like any other -- which is correct for `_calls_per_step`, whose whole
+    # claim is that effort is what the run spent on a step, whoever spent it.
     announce(PipelineStage.expectations)
     t0 = time.time()
     expectations = _expectations(store, runner, model, storage, options)
@@ -352,7 +365,6 @@ def run_pipeline(
                         "scenario, which merge_repeats would fold into one -- kept the "
                         "previous document"
                     ),
-                    resolved=False,
                 )
             )
 
@@ -461,7 +473,7 @@ def run_pipeline(
                 )
             )
 
-        feedback, triggers = _revision_feedback(report, judgement)
+        feedback, triggers = _revision_feedback(report, judgement, document)
         if not feedback or attempt >= max(1, options.max_author_rounds):
             # Findings the loop did not get to act on are still findings. They
             # are recorded as exhausted rather than dropped -- an unresolved
@@ -474,7 +486,6 @@ def run_pipeline(
                     attempt=attempt,
                     trigger=trigger,
                     finding=text,
-                    resolved=False,
                     exhausted=True,
                 )
                 for text, trigger in zip(feedback, triggers, strict=True)
@@ -487,7 +498,6 @@ def run_pipeline(
                 attempt=attempt,
                 trigger=trigger,
                 finding=text,
-                resolved=False,
             )
             for text, trigger in zip(feedback, triggers, strict=True)
         )
@@ -664,21 +674,44 @@ def _judge(
 def _revision_feedback(
     report: ValidationReport,
     judgement: JudgeResult | None,
+    document: AuthoredDocument | None = None,
 ) -> tuple[list[str], list[RepairTrigger]]:
     """What the author is told, and who said it.
 
-    Two sources and one destination. A rejected claim is a fact -- the literal
-    is not in the retrieval it was supposed to come from -- and a judge's `fail`
-    is a judgement, but the author is asked the same thing by both: this part of
-    your document is wrong, write it again.
+    Three sources and one destination. A refused claim and a rejected one are
+    facts -- the literal is not in a retrieval this run made -- and a judge's
+    `fail` is a judgement, but the author is asked the same thing by all of
+    them: this part of your document is wrong, write it again.
 
-    **Only `fail` travels.** A `weak` finding is one a QA lead would sign after
-    an edit, and rewriting an acceptable document to chase one costs an author
-    round and risks losing a step to `merge_repeats`. `weak` still reaches the
-    trace and the reviewer; it just does not spend a round.
+    **A refusal used to reach nobody, and that was a hole.** When the author
+    quotes a literal it never retrieved, `_attach_claim` drops the claim and
+    writes a `whyNot` -- so it never becomes an assertion, so `evidence_retrieved`
+    has nothing to reject, so the loop sees a clean gate and stops. Measured on a
+    live run: the author wrote two correct verdicts quoting a count that was
+    plainly in the session index, made zero tool calls, had both refused, and was
+    never told. The gate did its job perfectly and the document shipped with no
+    verdicts at all.
+
+    That is the one finding the author can always act on, because the fix is
+    entirely in its hands: go and retrieve the thing, or say in `whyNot` that you
+    could not. The revision prompt already carries the warning that matters --
+    being told a claim proves nothing is not permission to bind a weaker one.
+
+    **Only `fail` travels from the judge.** A `weak` finding is one a QA lead
+    would sign after an edit, and rewriting an acceptable document to chase one
+    costs an author round and risks losing a step to `merge_repeats`. `weak`
+    still reaches the trace and the reviewer; it just does not spend a round.
     """
     out: list[str] = []
     triggers: list[RepairTrigger] = []
+
+    for refusal in (document.refused if document else [])[:6]:
+        out.append(
+            f"You wrote \"{refusal['claim']}\" and it was dropped, because "
+            f"{refusal['reason']}. Retrieve the thing you are claiming and quote "
+            f"the answer, or say in whyNot that you could not check it."
+        )
+        triggers.append(RepairTrigger.validator)
 
     for result in report.results:
         if result.action in {ValidatorAction.reject, ValidatorAction.hard_fail}:
@@ -747,6 +780,7 @@ def _expectations(
             model,
             model_name=options.model_name,
             temperature=options.temperature,
+            tools_enabled=options.tools_enabled,
             config=options.project,
         )
     except Exception:  # noqa: BLE001 - a missing oracle degrades, never fails
@@ -850,7 +884,7 @@ def _assemble(recording: Recording, run_id: str, drafted: AuthoredDocument) -> I
                 run_id,
                 steps,
                 drafted,
-                bug=_bug_detail(scenario, steps),
+                bug=_bug_detail(recording, scenario, steps),
                 scenario=scenario.name,
                 warnings=warnings,
                 index=index,
@@ -874,7 +908,7 @@ def _assemble(recording: Recording, run_id: str, drafted: AuthoredDocument) -> I
     )
 
 
-def _bug_detail(scenario: Any, steps: list[Step]) -> BugDetail | None:
+def _bug_detail(recording: Recording, scenario: Any, steps: list[Step]) -> BugDetail | None:
     """A failed expectation, as a bug report (SS14.2).
 
     Bug mode was a stage with a narrow trigger -- a 5xx, an uncaught exception,
@@ -886,12 +920,31 @@ def _bug_detail(scenario: Any, steps: list[Step]) -> BugDetail | None:
     `actual` is bound exactly as tightly as any assertion -- it goes through
     `evidence_retrieved` in `grounding._assertions`, never a branch of its own.
     Where the author could not cite what it claims, there is no report.
+
+    **`environment` is required by the schema and was not being passed**, so
+    every construction of this raised a `ValidationError` out of `_assemble` and
+    killed the run. The path is only reachable when a step is `bug=True` AND has
+    an accepted assertion, which needs a tester to have pressed "Not right" on
+    the confirmation screen -- and nobody ever has (14 expectations on disk, all
+    `inferred`). A crash nobody could reach is still a crash, and making the
+    confirmation screen reachable is what would have found it in production.
     """
-    failing = next((s for s in scenario.steps if s.bug), None)
-    if failing is None:
-        return None
-    claim = next((a for a in failing.assertions if a.accepted), None)
-    if claim is None:
+    # The first flagged step that actually reached a claim, not simply the first
+    # flagged step. One rejected expectation can name several events and
+    # `_apply_rejections` marks every step touching one of them, so taking the
+    # first and giving up when it has no assertion loses the report whenever the
+    # tester's "Not right" spans a step that sets up and a step that checks.
+    failing, claim = next(
+        (
+            (step, accepted)
+            for step in scenario.steps
+            if step.bug
+            for accepted in [next((a for a in step.assertions if a.accepted), None)]
+            if accepted is not None
+        ),
+        (None, None),
+    )
+    if failing is None or claim is None:
         return None
 
     rendered = next((s for s in steps if s.id == failing.step_id), None)
@@ -900,6 +953,31 @@ def _bug_detail(scenario: Any, steps: list[Step]) -> BugDetail | None:
         expected=claim.text,
         actual=failing.actual or "the application did something else",
         actualEvidence=claim.evidence,
+        environment=_bug_environment(recording, failing.event_ids),
+    )
+
+
+def _bug_environment(recording: Recording, event_ids: list[str]) -> BugEnvironment:
+    """Where the defect was seen: browser, viewport, and the page it happened on.
+
+    The URL is read off the failing step's own last event rather than off
+    `metadata.startUrl` -- a bug filed against the page somebody signed in on,
+    when it happened three navigations later at checkout, sends whoever picks it
+    up to the wrong place.
+    """
+    url = recording.metadata.startUrl
+    if event_ids:
+        by_id = {event.id: event for event in recording.events}
+        for event_id in reversed(event_ids):
+            event = by_id.get(event_id)
+            if event is not None and event.url:
+                url = event.url
+                break
+    viewport = recording.metadata.viewport
+    return BugEnvironment(
+        browser=recording.metadata.browser,
+        viewport=f"{viewport.w}x{viewport.h}",
+        url=url,
     )
 
 

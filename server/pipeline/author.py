@@ -48,21 +48,27 @@ when the critic's worked example was the recording it judged.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from server.config import ProjectConfig
-from server.evidence.citation import resolve_call
+from server.evidence.citation import resolve_call, resolve_event_call
+from server.evidence.predicate import evaluate
 from server.evidence.store import EvidenceStore
 from server.evidence.tools import ToolRunner
 from server.llm.client import ModelClient
+from server.llm.gemini import fenced_block
 from server.models import (
     Assertion,
     Confidence,
     Evidence,
     ExpectationSet,
     ExpectationSource,
+    NodeRef,
     OmissionReason,
     PipelineStage,
+    Predicate,
+    PredicateForm,
     Provenance,
     ScenarioExamples,
     SegmentRole,
@@ -70,6 +76,7 @@ from server.models import (
 )
 from server.pipeline.digest import SessionDigest, build_digest
 from server.pipeline.expectations import INTENT_WINDOW_MS
+from server.pipeline.featurefile import FeatureParseError, parse_feature
 from server.pipeline.investigate import investigate
 
 #: Retrievals one author may make across a whole session.
@@ -301,123 +308,68 @@ def apply_intent_notes(store: EvidenceStore, document: AuthoredDocument) -> set[
 # --------------------------------------------------------------------------
 
 
-WORKED_EXAMPLE = """\
-Here is one good answer, on a different application, end to end.
+#: Where the worked examples live, one file per Gherkin style.
+#:
+#: A file rather than a string constant, and one per style rather than one with
+#: branches, because the example IS the specification of a style. Every attempt
+#: in this project's history to change output with a RULE measured at or near
+#: zero uptake; every improvement came from more context. So "add a style" has
+#: to mean "write a good feature file in it", which is a thing a person can do
+#: in an afternoon, rather than "add a clause and hope".
+STYLES_DIR = Path(__file__).resolve().parent / "styles"
 
-The session index said:
+#: What a project gets if it says nothing. Named for what it optimises: a
+#: reader who is going to write step definitions against this.
+DEFAULT_STYLE = "automation"
 
-    evt_001  click  button "Find a room"            | +12 -0 ~0 | "3 rooms free"
-    evt_002  select combobox "Duration"  -> "2 hours" | +0 -0 ~1 | "14:00-16:00"
-    evt_003  click  button "Book Ada Lovelace Room" | POST /api/bookings 201
-             +4 -1 ~1 | "Booked: Ada Lovelace Room, 14:00-16:00" | "2 rooms free"
-    evt_004  click  link "My bookings"              | url -> /bookings | +31 -22 ~0
 
-The tester expected: "booking a room should take it out of the free count".
+def worked_example(style: str = DEFAULT_STYLE) -> str:
+    """The example for this style, falling back to the default rather than failing.
 
-The author called get_diff("evt_003"), saw the count change, and called
-find_text("2 rooms free") to be sure of the exact wording. Two calls. It did not
-retrieve anything for evt_001 or evt_002, because nothing about them was in
-doubt.
+    A typo in `project.yaml` must not cost a run. It costs the wrong house
+    style, which is visible in the output and fixable by the person who made
+    the typo.
+    """
+    for name in (style, DEFAULT_STYLE):
+        path = STYLES_DIR / f"{_slug(name)}.md"
+        if path.is_file():
+            return path.read_text(encoding="utf-8").strip()
+    return ""
 
-    {
-      "feature": "Meeting room booking",
-      "description": "Booking a room confirms it and removes it from availability",
-      "tags": ["booking"],
-      "scenarios": [
-        {
-          "name": "Booking a room reduces the number free",
-          "steps": ["step_001", "step_002", "step_003"]
-        },
-        {
-          "name": "A confirmed booking appears in the tester's own list",
-          "steps": ["step_004"]
-        }
-      ],
-      "steps": [
-        {
-          "id": "step_001",
-          "keyword": "Given",
-          "role": "setup",
-          "text": "the tester searches for an available room",
-          "events": ["evt_001"]
-        },
-        {
-          "id": "step_002",
-          "keyword": "When",
-          "role": "test_step",
-          "text": "the tester books the Ada Lovelace Room for 2 hours",
-          "events": ["evt_002", "evt_003"],
-          "expected": "the room is confirmed for 14:00-16:00",
-          "evidence": {
-            "eventId": "evt_003",
-            "literal": "Booked: Ada Lovelace Room, 14:00-16:00"
-          }
-        },
-        {
-          "id": "step_003",
-          "keyword": "Then",
-          "role": "test_step",
-          "text": "the tester checks the availability count",
-          "events": [],
-          "expected": "the number of free rooms drops from 3 to 2",
-          "evidence": { "eventId": "evt_003", "literal": "2 rooms free" }
-        },
-        {
-          "id": "step_004",
-          "keyword": "When",
-          "role": "test_step",
-          "text": "the tester opens their own bookings",
-          "events": ["evt_004"],
-          "expected": null,
-          "whyNot": "The bookings page replaced most of the screen and nothing on it names the room that was just booked, so there is no way to tell this list apart from any other list of bookings."
-        }
-      ],
-      "omitted": []
-    }
 
-Four things in that answer are worth copying.
-
-**The verdict is the count, not the confirmation banner.** Both were on the
-page. Break the availability feature and "Booked: ..." still appears, so a test
-resting only on the banner passes on a broken build. The count is what the
-feature computes.
-
-**step_003 has no events.** An expected result is about what the APPLICATION
-did; it does not need an action of its own. Do not invent a click to hang it on.
-
-**step_004 refuses, and says why in a sentence its tester can act on.** That is
-worth more than a claim about a heading being present. Never write an expected
-result that amounts to "the page appeared".
-
-**Two scenarios, decided while writing.** They check different things.
-"""
+def _slug(name: str) -> str:
+    return "".join(c for c in str(name).strip().lower() if c.isalnum() or c in "-_")
 
 
 SYSTEM_PROMPT = """\
 You are a QA engineer. You are given a recording of somebody using a web
-application, and you write the test cases for it.
+application, and you write the test cases for it -- as a Gherkin feature file.
 
 {example}
 
 ## How to work
 
-The session index below is the map. It lists every event, what was clicked, what
-changed, what the network did and what the tester said. For most steps it is
-enough.
+The session index below is the map. It lists every event, what was clicked,
+what changed, what the network did and what the tester said. For most steps it
+is enough.
 
 The tools are the territory, for when it is not:
 
   get_diff(eventId)        what changed on the whole page, most informative first
-  get_snapshot(eventId)    the full page, before or after
-  see(eventId)             look at the screenshot -- use it when the text does
-                           not settle it
+  get_snapshot(eventId)    the page, before or after, as a tree of nodes
   find_text(query)         where a string really appears in the session
-  get_network(eventId)     the requests
+  get_network(eventId)     the requests and what the server answered
   get_narration(from, to)  what the tester said out loud
+  see(eventId)             look at the screenshot
 
 Look when a claim is contested and not when it is obvious. An unambiguous step
-should cost you nothing; one where you cannot tell what changed deserves as many
-calls as it takes.
+should cost you nothing; one where you cannot tell what changed deserves as
+many calls as it takes.
+
+`see` is the expensive one and the last resort. Reach for it when the TEXT DOES
+NOT SETTLE THE QUESTION YOU ARE ACTUALLY ASKING -- two snapshots with the same
+names in a different order, a canvas, a chart, a layout claim. Not to confirm
+something you can already read.
 
 ## The rules that are not obvious
 
@@ -433,36 +385,69 @@ or not it sorted anything. Assert the order, or the first price.
 
 **An expected result costs one retrieval, always.** The `literal` must be a
 string a TOOL gave back to you, character for character. Seeing it in the
-session index above is not enough -- the index is a summary, and a claim resting
-on it points at nothing. So before you write an `expected`, call `get_diff` or
-`find_text` or `get_snapshot` on that event and quote from the answer.
+session index above is not enough -- the index is a summary, and a claim
+resting on it points at nothing. So before you write a verdict line, call
+`get_diff` or `find_text` or `get_snapshot` or `get_network` on that event and
+quote from the answer.
 
 This is not a formality and it is not negotiable: a claim you cannot point at is
-dropped, and the step ends up with a `whyNot` saying you did not look. If you
-write four expected results, expect to have made at least four calls. You do not
-supply the id of the retrieval -- that is looked up from what you actually
-called, which is why you cannot invent one.
+dropped and the step ends up saying you did not look. If you write four
+verdicts, expect to have made at least four calls. You do not supply the id of
+the retrieval -- that is looked up from what you actually called, which is why
+you cannot invent one.
 
-**Only the scenario needs a verdict, not every step.** `When ... And ... And ...
-Then` is normal and often better than a verdict on every line.
+**Say what KIND of claim you are making.** A verdict's `predicate` is how the
+checker knows what to verify, and without one it can only ask whether your
+string is somewhere in the response:
+
+  contains   (the default; omit it)  the string is there
+  first_of   {{"form": "first_of", "container": {{"role": "list", "name": "..."}}}}
+             your literal names the FIRST thing in that container. Use it for
+             every claim about sorting, ranking or ordering -- "contains" is
+             true of a sorted list and a shuffled one alike.
+  count      {{"form": "count", "container": {{...}}, "role": "listitem", "n": 9}}
+             the container holds exactly n of them. Use it for "the list drops
+             to 9 products".
+  absent     {{"form": "absent"}}
+             your literal is NOT there. Use it for "the error is gone", "the
+             button is no longer offered". Cite the event you looked at.
+
+A container is named by its ROLE and its accessible NAME, as the page's own
+accessibility tree names them -- never a css selector or an id.
+
+**Only the scenario needs a verdict, not every step.** `When ... And ... Then`
+is normal and often better than a verdict on every line.
 
 **If you cannot check something, say so in `whyNot` and move on.** A refusal a
 tester can act on beats a claim that proves nothing. Never pad a scenario with
-an expected result that says the interface appeared.
+a verdict that says the interface appeared. And a `whyNot` is a statement about
+the recording that somebody will read and believe, so it has to be TRUE: check
+the session index before you write that something was out of scope.
 
 ## What to answer with
 
-JSON, and nothing else, in the shape of the worked example. Additionally:
+Two fenced blocks, exactly as the worked example shows them and in that order:
 
-* `role` is one of setup, test_step, teardown, exploratory, abandoned. Signing
-  in and navigating are usually setup.
-* `keyword` is Given, When or Then. Given belongs to the opening block.
+1. ```gherkin  -- the whole feature file. This is the artifact; write it to be
+   read.
+2. ```json     -- `title`, `tags`, and `annotations`.
+
+Nothing else, and do not omit either block.
+
+* Every line counts: each `Given`, each `When`, each `Then`, each `And`, in
+  every scenario. A file with nine step lines has nine annotations.
+* `line` repeats that line's text with the keyword stripped. It is how each
+  annotation is matched to its line, and it is the only thing an annotation
+  repeats -- the sentence itself belongs to the file.
+* `kind` is `step` or `verdict`. A `verdict` attaches to the step line above it.
+* `role`, on a step, is one of setup, test_step, teardown, exploratory,
+  abandoned. Signing in and navigating are usually setup.
 * Every recorded event must appear in exactly one step's `events`, or in
   `omitted` with a reason naming it. Nothing the tester did may silently vanish.
-* A scenario may carry `"examples": {{"columns": [...], "rows": [[...], ...]}}`
-  when the same flow was genuinely repeated with different values. Use step text
-  like "the tester adds <items> items" and it renders as a Scenario Outline.
-  Only when the flow really repeats -- never to make one run look like two.
+* Write `Scenario:` blocks. Do not write a `Background:` -- shared setup is
+  worked out from the scenarios.
+* A repeated flow is one `Scenario Outline` with an `Examples` table, not two
+  near-identical scenarios. Two rows minimum: one row is not a table.
 
 {voice}
 """
@@ -603,7 +588,7 @@ def write_document(
         runner,
         model,
         system_prompt=SYSTEM_PROMPT.format(
-            example=WORKED_EXAMPLE, voice=_voice_rule(config)
+            example=worked_example(config.style), voice=_voice_rule(config)
         ),
         user_prompt=USER_PROMPT.format(
             expectations=_expectations_block(expectations),
@@ -617,9 +602,18 @@ def write_document(
         tools_enabled=tools_enabled,
         temperature=temperature,
         tool_names=AUTHOR_TOOLS,
+        needs_retrieval=_unretrieved_verdicts,
     )
 
-    document = _parse(result.answer, store, runner, result.tool_call_ids, config, expectations)
+    document = _parse(
+        result.answer,
+        store,
+        runner,
+        result.tool_call_ids,
+        config,
+        expectations,
+        answer_text=result.answer_text,
+    )
     document.digest = digest
     document.uncertainties = list(result.uncertainties)
     document.investigation = result.record(
@@ -643,7 +637,19 @@ def _parse(
     tool_call_ids: list[str],
     config: ProjectConfig,
     expectations: ExpectationSet | None,
+    answer_text: str = "",
 ) -> AuthoredDocument:
+    # The author writes a `.feature` and annotates its lines. That is the whole
+    # of the 2026-08-29 change: no model in this pipeline had ever seen a
+    # feature file, so the one artifact it is judged by was assembled by a
+    # script from parts none of which were Gherkin.
+    document = _from_feature(
+        answer, store, runner, tool_call_ids, config, expectations, answer_text
+    )
+    if document is not None:
+        _apply_rejections(document, expectations)
+        return document
+
     raw_steps = answer.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         return _fallback(store, config, why="the author returned no steps")
@@ -684,6 +690,288 @@ def _parse(
     document.omitted = _omissions(answer.get("omitted"), store)
     _apply_rejections(document, expectations)
     return document
+
+
+def _from_feature(
+    answer: dict[str, Any],
+    store: EvidenceStore,
+    runner: ToolRunner,
+    tool_call_ids: list[str],
+    config: ProjectConfig,
+    expectations: ExpectationSet | None,
+    answer_text: str = "",
+) -> AuthoredDocument | None:
+    """Build the document out of the `.feature` the author wrote, or return None.
+
+    None means "this is not a feature file I can read", and the caller falls
+    back to the JSON path. That fallback is a safety property rather than
+    politeness: a whole-document rewrite that fails to parse must not spend the
+    single revision round on a FORMAT error, which is the recorded reason
+    prose-first emission was rejected the first time it was proposed.
+
+    ## The join
+
+    `annotations` is one entry per step line, in document order, and it is
+    matched by ORDINAL. Line numbers would ask a model to count lines in a
+    string it has just generated; repeating each line's text as a key would
+    duplicate the prose this change exists to stop duplicating, and would break
+    outright on two steps that legitimately read the same. A length mismatch is
+    the signal to fall back, which is worth more than being clever.
+
+    ## Where the prose lives
+
+    In the file, once. A step's sentence and a verdict's sentence are the line;
+    the annotation carries only what prose cannot -- the events a line accounts
+    for, the literal that proves it, why there is no verdict. That is what stops
+    `ir.json` and the `.feature` from drifting: there is nothing to drift.
+    """
+    text = answer.get("feature")
+    if not isinstance(text, str) or "\n" not in text:
+        # The normal path, and it is where the body actually arrives.
+        #
+        # The contract asks for a ```gherkin fence and a ```json fence, because
+        # that is what the worked example shows and therefore what a model
+        # returns. It was once "JSON and nothing else, with a `feature` key",
+        # and on the checkout recording a real model reproduced the example's
+        # JSON block faithfully -- including its lack of a `feature` key -- and
+        # dropped the Gherkin entirely: a complete, correct set of annotations
+        # with nothing to attach them to, falling through to the deterministic
+        # fallback and shipping "the tester interacts with Password".
+        #
+        # The example outweighs the rules. The rule changed to match it.
+        #
+        # A `feature` key still works, and a one-line one is the OLD contract's
+        # feature NAME -- recognising that is what lets every shape live in one
+        # parser while the prompt changes underneath.
+        text = fenced_block(answer_text, "gherkin")
+    if not text or "\n" not in text:
+        return None
+
+    try:
+        parsed = parse_feature(text)
+    except FeatureParseError:
+        return None
+
+    raw_annotations = answer.get("annotations")
+    if not isinstance(raw_annotations, list):
+        return None
+    aligned = _align(parsed.lines, raw_annotations)
+    if aligned is None:
+        return None
+    annotations = aligned
+
+    document = AuthoredDocument(
+        title=_clean(answer.get("title")) or parsed.name or _fallback_title(store),
+        description=_clean(answer.get("description")) or parsed.description,
+        tags=_tags(answer.get("tags") or parsed.tags, config),
+    )
+
+    marker = 0
+    for scenario in parsed.scenarios:
+        built = AuthoredScenario(
+            name=scenario.name,
+            tags=_tags(scenario.tags, config, inherit=False),
+            examples=scenario.examples,
+        )
+        for line in scenario.lines:
+            raw = annotations[marker] if isinstance(annotations[marker], dict) else {}
+            marker += 1
+            if _clean(raw.get("kind")).lower() == "verdict":
+                # A verdict is not a step. It attaches to the step above it, and
+                # a scenario that opens with one has nothing to attach to --
+                # which is `Then` with no `When`, and not a document.
+                if not built.steps:
+                    return None
+                _attach_verdict(
+                    built.steps[-1],
+                    line.text,
+                    raw,
+                    store,
+                    runner,
+                    tool_call_ids,
+                    document,
+                    expectations,
+                    config,
+                )
+                continue
+
+            step_no = sum(len(s.steps) for s in document.scenarios) + len(built.steps) + 1
+            built.steps.append(
+                AuthoredStep(
+                    step_id=_clean(raw.get("id")) or f"step_{step_no:03d}",
+                    keyword=_keyword(line.keyword),
+                    role=_role(raw.get("role")),
+                    # NOT put through `with_subject`. The author wrote a line of
+                    # a feature file and a reader will see exactly that line;
+                    # rewriting its subject afterwards would edit prose the
+                    # author composed to read a particular way, which is the
+                    # assembly this change removes. The voice rule is in the
+                    # prompt, where it belongs.
+                    text=line.text,
+                    event_ids=[e for e in _strings(raw.get("events")) if store.has_event(e)],
+                    why_not=_clean(raw.get("whyNot")),
+                    bug=bool(raw.get("bug")),
+                    actual=_clean(raw.get("actual")),
+                )
+            )
+        if built.steps:
+            document.scenarios.append(built)
+
+    if not document.scenarios:
+        return None
+
+    document.omitted = _omissions(answer.get("omitted"), store)
+    return document
+
+
+def _unretrieved_verdicts(answer: dict[str, Any]) -> str:
+    """Did this answer write verdicts without going and looking at anything?
+
+    Handed to `investigate` as `needs_retrieval`, and it is the mirror of the
+    budget nudge that has always been there: a model investigating past its
+    budget is told to stop, and a model that answered without investigating at
+    all was told nothing at all.
+
+    It is worth stating why this is not the prompt's job, because the prompt
+    already says it plainly and at length. Measured on `keyhole` against a real
+    model: six tools offered, **zero** called, two correct verdicts written
+    quoting a count -- and both silently refused by the citation check, so the
+    document shipped with scenarios ending on a `When`. The author had read the
+    string in the session index and reasonably concluded it had evidence. The
+    index is a SUMMARY, which is exactly why a claim resting on it points at
+    nothing, and no amount of saying so has moved a model that can see the
+    string right there in its prompt.
+
+    So this is deterministic and it invents nothing: it counts verdicts, counts
+    retrievals, and where there are some of the first and none of the second it
+    says go and look. The model still chooses what to look at, still writes its
+    own sentences, and still cites only what comes back.
+    """
+    annotations = answer.get("annotations")
+    if not isinstance(annotations, list):
+        return ""
+    wanted = [
+        a
+        for a in annotations
+        if isinstance(a, dict)
+        and _clean(a.get("kind")).lower() == "verdict"
+        and isinstance(a.get("evidence"), dict)
+        and _clean(a["evidence"].get("literal"))
+    ]
+    if not wanted:
+        # A document of pure refusals is a legitimate answer, and forcing a
+        # retrieval out of one would be the mandatory-tool-call anti-pattern:
+        # it lifted calls-per-step from 1.56 to 2.17 and flattened the effort
+        # spread from 1.08 to 0.16, which is an agent that stopped deciding.
+        return ""
+
+    quoted = ", ".join(f"{_clean(a['evidence'].get('literal'))[:40]!r}" for a in wanted[:3])
+    return (
+        f"You wrote {len(wanted)} expected result(s) and made no retrievals. The session "
+        f"index is a SUMMARY -- a claim resting on it points at nothing, and every one of "
+        f"these will be dropped exactly as written.\n\n"
+        f"Go and look now. For each verdict, call get_diff or get_snapshot or find_text or "
+        f"get_network on the event it is about, and quote from what comes back: {quoted}.\n\n"
+        f"If a retrieval does not support the claim, that is a real answer -- say so in "
+        f"whyNot rather than quoting something weaker."
+    )
+
+
+def _align(lines: list[Any], annotations: list[Any]) -> list[dict[str, Any]] | None:
+    """One annotation per step line, matched by the line it echoes.
+
+    ## Why the annotation echoes its line at all
+
+    The first version joined by ORDINAL alone, and the first real model broke it
+    on its first run: it wrote a six-line document and returned five
+    annotations, having forgotten the `Given` that opened its second scenario.
+    The document was good and the content was right; the join threw it away.
+
+    Counting lines in a string you have just generated is a bad thing to ask a
+    model for, and the cost of getting it wrong under a positional join is not
+    "one line loses its events" -- it is every subsequent line silently
+    attributed to its neighbour, which is worse than a degraded run because it
+    is wrong and quiet.
+
+    So an annotation carries `line`: the text of the step line it is about,
+    keyword stripped. That is a duplicate of prose, which is exactly what this
+    whole change removes -- but it is a duplicate in the MODEL'S OUTPUT used as
+    a join key and then discarded. The file's own text stays the single source
+    of the sentence, so there is nothing to drift.
+
+    ## How it degrades
+
+    * exact match on the next annotation -- the normal case, and free.
+    * no match there -- look ahead a little. An annotation the author omitted
+      leaves its line with no events, which `event_coverage` then reports as an
+      unaccounted event. A visible gap, in the mechanism built for it.
+    * no `line` anywhere -- fall back to ordinal, and require the counts to
+      agree exactly. That is the older contract, kept working.
+    """
+    if not any(isinstance(a, dict) and _clean(a.get("line")) for a in annotations):
+        return list(annotations) if len(annotations) == len(lines) else None
+
+    remaining = [a if isinstance(a, dict) else {} for a in annotations]
+    out: list[dict[str, Any]] = []
+    for line in lines:
+        want = _norm(line.text)
+        found = next(
+            (i for i, a in enumerate(remaining) if _norm(_clean(a.get("line"))) == want),
+            None,
+        )
+        if found is None:
+            # A line the author did not annotate. It becomes a step with no
+            # events rather than stealing the next annotation's -- and the
+            # missing events surface at the gate.
+            out.append({})
+            continue
+        # Anything skipped over was an annotation for a line that is not in the
+        # file. Dropped rather than guessed at: a claim about a sentence nobody
+        # wrote is not a claim about this document.
+        out.append(remaining[found])
+        del remaining[: found + 1]
+    return out
+
+
+def _norm(text: str) -> str:
+    """Whitespace and trailing punctuation folded away, so an echo that differs
+    only in spacing still matches the line it is about."""
+    return " ".join(str(text).split()).strip(" .").casefold()
+
+
+def _attach_verdict(
+    step: AuthoredStep,
+    text: str,
+    raw: dict[str, Any],
+    store: EvidenceStore,
+    runner: ToolRunner,
+    tool_call_ids: list[str],
+    document: AuthoredDocument,
+    expectations: ExpectationSet | None,
+    config: ProjectConfig,
+) -> None:
+    """A verdict LINE, bound the same way a verdict FIELD always was.
+
+    `_attach_claim` is reused rather than reimplemented: the citation, the
+    predicate, the recording-side re-check and the refusal wording are the one
+    rule this whole architecture exists to enforce, and a second implementation
+    of it is a second thing that can be wrong. Only where the sentence comes
+    from is different -- the file rather than an `expected` field.
+    """
+    del config
+    _attach_claim(
+        step,
+        {"expected": text, "evidence": raw.get("evidence"), "whyNot": raw.get("whyNot")},
+        store,
+        runner,
+        tool_call_ids,
+        document,
+        expectations,
+    )
+    # A refusal the author wrote about this verdict belongs on the step that
+    # was supposed to carry it, and only when nothing landed.
+    if not step.assertions and not step.why_not:
+        step.why_not = _clean(raw.get("whyNot"))
 
 
 def _apply_rejections(document: AuthoredDocument, expectations: ExpectationSet | None) -> None:
@@ -746,13 +1034,47 @@ def _attach_claim(
             return
         return
 
-    evidence = raw.get("evidence")
-    literal = _clean(evidence.get("literal")) if isinstance(evidence, dict) else ""
+    evidence = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
+    literal = _clean(evidence.get("literal"))
     if not literal:
         _refuse(step, document, expected, "the author quoted nothing to rest it on")
         return
 
-    call_id = resolve_call(runner, tool_call_ids, literal)
+    predicate = _predicate(evidence.get("predicate"))
+    negative = predicate is not None and predicate.form is PredicateForm.absent
+
+    event_id = _clean(evidence.get("eventId"))
+    if not store.has_event(event_id):
+        event_id = step.event_ids[-1] if step.event_ids else ""
+
+    # Which retrieval licenses this claim, and it depends on what is claimed.
+    #
+    # A bare literal is licensed by any retrieval CONTAINING it -- that is the
+    # rule the architecture exists to enforce, unchanged.
+    #
+    # A POSITIONAL or COUNTING claim is about a page, and a page is identified
+    # by its event rather than by a string that may appear on several. Observed
+    # on a live run: the author claimed the list held 9 items at evt_001, had
+    # retrieved both events' snapshots, and `resolve_call` handed back evt_002's
+    # -- the most recent retrieval containing "Showing 9 of 24 products", which
+    # is the text of the CHANGE and appears in both. Counting evt_002's list
+    # then said 3, and a true claim was refused for a reason that was about the
+    # wrong page.
+    #
+    # A NEGATIVE claim cannot cite a retrieval containing its own literal at
+    # all -- the whole point is that none does -- so it has always been licensed
+    # this way.
+    #
+    # None of this loosens anything: the retrieval must still be one this run
+    # made, `evaluate` still has to hold against it, and where no retrieval of
+    # the event exists the literal-driven search is the fallback rather than a
+    # free pass.
+    by_event = negative or (predicate is not None and predicate.container is not None)
+    call_id = None
+    if by_event:
+        call_id = resolve_event_call(runner, tool_call_ids, event_id)
+    if call_id is None and not negative:
+        call_id = resolve_call(runner, tool_call_ids, literal)
     if call_id is None:
         # It may still be true. It is simply not something this run went and
         # looked at, and the whole architecture exists to keep those apart.
@@ -760,19 +1082,28 @@ def _attach_claim(
             step,
             document,
             expected,
-            f"nothing this run retrieved contains {literal[:60]!r}",
+            (
+                f"this run never retrieved {event_id or 'the moment'} itself, so it "
+                f"cannot say {literal[:60]!r} was missing from it"
+                if negative
+                else f"nothing this run retrieved contains {literal[:60]!r}"
+            ),
         )
         return
 
-    event_id = _clean(evidence.get("eventId")) if isinstance(evidence, dict) else ""
-    if not store.has_event(event_id):
-        event_id = step.event_ids[-1] if step.event_ids else ""
-
-    if not event_id or not store.contains_at(literal, event_id, case_sensitive=True):
+    # The second, independent check: is this true of the RECORDING, and not only
+    # of what the agent happened to be shown. Skipped for a negative claim, where
+    # the literal is absent by construction.
+    if not negative and (
+        not event_id or not store.contains_at(literal, event_id, case_sensitive=True)
+    ):
         elsewhere = store.events_containing(literal, case_sensitive=True)
-        if len(elsewhere) == 1:
-            # Real, just somewhere else. Re-pointing is safe: the literal and
-            # the retrieval are unchanged, only the moment it became true.
+        # Re-pointing is safe for a bare literal -- it and the retrieval are
+        # unchanged, only the moment it became true. It is NOT safe under a
+        # predicate: `first_of` is a claim about a position inside one stored
+        # response, and moving it to a different event would carry the sentence
+        # to a page whose order nobody checked.
+        if len(elsewhere) == 1 and predicate is None:
             event_id = elsewhere[0]
         else:
             _refuse(
@@ -781,6 +1112,18 @@ def _attach_claim(
                 expected,
                 f"{literal[:60]!r} does not appear at {event_id or 'any event of this step'}",
             )
+            return
+
+    if predicate is not None:
+        verdict = evaluate(_stored(runner, call_id), literal, predicate)
+        if verdict.unresolved:
+            # Neither true nor false. Passing it would put a green badge on an
+            # unchecked claim; rejecting it would kill true claims whenever a
+            # response shape changes. The author is told what did not resolve.
+            _refuse(step, document, expected, verdict.why)
+            return
+        if not verdict.holds:
+            _refuse(step, document, expected, verdict.why)
             return
 
     step.assertions.append(
@@ -792,7 +1135,8 @@ def _attach_claim(
                 literal=literal,
                 toolCallId=call_id,
                 eventId=event_id,
-                kind=_clean((evidence or {}).get("kind")) or "semantic_node",
+                kind=_clean(evidence.get("kind")) or "semantic_node",
+                predicate=predicate,
             ),
             accepted=True,
         )
@@ -953,6 +1297,49 @@ def with_subject(text: str, config: ProjectConfig) -> str:
     if lowered.startswith(config.voice.lower()) or lowered.startswith(("the ", "an ", "a ", "i ")):
         return text
     return f"{config.voice} {text[0].lower() + text[1:]}"
+
+
+def _predicate(value: Any) -> Predicate | None:
+    """What the author says it is claiming, or None for plain containment.
+
+    Unparseable is None rather than an error, and that is the conservative
+    direction: a malformed predicate degrades the claim to the substring check it
+    would have had anyway, where a raised error would lose a verdict over a
+    field the author was not obliged to send. A predicate the author asked for
+    and got wrong shows up as a refusal in `evaluate`, with a sentence saying so.
+    """
+    if not isinstance(value, dict):
+        return None
+    form = _clean(value.get("form")).lower()
+    if form not in set(PredicateForm):
+        return None
+    container = value.get("container")
+    node = None
+    if isinstance(container, dict) and _clean(container.get("role")):
+        node = NodeRef(
+            role=_clean(container.get("role")),
+            name=_clean(container.get("name")) or None,
+        )
+    n = value.get("n")
+    return Predicate(
+        form=PredicateForm(form),
+        container=node,
+        role=_clean(value.get("role")) or None,
+        n=int(n) if isinstance(n, int | float) and not isinstance(n, bool) and n >= 0 else None,
+    )
+
+
+def _stored(runner: ToolRunner, call_id: str) -> Any:
+    """The retrieval as it was persisted -- the FULL response, not the view.
+
+    A tool may hand the model something smaller than what it stored (see
+    `ToolSpec.view`), and a positional predicate evaluated against that view
+    answers a different question than the one the author asked.
+    """
+    try:
+        return runner.storage.load_tool_response(runner.run, call_id)
+    except OSError:
+        return None
 
 
 _KEYWORDS = {"given": "Given", "when": "When", "then": "Then", "and": "And", "but": "But"}

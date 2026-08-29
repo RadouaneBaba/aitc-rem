@@ -17,6 +17,86 @@ pipeline.
 
 ---
 
+## 2026-08-29 — the author writes the file
+
+The one comparison worth having on this change, because it is the same
+recording (a checkout with an approval threshold) through two versions of the
+pipeline, and the difference is visible without reading a metric.
+
+**Before.** The author emitted JSON and a script composed this:
+
+```gherkin
+Scenario: Orders over EUR500 require manager approval
+  Given the tester signs in and adds an item to the cart
+  When the tester proceeds to checkout and enters an order total over EUR500
+  Then the application displays a warning that orders over EUR500 require approval
+
+  When the tester attempts to place the order without approval
+  Then the order is rejected with a 409 Conflict status
+
+  When the tester checks the manager approval box
+  And the tester places the order
+  Then the order is successfully submitted and redirects to the confirmation page
+```
+
+Three When/Then beats under one heading — three test cases sharing a name,
+which is the judge's `one_scenario_one_behaviour` fail. And the middle verdict
+is COMPLAINT §4.1 exactly: *"rejected with a 409 Conflict status"*, evidenced by
+`"Orders over EUR500 require approval"` — a page alert with no 409 in it. The
+409 came from the session index, which is not citable, and `get_network` was
+never called. Every validator passed it.
+
+**After**, on the same flow, with the author writing the file:
+
+```gherkin
+@order
+Feature: Order processing
+
+  Orders over EUR 500 require manager approval before they can be placed.
+
+  Background:
+    Given the tester is signed in
+    And the tester has added a Blue Widget to the cart
+
+  Scenario: Orders over EUR 500 require approval
+    When the tester proceeds to checkout
+    And the tester enters an order total of 615 EUR
+    And the tester attempts to place the order
+    Then the application displays an alert stating that orders over EUR 500 require approval
+```
+
+```gherkin
+  Background:
+    Given the tester is signed in
+    And the tester has added a Blue Widget to the cart
+    And the tester has an order over EUR 500 requiring approval
+
+  Scenario: Approved orders over EUR 500 can be placed
+    When the tester checks the box for manager approval
+    And the tester places the order
+    Then the application navigates to the confirmation page
+    And the confirmation page displays the order number #48812
+```
+
+Two scenarios, each one behaviour, sharing a `Background`. **No refusals and
+nothing degraded** — every claim the author made resolved to a retrieval it
+actually performed. The overclaimed 409 is gone, and the second scenario's
+verdict rests on the order number the application COMPUTED (`#48812`) rather
+than on the fact that a page appeared.
+
+### And the predicate, on its first outing
+
+On the storefront filtering recording the author wrote two counting claims. One
+held; the other cited the wrong event's snapshot and was refused with **"the
+list holds 3 here, not 9"**.
+
+Under the old gate that second claim would have passed, because
+`"Showing 9 of 24 products"` is somewhere in the session and the check was
+substring containment. The sentence said *9 items*; the check said *the string
+is present*. That is the whole reason `Evidence.predicate` exists.
+
+---
+
 ## The short version
 
 **`rec_MT7MXBS9B2VB`**, 34 events, no annotations and no narration — what a

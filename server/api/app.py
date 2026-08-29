@@ -22,8 +22,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from server.api import review as review_ops
@@ -339,6 +338,49 @@ def create_app(
     def list_recordings() -> dict[str, Any]:
         return {"recordings": storage.list_recordings()}
 
+    @app.get("/api/expectations/pending")
+    def pending_expectations() -> dict[str, Any]:
+        """Recordings whose guesses nobody has answered yet.
+
+        The oracle is the thing the whole rebuild rests on, and it was
+        unreachable in practice. The confirmation screen opened only on
+        `?confirm=<id>`, read once at mount, linked from exactly one place --
+        the extension's export page -- and dismissed for good. Miss that link
+        and there is no route back. The result, measured: **14 expectation sets
+        on disk and all 14 still `inferred`**, so every downstream stage has
+        only ever read unconfirmed guesses, and A1-vs-A2 -- what asking a human
+        is worth -- has never been measurable.
+
+        `confirmedAt` already exists in the schema for exactly this question;
+        its own description says distinguishing "never asked" from "asked and
+        agreed" is the whole point of storing it. Nothing had ever read it.
+
+        This does not make the run wait. `POST /api/recordings` still guesses,
+        runs and produces a draft on the guesses alone, and answering enqueues a
+        SECOND run -- the skip path is the one that has to be right, because it
+        is what happens by default.
+        """
+        out: list[dict[str, Any]] = []
+        for recording_id in storage.list_recordings():
+            stored = storage.load_expectations(recording_id)
+            if not stored or stored.get("confirmedAt"):
+                continue
+            items = stored.get("expectations") or []
+            if not items:
+                # Nothing to confirm is not the same as nothing to do: a
+                # recording the guesser found no action worth asking about
+                # should not sit on the dashboard forever.
+                continue
+            out.append(
+                {
+                    "recordingId": recording_id,
+                    "count": len(items),
+                    "createdAt": stored.get("createdAt"),
+                }
+            )
+        out.sort(key=lambda row: str(row.get("createdAt") or ""), reverse=True)
+        return {"pending": out}
+
     # -- jobs ------------------------------------------------------------
 
     @app.get("/api/jobs")
@@ -609,7 +651,31 @@ def create_app(
         return {"ok": True, "ui": UI_DIST.exists()}
 
     if UI_DIST.exists():
-        app.mount("/", StaticFiles(directory=UI_DIST, html=True), name="ui")
+        # A catch-all rather than `StaticFiles(html=True)` mounted at "/".
+        #
+        # The UI has real routes now -- `/confirm/<id>` and `/help` -- and a
+        # static mount answers 404 for both, because there is no such file. A
+        # link somebody pastes or a page they reload would land on nothing,
+        # which is precisely the failure the router exists to fix: the
+        # confirmation screen was unreachable, and shipping it behind a URL the
+        # server refuses to serve would leave it unreachable in a new way.
+        #
+        # Registered LAST, so every `/api/...` route above wins on match order.
+        @app.get("/{path:path}")
+        def ui(path: str) -> Response:
+            # An unmatched `/api/...` path is a 404 and must never be answered
+            # with the app shell. The catch-all sits below every real API route,
+            # so anything still reaching here under `/api` is a request nothing
+            # serves -- and returning 200 with HTML to a client expecting JSON
+            # turns "no such endpoint" into a parse error three layers away.
+            # It also silently un-did the download path-traversal guard, which
+            # is how this was noticed.
+            if path.startswith("api/"):
+                raise HTTPException(404, f"no such endpoint: /{path}")
+            candidate = (UI_DIST / path).resolve()
+            if path and UI_DIST.resolve() in candidate.parents and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(UI_DIST / "index.html")
     else:
 
         @app.get("/")

@@ -180,3 +180,56 @@ describe('secrets the application displays', () => {
     expect(r.redactKnownSecrets(displayed)).toBe(displayed);
   });
 });
+
+describe('the redaction level', () => {
+  const password = () => {
+    const el = document.createElement('input');
+    el.type = 'password';
+    return el;
+  };
+
+  it('is full unless somebody says otherwise', () => {
+    // Every recording made before the setting existed, and every one made by a
+    // tester who never opened the details block. If this default ever moves,
+    // secrets reach disk on machines nobody changed.
+    const r = new Redactor();
+    expect(r.redactionLevel()).toBe('full');
+    expect(r.redactText('write to ada@example.com')).toContain('<<user_email_1>>');
+  });
+
+  it('stops guessing by SHAPE at secrets_only, and keeps everything that cannot be wrong', () => {
+    // The situation this exists for: an application whose genuine data looks
+    // like the patterns. There is no way to tell an order reference that scans
+    // as a card number from a card number, so the scan destroys exactly the
+    // values the test is about.
+    const r = new Redactor(undefined, 'secrets_only');
+
+    expect(r.redactText('order 4111 1111 1111 1111 shipped')).toBe(
+      'order 4111 1111 1111 1111 shipped',
+    );
+
+    // What survives is the half that decides by CONTEXT rather than by shape:
+    // a password field is secret whatever its value looks like, and that exact
+    // string is then replaced wherever the application echoes it back.
+    expect(r.redactFieldValue(password(), 'hunter2swordfish')).toBe('<<password>>');
+    expect(r.redactKnownSecrets('shown as hunter2swordfish')).toBe('shown as <<password>>');
+  });
+
+  it('keeps nothing at off, including what the tester typed into a password field', () => {
+    const r = new Redactor(undefined, 'off');
+
+    expect(r.redactText('write to ada@example.com')).toBe('write to ada@example.com');
+    expect(r.redactFieldValue(password(), 'hunter2swordfish')).toBe('hunter2swordfish');
+    expect(r.redactKnownSecrets('shown as hunter2swordfish')).toBe('shown as hunter2swordfish');
+    // And it emits no parameters, because nothing was replaced -- so a run over
+    // this recording has no placeholders to lift into a test parameter either.
+    expect(r.parameters()).toEqual([]);
+  });
+
+  it('reports what was in force, so it can be written onto the recording', () => {
+    // The server must never infer this from whatever the project is configured
+    // to do now: redaction already happened, possibly days ago, possibly under
+    // a different setting.
+    expect(new Redactor(undefined, 'secrets_only').redactionLevel()).toBe('secrets_only');
+  });
+});

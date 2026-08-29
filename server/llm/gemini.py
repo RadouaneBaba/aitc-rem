@@ -78,19 +78,29 @@ class GeminiClient:
         from google.genai import types  # noqa: PLC0415 - optional dependency
 
         system, contents = _to_contents(request, types)
-        config: dict[str, Any] = {"temperature": request.temperature}
+        config: dict[str, Any] = {
+            "temperature": request.temperature,
+            # The tool loop is driven by this pipeline, which logs every call as
+            # content-addressed evidence (SS8.2). Letting the SDK execute
+            # functions automatically would run retrievals this pipeline never
+            # sees, and an assertion could then cite nothing.
+            #
+            # Unconditional, and it used to sit inside `if request.tools`. That
+            # was the source of the SDK's "Direct use of automatic function
+            # calling (AFC) in Models.generate_content is not recommended"
+            # warning: with the field unset the SDK defaults AFC to ENABLED,
+            # logs that line once per process, and enters a loop that does
+            # nothing here (we pass FunctionDeclarations, never callables, so
+            # its function map is empty and it breaks after one call). Harmless
+            # but not free -- it also deep-copies the config every turn -- and a
+            # warning that fires on every run trains you to ignore warnings.
+            "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
+        }
         if system:
             config["system_instruction"] = system
         if request.max_output_tokens:
             config["max_output_tokens"] = request.max_output_tokens
         if request.tools:
-            # The tool loop is driven by the naming stage, which logs every call
-            # as content-addressed evidence (SS8.2). Letting the SDK execute
-            # functions automatically would run retrievals this pipeline never
-            # sees, and an assertion could then cite nothing.
-            config["automatic_function_calling"] = types.AutomaticFunctionCallingConfig(
-                disable=True
-            )
             config["tools"] = [
                 types.Tool(
                     function_declarations=[
@@ -235,11 +245,43 @@ def _from_response(raw: Any, request: CompletionRequest, provider: str) -> Compl
     )
 
 
+def fenced_block(text: str | None, language: str) -> str:
+    """The contents of the first ```<language> fence, or "".
+
+    A model answers in the SHAPE of its worked example, and where an example
+    shows two fenced blocks -- a `.feature` and the JSON beside it -- that is
+    what comes back, whatever the rules say about putting one inside the other.
+    Observed on the checkout recording: a complete, well-formed set of
+    annotations and no `feature` key at all, because the example puts the
+    Gherkin in its own fence and the model faithfully did the same.
+
+    Fighting that with a stricter instruction is the losing half of this
+    project's most-repeated law. Reading what the example teaches is the other
+    half.
+    """
+    if not text:
+        return ""
+    opener = f"```{language}"
+    start = text.find(opener)
+    if start == -1:
+        return ""
+    body = text[start + len(opener) :]
+    end = body.find("```")
+    return (body[:end] if end != -1 else body).strip("\n")
+
+
 def parse_json_answer(text: str | None) -> dict[str, Any]:
     """Models fence JSON in markdown often enough to be worth handling here."""
     if not text:
         return {}
     stripped = text.strip()
+    # Several fences, and the JSON is not the first. `stripped.startswith` below
+    # would take the ```gherkin block and fail to parse it; the balanced-object
+    # fallback would then find the JSON anyway, but only by luck and only when
+    # no `{` appears earlier. Naming the block is the honest version.
+    if (block := fenced_block(text, "json")) and stripped.startswith("```") and "```" in stripped[3:]:
+        stripped = block
+
     if stripped.startswith("```"):
         stripped = stripped.split("\n", 1)[-1]
         if stripped.endswith("```"):

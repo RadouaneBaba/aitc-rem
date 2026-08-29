@@ -36,6 +36,13 @@ pnpm codegen                   # regenerate from schema/ after editing a .schema
 .venv/Scripts/python scripts/capture_cost.py            # what capture actually costs
 .venv/Scripts/python -m server.cli import <recorder.json>  # Chrome DevTools Recorder
 
+# Which house style the author writes in. `style:` in config/project.yaml, and
+# each name is a file in server/pipeline/styles/ holding one good .feature.
+#   automation  -> every action, specific values (the default)
+#   business    -> few steps, plain language, one verdict per scenario
+#   data-driven -> a repeated flow becomes one Scenario Outline; a flow that
+#                  happened once stays a plain Scenario
+
 # Narration (SS6.6). Audio is transcribed locally; a transcript can also be
 # supplied from anywhere, which is how an imported recording reaches `narrated`.
 .venv/Scripts/python -m server.cli transcribe <recording.json> --in-place
@@ -77,7 +84,27 @@ key order or whitespace between write and re-read breaks the hash and rejects a
 `tests/test_canonical.py`.
 
 **Redaction happens in the browser, before anything is persisted.** Never add a
-path that writes a raw value to disk and redacts later. `no_placeholder_leak` is
+path that writes a raw value to disk and redacts later. **That is also why the
+LEVEL is chosen in the recorder popup and not in `project.yaml`**: by the time a
+server config could be read the decision has already been taken and cannot be
+revisited, and it is genuinely per-recording -- one session of a demo app and
+one of a system whose order references scan as card numbers sit in the same
+project. It travels on `metadata.redaction`; absent means `full`, which is every
+recording made before the setting existed.
+
+`secrets_only` turns off ONLY the pattern scan -- the half that decides by
+SHAPE, and therefore the only half that can be wrong about a value nobody typed.
+`redactWholeValue` and `redactKnownSecrets` still run, because deciding by
+CONTEXT (a password field is secret whatever its value looks like) cannot be.
+`off` keeps nothing.
+
+Two things follow, and both are consequences rather than weakenings:
+`no_placeholder_leak` WARNS below `full` -- the same scan, the same finding, a
+different consequence, because you cannot ask for raw values and also gate on
+their absence, and leaving it fatal would mean the setting silently produced no
+output at all. And `check_origins` REFUSES a recording below `full` unless
+`origin_policy` is `off`: free-tier prompts may be used for training and read by
+human reviewers, and that is the one mistake nobody can take back. `no_placeholder_leak` is
 the only validator whose action is `hard_fail`: the feature file is not written
 at all.
 
@@ -134,14 +161,48 @@ that the audio is kept so a human can listen; that is why
 `extension/src/types/`. The drift check regenerates and diffs on every
 `check.sh`.
 
-**The `.feature` body is prose, and nothing else.** No comments, no ids, no
-review markers, no fidelity flags. It is the artifact the tool gets judged by,
-and a traceability line under every step made it unreadable. All of that lives
-in the `.trace.md` sidecar (`server/renderers/trace_md.py`); the machine-readable
-form is in `ir.json` and `trace.json`, which is what the validators actually
-read. Putting anything back in the body will trip `gherkin_style`.
+**The AUTHOR writes the `.feature` file.** It emitted JSON until 2026-08-29 and
+`narrative.py` composed the body from it, which meant **no model in this
+pipeline had ever seen a feature file** -- the one artifact the tool is judged
+by was assembled by a script from parts none of which were Gherkin. It read
+like an assembled array because it was one, and two of four shipped features
+carried the tell: *"When the order is not processed"* (a state written as an
+action, with no verdict), a verdict repeated as both an `And` and a `Then`.
 
-**The author chooses the shape; `narrative.py` lays out what it chose.**
+It also broke this repo's own most-repeated law in the most literal way
+available: the author's worked example taught a model to write Gherkin without
+ever showing it any Gherkin.
+
+So the answer is now the body plus `annotations` -- one per step line, carrying
+what prose cannot: the events a line accounts for, the literal that proves it,
+why there is no verdict. `server/pipeline/featurefile.py` reads it back with
+`gherkin-official`, the same parser `gherkin_parses` runs over the output, so
+the author cannot write something that reads there and fails at the gate.
+
+**The join is by the line each annotation echoes, and ordinal alone was not
+enough.** The first real model wrote six lines and returned five annotations,
+having forgotten a `Given`. Under a positional join that is not "one line loses
+its events" -- every later line is silently attributed to its neighbour. So an
+annotation carries `line`, which is a duplicate of prose used as a join key and
+then discarded; the file stays the single source of the sentence.
+
+**A format slip must never cost the run, and never a revision round.** Prose-
+first emission was rejected once on exactly that objection. If the body does not
+parse or the join fails, `author._parse` falls back to the old JSON path and
+marks the document `degraded`.
+
+**The `.feature` body is still prose, and nothing else.** No comments, no ids,
+no review markers, no fidelity flags. All of that lives in the `.trace.md`
+sidecar (`server/renderers/trace_md.py`); the machine-readable form is in
+`ir.json` and `trace.json`, which is what the validators read.
+
+**A style is a worked example, not a rule.** `style:` in `project.yaml` selects
+a file in `server/pipeline/styles/` holding one good feature file written that
+way. Adding a style is writing one; nothing else in the pipeline changes. That
+is the only mechanism that has ever moved output here -- every content RULE
+added to a drafting prompt measured at or near zero uptake.
+
+**`narrative.py` lays out what the author chose.**
 Given/When/Then used to be DERIVED from a step's role plus its position, and
 that was right while the model writing steps saw one segment at a time: asked
 for a keyword with no view of the flow, it answered `When` every time, which is
@@ -242,16 +303,22 @@ config/          allowed_origins.yaml (the pre-send gate) + project.yaml (house 
 server/
   api/           app.py = the endpoints, jobs.py = the JobRunner seam,
                  review.py = every human edit, and the record of it
-  config/        ProjectConfig: voice, tags, sidecar, parameter rendering
-  evidence/      store.py = the recording, indexed. tools.py = the tools +
-                 ToolRunner. citation.py = which retrieval licenses a claim
+  config/        ProjectConfig: style, voice, tags, sidecar, parameter rendering
+  evidence/      store.py = the recording, indexed. tools.py = the six tools +
+                 ToolRunner. citation.py = which retrieval licenses a claim.
+                 predicate.py = WHAT is claimed about it. text.py = the one
+                 containment primitive, below both
   pipeline/      segment.py (code, hints only) -> digest.py (code, the session
-                 index) -> expectations.py (agentic, one call: what SHOULD have
-                 happened) -> author.py (agentic, one conversation: the whole
-                 document, cited) -> narrative.py (code) -> validators/ (code,
-                 five checks) -> judge.py (agentic: would a QA lead sign it)
-                 -> coverage.py -> run.py
+                 index) -> expectations.py (agentic, what SHOULD have happened,
+                 retrieving on a small budget) -> author.py (agentic, one
+                 conversation: the whole .feature file, cited) ->
+                 featurefile.py (code, reads it back)
+                 -> narrative.py (code, layout) -> validators/ (code, five
+                 checks) -> judge.py (agentic, seven questions: would a QA lead
+                 sign it) -> coverage.py -> run.py
                  investigate.py = the shared decide-retrieve-observe loop
+                 styles/ = one worked .feature per house style, which IS the
+                 specification of that style
                  transcribe.py = narration audio -> text, before any of it
   renderers/     gherkin.py + trace_md.py (sidecar) + bug_md.py are always
                  written; xlsx/jira opt in behind base.py's Exporter seam
@@ -265,9 +332,12 @@ scripts/         setup.sh + start.sh (one command each, _python.sh shared),
                  capture_cost.py (is full capture affordable -- ask it, do not
                  guess), replay.mjs,
                  snapshot_features.py (before/after), compare_features.py (A0/A1/A2)
+ui/              the review UI. route.ts = three addresses (review, confirm,
+                 help), Help.tsx = the how-to as a page a tester can reach
 docs/            RECORDING.md (for the tester, no terminal), HOWTO.md (for
                  whoever runs it: every feature and its command), DESIGN_NOTES.md
-                 (why every rule exists), archive/
+                 (why every rule exists), COMPLAINT.md (what was wrong, and the
+                 design decided in response), archive/
 
 Stage order is deliberate: deterministic where possible, agentic where
 necessary. `segment.py` still runs, but its boundaries are HINTS in the index
@@ -357,6 +427,31 @@ things are different and all three are load-bearing:
   spending a round on it risks a step to `merge_repeats` for no gain. It is
   still recorded.
 
+**`CHECKS` is a closed tuple and `_parse` drops anything not in it, silently.**
+That is right -- a finding naming a category that does not exist reaches the
+author as an instruction to change nothing -- and it is a trap: adding a
+question to the PROMPT without adding it to `CHECKS` ships a change that looks
+clean and does nothing. `test_judge` asserts the two lists agree in both
+directions.
+
+**Seven questions, not five.** The two added on 2026-08-29 each close a hole
+nothing else looks at:
+
+* **`claim_within_evidence`** -- does the sentence claim more than its literal
+  shows? *"the order is rejected with a 409 Conflict status"* shipped proved by
+  *"Orders over EUR500 require approval"*, a page alert with no 409 in it. The
+  gate confirms the literal came back from a retrieval; nothing confirmed the
+  SENTENCE was about the literal. `get_network` is in `JUDGE_TOOLS` for this.
+* **`refusal_is_true`** -- **every validator passes a refusal, because a
+  refusal claims nothing.** It is the only output here that is confident and
+  otherwise entirely unchecked, and one shipped saying the tester had left the
+  recording's scope when the recorder had followed the tab and the index said
+  so in as many words.
+
+`evals/RUBRIC.md` does NOT have these two, deliberately: it is the out-of-band
+instrument and this is part of the machine. Wiring one to the other would mean
+tuning the pipeline tunes the instrument.
+
 Bounded at **two author rounds**, and a revision that would put two adjacent
 steps with identical text in one scenario is refused whole (`_collapsing_pair`)
 -- `merge_repeats` would fold them and the document would silently lose a step.
@@ -413,6 +508,49 @@ Each was catching a symptom of an author with nothing to look at, and each was a
 regex guessing whether a sentence is meaningful. A regex will always lose that
 question to a model reading it. **Do not add another one.** If the output is
 vacuous, the judge is the instrument, and the cause is upstream.
+
+**A claim says WHAT it claims, and the gate checks that shape.**
+`Evidence.predicate` (`server/evidence/predicate.py`) -- `contains` (the
+default, and what every claim written before this meant), `first_of`, `count`,
+`absent`. Without it the gate was substring containment, so
+*"Then the first product is 'The Autumnal Hamper'"* was proved by that string
+appearing ANYWHERE: the sentence said FIRST and the check said PRESENT. Sorting,
+ranking, pagination and every negative assertion were inexpressible. Three
+things about it are load-bearing and each was a way to ship it broken:
+
+* **Nodes are addressed by role and accessible name, never by a css id or a
+  `ref`.** There are no ids in the node model, and `ref` is stable only WITHIN
+  one snapshot -- so a predicate binds to one stored response and cannot be
+  re-pointed the way a bare literal can. `_attach_claim` disables that re-point.
+* **It is evaluated against the STORED response, which is the full one.**
+  `ToolSpec.view` renders a smaller value to the model (see below); evaluating
+  `first_of` against a RANKED view would answer "the first NAMED node", and on a
+  product grid the nameless wrappers are exactly what ranks to the back. It
+  would return the wrong answer confidently and pass the gate.
+* **It has three outcomes, not two.** true / false / **cannot-evaluate**.
+  Cannot-evaluate goes to `whyNot` -- never to pass, which builds a laundering
+  machine, and never to reject, which kills true claims when a shape changes.
+
+**`ToolSpec.view` splits what is STORED from what is SENT.** The stored value is
+the evidence -- re-hashed by `evidence_retrieved`, re-read by every predicate --
+so it must be complete. The sent value is a budget: `get_snapshot` returns 65-72
+KB of a commercial page into a conversation that re-sends its history every
+turn. `image_for` already made this split for pixels. It is also the seam a live
+browser agent needs: an MCP client's retrievals must be persisted through
+`ToolRunner.call` or they never reach `trace.toolCalls`.
+
+**A refused claim must reach the author, or the gate is green and the document
+is empty.** When the author quotes a literal it never retrieved,
+`_attach_claim` drops the claim and writes a `whyNot` -- so it never becomes an
+assertion, so `evidence_retrieved` has nothing to reject, so the loop sees a
+clean gate and stops. Measured live on `keyhole`: two correct verdicts, ZERO
+tool calls, both silently refused, scenarios shipped ending on a `When`.
+`_revision_feedback` now carries refusals, and `investigate`'s `needs_retrieval`
+nudges an author that wrote verdicts without retrieving anything -- the mirror
+of the budget nudge that has always been there. **Both are bounded and neither
+invents anything**; and neither fires on a document of pure refusals, because
+forcing a call out of an author that claimed nothing is the mandatory-tool-call
+anti-pattern.
 
 **A bug report is a failed expectation, not a stage.** *"Expected 9 products,
 saw 24"* is the same sentence either way. It reaches the IR when the tester
@@ -487,16 +625,20 @@ drafter felt obliged to call on every step, which lifted calls-per-step from 1.5
 to 2.17 and collapsed SS3.3's effort spread from 1.08 to 0.16. **A mandatory tool
 call is not investigation.**
 
-*The module is gone; `search_step_library` is still registered in
-`evidence/tools.py` and still reachable.* It degrades to "no library
-configured" rather than crashing, so nothing has failed -- but `coverage.py`
-passes no `tool_names`, which is the one `investigate()` caller that does not
-constrain its set, so the coverage stage is handed all twelve tools including
-that one. Delete the tool with the module, and give coverage its set. Six tools
-are currently offered to no stage at all (`get_console`, `get_events`,
-`get_neighbouring_segments`, `get_objective`, `query_element`,
-`search_step_library`); more tools measurably means worse tool choice, which is
-the whole reason `tool_names` exists.
+*The tool went with it on 2026-08-29, and so did five others.* `TOOLS` is six
+now -- `get_diff`, `get_snapshot`, `see`, `find_text`, `get_network`,
+`get_narration`. The six that went (`query_element`, `get_console`,
+`get_events`, `get_objective`, `get_neighbouring_segments`,
+`search_step_library`) were offered to NO stage, reachable only because
+`coverage.py` was the one `investigate()` caller passing no `tool_names` and so
+received the whole registry by accident. Coverage has its own set now.
+
+**More tools measurably means worse tool choice**, which is the whole reason
+`tool_names` exists, and `test_evidence` asserts every registered tool is
+offered to some stage -- the check that would have caught these six.
+`get_network` and `get_narration` STAY: cutting `get_network` would remove the
+only path to *proving* a status-code claim while leaving the only path to
+*inventing* one, which is how a 409 shipped with no 409 in its evidence.
 
 **Coverage suggestions are quarantined three times over**: their own IR block, an
 UNVERIFIED heading in every renderer, and `suggestions_quarantined` at the gate.
@@ -509,6 +651,34 @@ regenerating: a tester who confirmed twelve guesses must not be asked again
 because somebody re-ran the pipeline, and guessing afresh would silently
 downgrade `confirmed` back to `inferred`. That is the one direction that file
 must never move.
+
+**The oracle retrieves, and its budget is a latency budget rather than a
+grounding one.** It ran tool-less until 2026-08-29, on the argument that a
+stage should not license a claim from a summary. That argument is about
+CLAIMS: this stage writes a question for a human, and the whole difference
+between an expectation somebody can tick and one they cannot is whether it
+names a value -- *"the list should drop from 24 products to 9"*, not *"the list
+should update"* -- which the session index does not always carry.
+`GUESS_BUDGET` is 4 and `EXPECTATION_TOOLS` is three, because `POST
+/api/recordings` guesses while the tester is still sitting there. Its
+retrievals reach `trace.toolCalls` like any other, which is correct:
+`_calls_per_step` attributes effort by the event a call asked about, whoever
+spent it.
+
+**The oracle has to be REACHABLE, and for months it was not.** The confirmation
+screen opened only on `?confirm=<id>`, read once in a lazy initialiser, linked
+from one place -- the extension's export page -- and cleared on dismiss. The
+measured consequence: **14 expectation sets on disk and all 14 still
+`inferred`.** Not one had ever been answered by a human, so every stage
+downstream had only ever read unchecked guesses, and A1-vs-A2 -- what asking a
+human is worth -- was unmeasurable.
+
+`GET /api/expectations/pending` reports the unanswered ones (by `confirmedAt`,
+which was in the schema for exactly this question and which nothing had ever
+read), `ConfirmBanner` puts them on the review screen, and `ui/src/route.ts` is
+a ~40-line router so `/confirm/:id` and `/help` are addresses somebody can
+return to. `?confirm=` still works, permanently: it is what every recording made
+before this links to.
 
 **A run must never wait on a screen somebody might not open.** `POST
 /api/recordings` guesses, runs, and produces a draft on the guesses alone.
@@ -554,8 +724,14 @@ wearing the opposite costume.
 Examples are rendered in the project's voice; `with_subject` is the
 deterministic net.
 
-**A mandatory tool call is not investigation.** `ROUTINE_TOOLS` is excluded from
-`_calls_per_step`; `toolCallsTotal` still counts them.
+**A mandatory tool call is not investigation.** The lesson stands and its
+mechanism is gone: `ROUTINE_TOOLS` was the exclusion list that kept
+search-before-invent out of `_calls_per_step`, and it went with the step
+library. There is no such constant in the source now, and nothing in
+`_calls_per_step` filters by tool name -- it attributes a call to a step by the
+`eventId` in its arguments. Do not reintroduce a tool the author is obliged to
+call: mandating one lifted calls/step 1.56 -> 2.17 and collapsed SS3.3's Spread
+from 1.08 to 0.16.
 
 **Grounding is provenance, not correctness, and `Executes` alone is vacuous.**
 Read `Executes` with `Rechecked`, and grounding rate with `Yield`.
@@ -569,6 +745,23 @@ step made of them had no actions and passed trivially. It emits an
 `unsupported` action now and the step fails honestly. The same shape hid a dead
 branch for a year: it tested `keydown`, and the `EventType` member is
 `keypress`.
+
+**A second scenario can depend on the first one's TEST steps, and only its
+SETUP steps are lifted.** Newly visible on 2026-08-29, because the author now
+routinely produces two scenarios where it produced one. On the checkout
+recording, scenario 2 opens *"the tester has an order over EUR 500 requiring
+approval"* -- true, stated in prose, and carrying no `eventIds`, because the
+events that established it are scenario 1's `test_step`s and `_build_case` lifts
+only `setup`. The replay signs in, adds the widget, and then clicks a control on
+a page it never reached.
+
+**It fails honestly and that is the designed behaviour**, not a bug to paper
+over: a set-up-less case reported green would inflate `executionRate`, which is
+the vacuity trap in its mirror image. But it is worth knowing that `Executes`
+now under-reports on multi-scenario documents, and the resolution is a real
+choice -- lift more as preconditions (and blur what a test case independently
+means), or mark such a case not-independently-replayable. Do not resolve it by
+making the runner lenient.
 
 **A replay must run the scenario's `preconditions` first.** A document with two
 scenarios lifts the shared opening into a `Background`, so the second case's own
@@ -636,6 +829,45 @@ envelope the model never sees.
 
 **`find_text` is the grounding index, and a gap in it looks like a validator
 bug.** Check what got indexed before you touch the gate.
+
+**Every model is `additionalProperties: false`, so DELETING a field breaks every
+artifact on disk.** Dropping `RepairAttempt.resolved` outright stopped
+`prove_grounding.py` reading thirty existing runs -- extra_forbidden on a field
+those traces were correct to have written. Removing a field means making it
+optional and no longer writing it, not deleting it. The strictness is right and
+is what catches a typo'd key; it just cuts both ways.
+
+**A required field that is always `false` is noise wearing a measurement's
+clothes.** `RepairAttempt.resolved` was hardcoded `False` at all three
+construction sites and nothing ever set it `True`, because what was resolved
+between two whole-document rewrites is genuinely not knowable. The reasoning was
+right and the field was not. Gone; `judgeFindings` and `judgeFails` are counts
+of what is still true of the document that shipped.
+
+**A required schema field nobody passes is a crash waiting for its first
+caller.** `BugDetail.environment` was required and `_bug_detail` did not pass
+it, so EVERY construction raised out of `_assemble`. It was unreachable -- the
+path needs a step that is both `bug=True` and carries an accepted assertion,
+which needs a human to have answered the confirmation screen, and across 14
+expectations nobody ever had. Making the screen reachable is what would have
+shipped it.
+
+**A CLI default silently overrides a module constant on every run.**
+`--budget` defaulted to 8, in per-STEP vocabulary from the deleted architecture,
+and overrode `AUTHOR_BUDGET = 24` on every CLI and server invocation. An author
+that spends one retrieval per verdict then has nothing left for `see`. Check
+what a flag's default actually replaces.
+
+**A catch-all route must not swallow `/api`.** Serving `index.html` for
+unmatched paths -- which the UI's real routes need -- returned 200 with HTML to
+JSON clients and silently un-did the download path-traversal guard, which is how
+it was caught. `/api/...` raises 404 before the fallback.
+
+**A fixture that skips a step the real path requires keeps a test green over
+code that never ran.** `judging_model` answered without retrieving, so every
+verdict in every judge test was refused and those tests ran against documents
+with no assertions. Same shape as the `scenario_break` factory trap, and it was
+only visible once refusals started reaching the author.
 
 **Bash heredocs mangle backslash escapes.** Use the Write/Edit tools for any
 file containing a regex, and give every regex a test with a negative case.
@@ -740,11 +972,45 @@ What changed, in one line each:
 * **Five validators, from fourteen.** The rule is not deterministic-vs-agentic;
   it is *can this check ever be wrong*.
 
+### And the follow-up of 2026-08-29
+
+[docs/COMPLAINT.md](docs/COMPLAINT.md) is a product review after two real
+sessions, and its §1 names one root cause: **no model in this pipeline had ever
+seen a `.feature` file.** What was built in response, one line each:
+
+* **The author writes the file.** Body plus annotations; `featurefile.py` reads
+  it back with the same parser the gate uses; a format slip falls back and costs
+  no revision round. A `style:` selects which worked `.feature` it is shown.
+* **A claim says what it claims.** `contains` / `first_of` / `count` / `absent`,
+  re-evaluated against the stored response, with cannot-evaluate as a third
+  outcome. `ToolSpec.view` splits what is stored from what is sent.
+* **The judge asks two more questions**, both about things every validator
+  passes: does the sentence claim more than its literal shows, and is the
+  refusal true.
+* **A refused claim reaches the author.** It reached nobody, so the gate went
+  green on a document with no verdicts in it.
+* **The oracle is reachable** -- a pending list, a banner, and a router.
+* **Redaction has a level**, chosen in the recorder and carried on the
+  recording, with the origin gate refusing to send an unredacted one to a
+  training-eligible endpoint.
+* **Four live defects fixed**: `BugDetail` raised on every construction; the
+  author's budget was 8 rather than 24 on every run; the default model was one
+  no longer served; the SDK's AFC warning.
+
+**Not done, and next: MCP.** `ToolRunner.call` is the seam -- a live agent's
+retrievals must be persisted and hashed there or they never reach
+`trace.toolCalls`, which is what `evidence_retrieved` resolves against.
+
+**Also not done, deliberately: the eval instrument.** Nothing here writes a
+LEDGER row, and `evals/RUBRIC.md` carries a note saying its validator list and
+layer table name deleted stages rather than being rewritten to match.
+
 Phases 1-5 are closed. The phase history and the earlier architecture are in
 [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md).
 
-**What was open before the rebuild is [STATUS.md](STATUS.md)**, and it is the
-only file that tracks it. The phase history, the A0/A1/A2 ablation tables, the measured
+**What was open before the rebuild is [STATUS.md](STATUS.md)**, whose Part 1 is
+archived: every defect in it named a stage that no longer exists. What is open
+NOW is [docs/COMPLAINT.md](docs/COMPLAINT.md). The phase history, the A0/A1/A2 ablation tables, the measured
 experiments (including the ones that failed and were reverted), and the
 before-and-after Gherkin are in
 [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md).
@@ -772,8 +1038,10 @@ itself.** All five validators pass on all nine runs on disk, and
 `prove_grounding.py` reports 100%, while the judge raised three `fail`s on the
 one real commercial session. Five checks that have never produced a non-pass
 are the fourteen in a smaller costume: keep them, because they cost nothing and
-cannot be wrong, and **stop rendering "5 checks passed" as a trust signal** --
-it can only ever say green.
+cannot be wrong, and do not render the count as a trust signal -- it can only
+ever say green. **The badge is gone from `TrustStrip` as of 2026-08-29**; what
+is shown is the numbers that can move (retrievals, rejected claims, judge
+findings).
 
 **And the LEDGER row that would answer *did the rebuild work* cannot be
 produced from the recordings it names.** Its three held-out sessions were

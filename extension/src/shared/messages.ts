@@ -2,6 +2,7 @@ import type {
   CapturedEvent,
   ConsoleEntry,
   NetworkCall,
+  RedactionLevel,
   RedactionParameter,
   TesterAnnotation,
 } from '../types/recording';
@@ -71,6 +72,12 @@ export interface StartRecording {
   recordingId: string;
   objective?: string;
   startedAt: number;
+  /** How much redaction to do. Decided in the popup before recording starts,
+   *  and travels with the recording rather than being read from the server:
+   *  redaction happens in the browser before anything is persisted, so by the
+   *  time a server config could be consulted the decision has already been
+   *  taken and cannot be revisited. Absent means `full`. */
+  redaction?: RedactionLevel;
 }
 
 export interface StopRecording {
@@ -98,6 +105,9 @@ export interface RecorderState {
   /** Whether the tester has asked to narrate. Off unless they turned it on. */
   narrationEnabled: boolean;
   narrationStatus: NarrationStatus;
+  /** What redaction the session is running with, so a frame that joins
+   *  mid-recording matches the ones already going. */
+  redaction?: RedactionLevel;
   /** 0-1, for the level meter. The only live feedback there is: transcription
    *  happens on the server afterwards, so "is it hearing me" has no other
    *  answer until the run finishes. */

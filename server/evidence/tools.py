@@ -1,4 +1,22 @@
-"""The twelve tools of SS8.1, and the logging that makes them evidence.
+"""Six tools, and the logging that makes them evidence.
+
+SS8.1 listed twelve. Six of them had, by 2026-08-29, been offered to **no stage
+at all** -- `query_element`, `get_console`, `get_events`, `get_objective`,
+`get_neighbouring_segments` and `search_step_library` -- reachable only through
+the one `investigate()` caller that passed no `tool_names` and therefore
+received the whole registry by accident. `search_step_library` was worse than
+unused: its module had already been deleted, so it degraded to "no library
+configured" for anything that called it.
+
+They are gone, and the argument is measured rather than tidy: **more tools means
+worse tool choice**, which is the entire reason `tool_names` exists. The step
+library is the proof in the other direction -- making one tool feel obligatory
+lifted calls-per-step from 1.56 to 2.17 and collapsed the effort spread that is
+supposed to show an agent deciding rather than executing, from 1.08 to 0.16.
+
+What each of the six survivors does is a question a tester asks: what changed
+here, what was on the page, where does this appear, what did the server say,
+what did they say out loud, and let me look at it.
 
 Two things live here and they are deliberately separate:
 
@@ -27,6 +45,8 @@ from server.storage.paths import RunPaths, Storage
 from server.util.canonical import response_hash
 
 ToolFn = Callable[..., Any]
+#: A response, narrowed to what is worth putting in front of a model.
+ToolView = Callable[[Any], Any]
 
 
 @dataclass(frozen=True)
@@ -35,6 +55,29 @@ class ToolSpec:
     description: str
     parameters: dict[str, Any]
     fn: ToolFn
+    #: What the MODEL sees, when that should be smaller than what is stored.
+    #:
+    #: Two different questions were being answered by one value. What is
+    #: PERSISTED is the evidence: `evidence_retrieved` re-hashes it, and a
+    #: predicate is re-evaluated against it, so it has to be complete or a true
+    #: claim whose literal fell into a hidden tail starts being rejected. What is
+    #: SENT is a budget: `get_snapshot` returns 65-72 KB of a commercial page --
+    #: one call, ~16-18k tokens -- into a conversation that re-sends its history
+    #: every turn, and three of them took one run to 168,690 prompt tokens
+    #: against ~29,000 for a fixture.
+    #:
+    #: `get_diff` already caps, and there it is the same value both ways, which
+    #: is survivable only because its ranking is stable. It is NOT survivable for
+    #: a snapshot: `_rank` puts named nodes first, so a `first_of` predicate
+    #: evaluated against a ranked view answers "the first NAMED node", and on a
+    #: product grid the nameless wrappers are precisely what ranks to the back.
+    #: The predicate would return the wrong answer confidently and pass the gate.
+    #:
+    #: `ToolRunner.image_for` already made this split for pixels; this is the
+    #: same split for text. It is also the seam a live browser agent needs: an
+    #: MCP client's retrievals must be persisted here or they never reach
+    #: `trace.toolCalls`, which is what `evidence_retrieved` resolves against.
+    view: ToolView | None = None
 
 
 def _dump(value: Any) -> Any:
@@ -66,21 +109,93 @@ def get_snapshot(store: EvidenceStore, eventId: str, when: str = "after") -> dic
     return {"eventId": eventId, "when": when, "present": True, **_dump(snapshot)}
 
 
-def query_element(
-    store: EvidenceStore,
-    eventId: str,
-    selector: str | None = None,
-    role: str | None = None,
-    name: str | None = None,
-    when: str = "after",
-) -> dict[str, Any]:
-    return store.query_element(
-        eventId,
-        selector=selector,
-        role=role,
-        name=name,
-        when=when,  # type: ignore[arg-type]
+#: Nodes of a snapshot tree put in front of the model before it starts counting.
+#:
+#: Larger than `MAX_DIFF_ROWS` because a diff row is a leaf that says something
+#: and a tree is mostly interior structure that says nothing on its own but
+#: cannot be dropped without orphaning what is under it. Measured against the
+#: pages this has to survive: a commercial storefront snapshot is ~950 nodes and
+#: 150-172 KB, and `get_diff` on the same page comes back at 4.5-15 KB, which is
+#: the size that is known to work.
+MAX_SNAPSHOT_NODES = 300
+
+
+def _trim(node: Any, budget: list[int]) -> Any:
+    """One node and as many of its descendants as the budget allows.
+
+    Depth-first, in DOCUMENT ORDER, which is the whole reason this is not
+    `_rank`. Ranking is right for a diff, where the question is "what is worth
+    reading first"; it is wrong for a page, where a claim about the FIRST
+    product in a list is a claim about position and a reordered view answers a
+    different question. So the view is a prefix of the document, never a
+    re-sort, and the tail it drops is the bottom of the page rather than the
+    nameless half of it.
+    """
+    if not isinstance(node, dict):
+        return node
+    budget[0] -= 1
+    children = node.get("children")
+    if not isinstance(children, list) or not children:
+        return node
+
+    kept: list[Any] = []
+    for child in children:
+        if budget[0] <= 0:
+            break
+        kept.append(_trim(child, budget))
+    out = {**node}
+    dropped = len(children) - len(kept)
+    if kept:
+        out["children"] = kept
+    else:
+        out.pop("children", None)
+    if dropped:
+        out["childrenNotShown"] = dropped
+    return out
+
+
+def snapshot_view(response: Any) -> Any:
+    """What the model sees of a snapshot. The full tree is still what is stored.
+
+    See `ToolSpec.view`. The count is always exact and always the real one, for
+    the same reason `get_diff`'s `summary` is: "how big was the page" and "what
+    was on it" are different questions and the answer to the first must not
+    depend on a display budget.
+    """
+    if not isinstance(response, dict) or not response.get("present"):
+        return response
+    total = _count_nodes(response.get("root")) + sum(
+        _count_nodes(region) for region in response.get("liveRegions") or []
     )
+    if total <= MAX_SNAPSHOT_NODES:
+        return response
+
+    budget = [MAX_SNAPSHOT_NODES]
+    out = {**response}
+    if response.get("root") is not None:
+        out["root"] = _trim(response["root"], budget)
+    regions = response.get("liveRegions")
+    if isinstance(regions, list):
+        # Live regions are where an alert or a status message lands, which is
+        # disproportionately what a verdict rests on, so they are trimmed last
+        # and only once the document itself has spent the budget.
+        out["liveRegions"] = [_trim(region, budget) for region in regions]
+    out["nodesShown"] = MAX_SNAPSHOT_NODES - max(budget[0], 0)
+    out["nodesTotal"] = total
+    out["note"] = (
+        f"Showing the first {out['nodesShown']} of {total} nodes, in document order. "
+        "The rest is the bottom of the page. Use get_diff or find_text to reach it."
+    )
+    return out
+
+
+def _count_nodes(node: Any) -> int:
+    if not isinstance(node, dict):
+        return 0
+    children = node.get("children")
+    if not isinstance(children, list):
+        return 1
+    return 1 + sum(_count_nodes(child) for child in children)
 
 
 #: How many added/removed nodes `get_diff` shows before it starts counting.
@@ -207,17 +322,6 @@ def get_network(
     return {"eventId": eventId, "count": len(calls), "calls": _dump(calls)}
 
 
-def get_console(
-    store: EvidenceStore,
-    eventId: str | None = None,
-    fromMs: float | None = None,
-    toMs: float | None = None,
-    level: str | None = None,
-) -> dict[str, Any]:
-    entries = store.console(event_id=eventId, from_ms=fromMs, to_ms=toMs, level=level)
-    return {"eventId": eventId, "count": len(entries), "entries": _dump(entries)}
-
-
 def get_narration(store: EvidenceStore, fromMs: float, toMs: float) -> dict[str, Any]:
     segments = store.narration(fromMs, toMs)
     return {
@@ -230,45 +334,6 @@ def get_narration(store: EvidenceStore, fromMs: float, toMs: float) -> dict[str,
             if store.recording.narration
             else {"note": "This recording has no narration; the tester did not speak."}
         ),
-    }
-
-
-def get_events(
-    store: EvidenceStore, start: int | None = None, end: int | None = None
-) -> dict[str, Any]:
-    events = store.events_in_range(start, end)
-    # Deliberately a summary, not the full events: handing back two snapshots
-    # per event would defeat the point of retrieving on demand.
-    return {
-        "count": len(events),
-        "events": [
-            {
-                "id": e.id,
-                "seq": e.seq,
-                "timestamp": e.timestamp,
-                "type": e.type.value,
-                "url": e.url,
-                "role": e.target.role,
-                "name": e.target.name,
-                "fidelity": [f.value for f in e.fidelity],
-                "network": [
-                    f"{c.method} {c.url} {c.status if c.status is not None else '-'}"
-                    for c in e.network
-                ],
-                # The assert prompt tells the model "use get_events for the
-                # annotation" and this response had no annotations in it, so the
-                # instructed retrieval returned nothing and the model had to
-                # fall back to inference. A tester pointing at the thing they
-                # are checking is the strongest signal in the system (SS9.5);
-                # advertising it and then not serving it was the worst of both.
-                **(
-                    {"annotations": [_annotation(a) for a in e.annotations]}
-                    if e.annotations
-                    else {}
-                ),
-            }
-            for e in events
-        ],
     }
 
 
@@ -317,77 +382,6 @@ def find_text(
     }
 
 
-def search_step_library(store: EvidenceStore, query: str, limit: int = 5) -> dict[str, Any]:
-    """Approved phrasing from earlier recordings (SS12).
-
-    The library is attached to the `ToolRunner`, not to the `EvidenceStore`:
-    what a team has agreed to call something is not evidence about this
-    recording, and putting it on the store would let a library entry ground an
-    assertion. Nothing in the library came out of the session under analysis.
-    """
-    library = getattr(store, "_library", None)
-    if library is None:
-        return {
-            "query": query,
-            "count": 0,
-            "matches": [],
-            "note": "No step library is configured for this run. Invent new wording.",
-        }
-
-    matches = library.search(query, limit=limit)
-    if not matches:
-        return {
-            "query": query,
-            "count": 0,
-            "matches": [],
-            "note": (
-                "Nothing approved resembles this yet. Invent new wording -- it enters the "
-                "library when a human approves it."
-            ),
-        }
-    return {
-        "query": query,
-        "count": len(matches),
-        "matches": [m.as_dict() for m in matches],
-        "note": (
-            "`reuse: true` means this wording is safe to copy EXACTLY as given. "
-            "`reuse: false` means it is similar but says something different -- read it, "
-            "then write your own sentence."
-        ),
-    }
-
-
-def get_objective(store: EvidenceStore) -> dict[str, Any]:
-    objective = store.objective
-    return {
-        "objective": objective,
-        "stated": objective is not None,
-        **(
-            {}
-            if objective
-            else {"note": "The tester stated no objective. Infer intent from the events."}
-        ),
-    }
-
-
-def get_neighbouring_segments(store: EvidenceStore, segmentId: str, n: int = 1) -> dict[str, Any]:
-    segments = store.neighbouring_segments(segmentId, n)
-    return {
-        "segmentId": segmentId,
-        "segments": [
-            {
-                "id": s.id,
-                "index": s.index,
-                "label": s.label,
-                "eventIds": s.eventIds,
-                "boundaryReason": s.boundaryReason.value,
-                "isTarget": s.id == segmentId,
-            }
-            for s in segments
-        ],
-    }
-
-
 # --------------------------------------------------------------------------
 # registry
 # --------------------------------------------------------------------------
@@ -412,21 +406,7 @@ TOOLS: dict[str, ToolSpec] = {
             "Use `transient` for something that appeared and then vanished, such as a toast.",
             _schema({"eventId": _STR, "when": _WHEN}, ["eventId"]),
             get_snapshot,
-        ),
-        ToolSpec(
-            "query_element",
-            "One element, its state, and its neighbours. Match by ref, by role, or by name.",
-            _schema(
-                {
-                    "eventId": _STR,
-                    "selector": _STR,
-                    "role": _STR,
-                    "name": _STR,
-                    "when": _WHEN,
-                },
-                ["eventId"],
-            ),
-            query_element,
+            view=snapshot_view,
         ),
         ToolSpec(
             "get_diff",
@@ -453,12 +433,6 @@ TOOLS: dict[str, ToolSpec] = {
             get_network,
         ),
         ToolSpec(
-            "get_console",
-            "Console errors and warnings for an event or a time window.",
-            _schema({"eventId": _STR, "fromMs": _NUM, "toMs": _NUM, "level": _STR}, []),
-            get_console,
-        ),
-        ToolSpec(
             "get_narration",
             "Transcript of anything the tester said in a time window. When present this is "
             "the most direct statement of the expected result there is.",
@@ -466,42 +440,11 @@ TOOLS: dict[str, ToolSpec] = {
             get_narration,
         ),
         ToolSpec(
-            "get_events",
-            "Summaries of events in a range, by index. Cheap overview, no snapshots.",
-            _schema({"start": _INT, "end": _INT}, []),
-            get_events,
-        ),
-        ToolSpec(
             "find_text",
             "Where does this exact string appear across the recording? The grounding "
             "lookup: an assertion may only quote a string this returns.",
             _schema({"query": _STR, "scope": _STR, "caseSensitive": _BOOL}, ["query"]),
             find_text,
-        ),
-        ToolSpec(
-            "search_step_library",
-            # A capability statement, not a directive. This used to read
-            # "Search before inventing new wording", which was an instruction
-            # from the deleted naming stage left loose in every agent's tool
-            # list. Mandating it per step is measured: calls/step 1.56 -> 2.17
-            # and SS3.3's Spread collapsed from 1.08 to 0.16, which reads as an
-            # agent that stopped adapting when nothing had changed.
-            "Approved step phrasing from earlier recordings in this project. "
-            "Advice about wording; never evidence, and never required.",
-            _schema({"query": _STR, "limit": _INT}, ["query"]),
-            search_step_library,
-        ),
-        ToolSpec(
-            "get_objective",
-            "What the tester said they were checking, before recording started.",
-            _schema({}, []),
-            get_objective,
-        ),
-        ToolSpec(
-            "get_neighbouring_segments",
-            "Surrounding segments, for when a step is ambiguous on its own.",
-            _schema({"segmentId": _STR, "n": _INT}, ["segmentId"]),
-            get_neighbouring_segments,
         ),
     ]
 }
@@ -525,18 +468,8 @@ class ToolRunner:
     storage: Storage
     run: RunPaths
     stage: PipelineStage = PipelineStage.author
-    #: SS12's approved phrasing. Optional: a project with no history has none,
-    #: and the pipeline must run identically without it.
-    library: Any = None
     calls: list[ToolCall] = field(default_factory=list)
     _seq: int = field(default=0, init=False)
-
-    def __post_init__(self) -> None:
-        # Handed to the tool through the store because every tool takes the
-        # store as its first argument, and widening that signature for one tool
-        # would touch all twelve. Underscored: it is not evidence, and nothing
-        # else should read it from there.
-        self.store._library = self.library  # type: ignore[attr-defined]
 
     def tool_definitions(self, names: Iterable[str] | None = None) -> list[dict[str, Any]]:
         """Tool schemas, in the shape a model API expects.
@@ -580,11 +513,18 @@ class ToolRunner:
         segment_id: str | None = None,
         stage: PipelineStage | None = None,
     ) -> tuple[str, Any]:
-        """Run one tool. Returns `(toolCallId, response)`.
+        """Run one tool. Returns `(toolCallId, what the model should see)`.
 
         A tool that raises is still logged. A failed retrieval is evidence too,
         and hiding it would make the trace a record of what worked rather than
         a record of what happened.
+
+        **What is stored and what is returned are not always the same value.**
+        The full response is persisted and hashed -- it is the evidence, and both
+        `evidence_retrieved` and every predicate are re-evaluated against it --
+        while a tool with a `view` returns a narrowed copy to the caller, which
+        is what reaches the conversation. See `ToolSpec.view` for why a snapshot
+        cannot simply be capped in place.
         """
         args = dict(args or {})
         self._seq += 1
@@ -625,4 +565,14 @@ class ToolRunner:
             record.error = error
 
         self.calls.append(record)
+
+        # The narrowing happens AFTER the store and the hash, never before, so
+        # the record on disk is always the whole retrieval. A view that raises
+        # is not worth losing a retrieval over: the full response is correct,
+        # merely larger than intended.
+        if spec is not None and spec.view is not None and error is None:
+            try:
+                return call_id, spec.view(response)
+            except Exception:  # noqa: BLE001 - a display budget must never fail a run
+                return call_id, response
         return call_id, response

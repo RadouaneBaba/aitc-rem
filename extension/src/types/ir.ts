@@ -2,9 +2,13 @@
 
 export type TestCaseKind = "test_case" | "bug_report";
 /**
- * Chosen by the drafting stage, which sees the whole flow, and checked by gherkin_style. It was derived from role plus position while the model was shown one segment at a time and could not know where the scenario turned; an author with the session in view can, and the derivation rule it replaced could silently strip every Given from a file.
+ * The keyword the author WROTE, read back off the feature file it wrote.
+ *
+ * It was derived from `role` plus position, which was right while the model was shown one segment at a time and could not know where the scenario turned -- asked for a keyword with no view of the flow it answered `When` every time, and Phase 1 shipped seven of them in a row. An author that writes the whole document in Gherkin has already decided, in the one place where the decision is visible to a reader, so deriving it a second time could only disagree with the file.
+ *
+ * `But` is here because the author's own parser has always accepted it and this enum did not, which made a perfectly ordinary negative step a validation error waiting for the first model that wrote one.
  */
-export type StepKeyword = "Given" | "When" | "Then" | "And";
+export type StepKeyword = "Given" | "When" | "Then" | "And" | "But";
 /**
  * SS9.3 -- what this step does in the narrative. Setup, the behaviour under test, or teardown. Kept alongside `keyword` because it survives re-rendering: a scenario that gets split still knows which of its steps were preconditions.
  */
@@ -16,6 +20,13 @@ export type Confidence = "high" | "medium" | "low";
  */
 export type Provenance = "annotated" | "narrated" | "objective" | "inferred" | "confirmed";
 export type EvidenceKind = "semantic_node" | "url" | "network" | "console" | "narration" | "annotation" | "a11y_node";
+/**
+ * contains  -- the literal appears in the response. The default, and what every assertion written before this meant.
+ * first_of  -- the literal names the FIRST child of `container`, in document order. This is what makes a sort or a ranking checkable.
+ * count     -- `container` holds exactly `n` children of role `role`. 'the list drops from 24 products to 9'.
+ * absent    -- the literal does NOT appear. The judge's most frequent unmet ask, and the only form whose citation cannot be resolved by searching for its own literal.
+ */
+export type PredicateForm = "contains" | "first_of" | "count" | "absent";
 /**
  * What the recorder could NOT determine. SS6.8. Propagates from event to step and is rendered prominently in review. Degrading loudly is the point.
  */
@@ -204,6 +215,47 @@ export interface Evidence {
   toolCallId: string;
   eventId: string;
   kind: EvidenceKind;
+  predicate?: Predicate;
+}
+/**
+ * WHAT is being claimed about the retrieval, not merely that a string is in it.
+ *
+ * Without this the gate is substring containment, and `Then the first product is 'The Autumnal Hamper'` is proved by that string appearing ANYWHERE in the response. The sentence says FIRST; the check says PRESENT. Sorting, ranking, pagination and every negative assertion are inexpressible, so an author asked for a verdict on a sort could only ever restate that the page still says what the tester set the dropdown to.
+ *
+ * Absent means `contains`, which is the historical behaviour, so an assertion written before this existed means exactly what it always did.
+ *
+ * Three things about the design are load-bearing and were each a way to ship this broken:
+ *
+ * 1. A predicate addresses nodes by ROLE and NAME, never by a css id or a `ref`. The node model is ref/role/name/value/children and there are no ids anywhere; `ref` is a structural path that is stable only WITHIN one snapshot, so a predicate binds to exactly one stored response and cannot be re-pointed to another event the way a bare literal can.
+ *
+ * 2. It is evaluated against the STORED response, which is the full one. `get_snapshot` renders a capped view to the model, and the ranking that cap uses puts named nodes first -- so `first_of` evaluated against the capped view would return the first NAMED node rather than the first in document order, and on a product grid the nameless wrapper nodes are exactly what ranks to the back. It would confidently return the wrong answer and pass the gate.
+ *
+ * 3. It has THREE outcomes, not two. A predicate that cannot be evaluated at all -- container absent, role mismatch, the response is not a snapshot -- is neither true nor false, and treating it as either is a different failure. Pass builds a laundering machine that puts a green badge on an unchecked claim; reject silently kills true claims whenever a response shape changes. It goes to `whyNot`.
+ *
+ * This interface was referenced by `IRDocument`'s JSON-Schema
+ * via the `definition` "Predicate".
+ */
+export interface Predicate {
+  form: PredicateForm;
+  container?: NodeRef;
+  /**
+   * Which children `count` counts, e.g. 'listitem'. Absent counts every child.
+   */
+  role?: string;
+  /**
+   * The expected count, for `count`.
+   */
+  n?: number;
+}
+/**
+ * Which part of the page the claim is about. Required by first_of and count; meaningless to contains and absent, which are about the whole response.
+ */
+export interface NodeRef {
+  role: string;
+  /**
+   * The accessible name. Matched case-insensitively, and a container with no name is addressed by role alone.
+   */
+  name?: string;
 }
 /**
  * This interface was referenced by `IRDocument`'s JSON-Schema
@@ -313,4 +365,17 @@ export interface BugEnvironment {
   browser: string;
   viewport: string;
   url: string;
+}
+/**
+ * A node named the way the accessibility tree names it. Never a css selector: the recorder is black-box and reads the live accessibility tree, so role plus accessible name is the only address that exists for it -- and it is the address a human reading the test can also check.
+ *
+ * This interface was referenced by `IRDocument`'s JSON-Schema
+ * via the `definition` "NodeRef".
+ */
+export interface NodeRef1 {
+  role: string;
+  /**
+   * The accessible name. Matched case-insensitively, and a container with no name is addressed by role alone.
+   */
+  name?: string;
 }

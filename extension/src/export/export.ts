@@ -114,6 +114,13 @@ async function assemble(): Promise<{ recording: Recording; screenshots: { key: s
       startUrl: session.startUrl,
       origins: session.origins,
       recorderVersion: chrome.runtime.getManifest().version,
+      // What redaction was ACTUALLY in force while this was recorded, so the
+      // server never has to infer it from whatever the project is configured to
+      // do now. Omitted when it was the default, which keeps every recording
+      // made before the setting existed meaning exactly what it always did.
+      ...(session.redaction && session.redaction !== 'full'
+        ? { redaction: session.redaction }
+        : {}),
       // SS6.6. Only present when audio was actually captured -- the mic takes a
       // moment to open, and every transcript timestamp is relative to the audio
       // rather than to the session, so this delta is what puts a spoken

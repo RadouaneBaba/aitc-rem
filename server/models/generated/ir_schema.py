@@ -30,13 +30,18 @@ class ScenarioExamples(StrictModel):
 
 class StepKeyword(StrEnum):
     """
-    Chosen by the drafting stage, which sees the whole flow, and checked by gherkin_style. It was derived from role plus position while the model was shown one segment at a time and could not know where the scenario turned; an author with the session in view can, and the derivation rule it replaced could silently strip every Given from a file.
+    The keyword the author WROTE, read back off the feature file it wrote.
+
+    It was derived from `role` plus position, which was right while the model was shown one segment at a time and could not know where the scenario turned -- asked for a keyword with no view of the flow it answered `When` every time, and Phase 1 shipped seven of them in a row. An author that writes the whole document in Gherkin has already decided, in the one place where the decision is visible to a reader, so deriving it a second time could only disagree with the file.
+
+    `But` is here because the author's own parser has always accepted it and this enum did not, which made a perfectly ordinary negative step a validation error waiting for the first model that wrote one.
     """
 
     Given = "Given"
     When = "When"
     Then = "Then"
     And = "And"
+    But = "But"
 
 
 class EvidenceKind(StrEnum):
@@ -49,24 +54,33 @@ class EvidenceKind(StrEnum):
     a11y_node = "a11y_node"
 
 
-class Evidence(StrictModel):
+class PredicateForm(StrEnum):
     """
-    SS3.2 -- the single most important structure in the system. A claim is valid only if its literal appeared in a tool response THIS agent actually received during THIS run.
+    contains  -- the literal appears in the response. The default, and what every assertion written before this meant.
+    first_of  -- the literal names the FIRST child of `container`, in document order. This is what makes a sort or a ranking checkable.
+    count     -- `container` holds exactly `n` children of role `role`. 'the list drops from 24 products to 9'.
+    absent    -- the literal does NOT appear. The judge's most frequent unmet ask, and the only form whose citation cannot be resolved by searching for its own literal.
+    """
+
+    contains = "contains"
+    first_of = "first_of"
+    count = "count"
+    absent = "absent"
+
+
+class NodeRef(StrictModel):
+    """
+    A node named the way the accessibility tree names it. Never a css selector: the recorder is black-box and reads the live accessibility tree, so role plus accessible name is the only address that exists for it -- and it is the address a human reading the test can also check.
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
-    literal: str
+    role: str
+    name: str | None = None
     """
-    Exact retrieved string, e.g. 'Order confirmed'. Checked character-for-character by evidence_retrieved.
+    The accessible name. Matched case-insensitively, and a container with no name is addressed by role alone.
     """
-    toolCallId: str
-    """
-    The retrieval that produced it, e.g. tc_0447. The second of the two backlinks (SS10): this one proves the agent went and looked. If this id does not resolve in the trace, the assertion is rejected.
-    """
-    eventId: str
-    kind: EvidenceKind = Field(..., title="EvidenceKind")
 
 
 class Precondition(StrictModel):
@@ -218,6 +232,68 @@ class BugEnvironment(StrictModel):
     url: str
 
 
+class Predicate(StrictModel):
+    """
+    WHAT is being claimed about the retrieval, not merely that a string is in it.
+
+    Without this the gate is substring containment, and `Then the first product is 'The Autumnal Hamper'` is proved by that string appearing ANYWHERE in the response. The sentence says FIRST; the check says PRESENT. Sorting, ranking, pagination and every negative assertion are inexpressible, so an author asked for a verdict on a sort could only ever restate that the page still says what the tester set the dropdown to.
+
+    Absent means `contains`, which is the historical behaviour, so an assertion written before this existed means exactly what it always did.
+
+    Three things about the design are load-bearing and were each a way to ship this broken:
+
+    1. A predicate addresses nodes by ROLE and NAME, never by a css id or a `ref`. The node model is ref/role/name/value/children and there are no ids anywhere; `ref` is a structural path that is stable only WITHIN one snapshot, so a predicate binds to exactly one stored response and cannot be re-pointed to another event the way a bare literal can.
+
+    2. It is evaluated against the STORED response, which is the full one. `get_snapshot` renders a capped view to the model, and the ranking that cap uses puts named nodes first -- so `first_of` evaluated against the capped view would return the first NAMED node rather than the first in document order, and on a product grid the nameless wrapper nodes are exactly what ranks to the back. It would confidently return the wrong answer and pass the gate.
+
+    3. It has THREE outcomes, not two. A predicate that cannot be evaluated at all -- container absent, role mismatch, the response is not a snapshot -- is neither true nor false, and treating it as either is a different failure. Pass builds a laundering machine that puts a green badge on an unchecked claim; reject silently kills true claims whenever a response shape changes. It goes to `whyNot`.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    form: PredicateForm = Field(..., title="PredicateForm")
+    """
+    contains  -- the literal appears in the response. The default, and what every assertion written before this meant.
+    first_of  -- the literal names the FIRST child of `container`, in document order. This is what makes a sort or a ranking checkable.
+    count     -- `container` holds exactly `n` children of role `role`. 'the list drops from 24 products to 9'.
+    absent    -- the literal does NOT appear. The judge's most frequent unmet ask, and the only form whose citation cannot be resolved by searching for its own literal.
+    """
+    container: NodeRef | None = None
+    """
+    Which part of the page the claim is about. Required by first_of and count; meaningless to contains and absent, which are about the whole response.
+    """
+    role: str | None = None
+    """
+    Which children `count` counts, e.g. 'listitem'. Absent counts every child.
+    """
+    n: int | None = Field(None, ge=0)
+    """
+    The expected count, for `count`.
+    """
+
+
+class Evidence(StrictModel):
+    """
+    SS3.2 -- the single most important structure in the system. A claim is valid only if its literal appeared in a tool response THIS agent actually received during THIS run.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    literal: str
+    """
+    Exact retrieved string, e.g. 'Order confirmed'. Checked character-for-character by evidence_retrieved.
+    """
+    toolCallId: str
+    """
+    The retrieval that produced it, e.g. tc_0447. The second of the two backlinks (SS10): this one proves the agent went and looked. If this id does not resolve in the trace, the assertion is rejected.
+    """
+    eventId: str
+    kind: EvidenceKind = Field(..., title="EvidenceKind")
+    predicate: Predicate | None = None
+
+
 class BugDetail(StrictModel):
     """
     SS14.2 -- present only when kind is 'bug_report'. `expected` and `actual` are subject to the same evidence binding as any assertion: `actual` must quote something the agent retrieved.
@@ -261,7 +337,11 @@ class Step(StrictModel):
     id: str
     keyword: StepKeyword = Field(..., title="StepKeyword")
     """
-    Chosen by the drafting stage, which sees the whole flow, and checked by gherkin_style. It was derived from role plus position while the model was shown one segment at a time and could not know where the scenario turned; an author with the session in view can, and the derivation rule it replaced could silently strip every Given from a file.
+    The keyword the author WROTE, read back off the feature file it wrote.
+
+    It was derived from `role` plus position, which was right while the model was shown one segment at a time and could not know where the scenario turned -- asked for a keyword with no view of the flow it answered `When` every time, and Phase 1 shipped seven of them in a row. An author that writes the whole document in Gherkin has already decided, in the one place where the decision is visible to a reader, so deriving it a second time could only disagree with the file.
+
+    `But` is here because the author's own parser has always accepted it and this enum did not, which made a perfectly ordinary negative step a validation error waiting for the first model that wrote one.
     """
     text: str
     """

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any
 
 from server.evidence.store import EvidenceStore
+from server.evidence.text import contains_literal, strings_in
 from server.models import (
     AgentTrace,
     IRDocument,
@@ -41,12 +41,6 @@ class ValidationContext:
     #: testCaseId -> rendered Gherkin, when the renderer has already run.
     rendered: dict[str, str] = field(default_factory=dict)
     attempt: int = 1
-    #: SS12's approved phrasing. Not evidence -- it is what a team agreed to
-    #: call things, and no assertion may be grounded in it. `library_verbatim`
-    #: is the only validator that reads it, and it rejects rather than skips
-    #: when a step claims reuse and this is absent: a claim that cannot be
-    #: checked is not admissible.
-    library: Any = None
     #: SS6.6 -- below this, a narration segment is kept and shown but cannot
     #: support the `narrated` rank. A number rather than the ProjectConfig,
     #: because the gate has no business knowing the project's voice: narration
@@ -113,24 +107,9 @@ def skipped(name: ValidatorName, ctx: ValidationContext, reason: str) -> Validat
     return result(name, ValidatorStatus.skip, ValidatorAction.none, ctx, skip_reason=reason)
 
 
-def strings_in(value: Any) -> Iterable[str]:
-    """Every string anywhere inside a decoded JSON value.
-
-    Used instead of a substring search over the serialized form: a raw
-    `literal in json.dumps(response)` can match across key boundaries and
-    punctuation, which would license an assertion no retrieval actually
-    supports.
-    """
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield key
-            yield from strings_in(item)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from strings_in(item)
-
-
-def contains_literal(value: Any, literal: str) -> bool:
-    return any(literal in s for s in strings_in(value))
+# `contains_literal` and `strings_in` moved to `server.evidence.text` when the
+# evidence layer needed them too -- three callers across two packages, and
+# `evidence -> validators -> evidence` is a cycle. Re-exported here because a
+# containment check reads naturally as part of the gate's vocabulary even though
+# it is not a validator.
+__all__ = ["contains_literal", "strings_in"]

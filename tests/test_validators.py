@@ -23,7 +23,9 @@ from server.models import (
     IRDocument,
     PipelineStage,
     Recording,
+    RedactionLevel,
     RunConfig,
+    ValidatorAction,
     ValidatorName,
     ValidatorStatus,
 )
@@ -33,6 +35,7 @@ from server.pipeline.validators import (
     grounding_rate,
     validate,
 )
+from server.pipeline.validators.output import no_placeholder_leak
 from server.storage.paths import Storage
 from tests import factories as f
 
@@ -497,3 +500,135 @@ def test_the_gate_runs_over_a_real_recorded_session(tmp_path: Path):
     report = validate(ctx)
     assert report.ok, report.summary()
     assert grounding_rate(ctx, report) == 1.0
+
+
+# --------------------------------------------------------------------------
+# what redaction was actually in force
+# --------------------------------------------------------------------------
+
+
+def _context(recording, ir, storage, run_paths) -> ValidationContext:
+    return ValidationContext(
+        recording=recording,
+        ir=ir,
+        trace=AgentTrace(
+            schemaVersion="1.0",
+            runId="run_test",
+            recordingId=recording.id,
+            projectId="proj_test",
+            ownerId="owner_test",
+            createdAt=datetime.now(UTC),
+            config=RunConfig(ablation="A2", toolsEnabled=True, expectationsEnabled=True),
+            toolCalls=[],
+            modelCalls=[],
+            investigations=[],
+            stages=[],
+            validatorResults=[],
+            repairAttempts=[],
+            decompositionDecisions=[],
+        ),
+        storage=storage,
+        run=run_paths,
+    )
+
+
+@pytest.fixture
+def storage(tmp_path):
+    return Storage(recordings_dir=tmp_path / "recordings", runs_dir=tmp_path / "runs")
+
+
+@pytest.fixture
+def run_paths(storage):
+    return storage.run("rec_test01", "run_test")
+
+
+def _leaky(level=None):
+    """A run whose output carries something secret-shaped, at a given level."""
+    recording = f.recording()
+    if level is not None:
+        recording.metadata.redaction = level
+    step = f.step(text="the tester signs in as ada@example.com", assertions=[])
+    ir = f.ir_document(test_cases=[f.test_case(steps=[step])])
+    return recording, ir
+
+
+def test_a_leak_is_fatal_by_default(storage, run_paths):
+    """SS7's promise: raw secrets never exist in a persisted artifact.
+
+    The only `hard_fail` in the gate. It does not reject the claim, it refuses
+    to write the file at all -- a tool that breaks this promise once has broken
+    it permanently.
+    """
+    recording, ir = _leaky()
+    ctx = _context(recording, ir, storage, run_paths)
+
+    results = list(no_placeholder_leak(ctx))
+    assert results[0].status == ValidatorStatus.fail
+    assert results[0].action == ValidatorAction.hard_fail
+
+
+def test_a_leak_warns_when_the_tester_turned_redaction_down(storage, run_paths):
+    """Not the validator being weakened, and the distinction matters.
+
+    Weakening would mean loosening what counts as a leak. Nothing is loosened:
+    the same scan runs, finds the same string and says the same thing. What
+    changes is the consequence, and only for a recording whose own metadata
+    records that a human deliberately turned the pattern scan off before
+    recording. You cannot ask a tool for raw values and also ask it to refuse to
+    write them down -- leaving this fatal would mean the setting existed and
+    silently produced no output at all.
+    """
+    recording, ir = _leaky(RedactionLevel.secrets_only)
+    ctx = _context(recording, ir, storage, run_paths)
+
+    results = list(no_placeholder_leak(ctx))
+    assert results[0].status == ValidatorStatus.warn
+    assert results[0].action == ValidatorAction.none
+    # And it says so in terms of what the reader now has to do about the files.
+    assert "secrets_only" in (results[0].message or "")
+    assert ".env" in (results[0].message or "")
+
+
+def test_a_recording_with_no_level_recorded_is_treated_as_fully_redacted(storage, run_paths):
+    # Every recording made before the setting existed. Defaulting the other way
+    # would silently downgrade the whole corpus.
+    recording, ir = _leaky()
+    assert getattr(recording.metadata, "redaction", None) is None
+    ctx = _context(recording, ir, storage, run_paths)
+    assert list(no_placeholder_leak(ctx))[0].action == ValidatorAction.hard_fail
+
+
+def test_an_unredacted_recording_is_refused_unless_the_endpoint_is_paid():
+    """The one case the pre-send gate refuses on rather than warns about.
+
+    `origin_policy` is normally a warning, deliberately: a tester pointing this
+    at a real site is not doing anything wrong and needs to know what it costs
+    rather than to be stopped. An unredacted recording is different in kind.
+    Free-tier prompts may be used for training and read by human reviewers, and
+    the values in this one are real credentials somebody typed -- the one
+    mistake that cannot be taken back, decided in the recorder possibly days
+    earlier and possibly by somebody else.
+
+    `origin_policy: off` is exactly the assertion "this endpoint is paid and
+    carries a no-training term", which is the only condition under which it is
+    anybody's business but the tool's.
+    """
+    from server.cli import check_origins
+
+    recording = f.recording()
+    recording.metadata.redaction = RedactionLevel.off
+
+    for policy in ("warn", "allowlist"):
+        with pytest.raises(SystemExit) as refused:
+            check_origins(recording, allow=True, policy=policy)
+        assert "redaction" in str(refused.value)
+
+    # And it goes through where the endpoint is declared safe.
+    check_origins(recording, allow=False, policy="off")
+
+
+def test_a_fully_redacted_recording_still_only_warns():
+    from server.cli import check_origins
+
+    recording = f.recording(origins=["https://not-on-the-allowlist.example"])
+    check_origins(recording, allow=False, policy="warn")

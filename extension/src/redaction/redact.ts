@@ -1,4 +1,4 @@
-import type { RedactionParameter } from '../types/recording';
+import type { RedactionLevel, RedactionParameter } from '../types/recording';
 import {
   EMPTY_PROJECT_CONFIG,
   HEADER_ALLOWLIST,
@@ -62,7 +62,33 @@ export class Redactor {
   private counts = new Map<string, number>();
   private used = new Map<string, RedactionParameter>();
 
-  constructor(private project: ProjectRedactionConfig = EMPTY_PROJECT_CONFIG) {}
+  constructor(
+    private project: ProjectRedactionConfig = EMPTY_PROJECT_CONFIG,
+    /**
+     * How much of the above to actually do. Set once, before recording starts.
+     *
+     * `full` is the default and is what every recording made before this
+     * existed did. The two lower levels exist for one real situation: an
+     * application whose genuine data looks like the patterns. An order
+     * reference that scans as a card number, a reference code that scans as a
+     * phone number -- the scan then destroys precisely the values the test is
+     * about, and there is no way to tell it apart from a secret by shape.
+     *
+     * `secrets_only` keeps the part of redaction that cannot be wrong:
+     * `redactWholeValue` on a field known secret by CONTEXT (a password input,
+     * an autocomplete=cc-number), and `redactKnownSecrets` replacing those
+     * exact strings wherever they later appear. Nothing there guesses.
+     *
+     * `off` keeps nothing, and the server refuses to send such a recording to
+     * anything but a paid no-training endpoint.
+     */
+    private level: RedactionLevel = 'full',
+  ) {}
+
+  /** What was in force, so it can be written onto the recording. */
+  redactionLevel(): RedactionLevel {
+    return this.level;
+  }
 
   /** Placeholders actually emitted, for Recording.parameters (SS7.2). */
   parameters(): RedactionParameter[] {
@@ -99,7 +125,7 @@ export class Redactor {
 
   /** A whole field known to be secret by context, e.g. input[type=password]. */
   redactWholeValue(raw: string, base: string, category: string): string {
-    if (!raw) return raw;
+    if (!raw || this.level === 'off') return raw;
     return this.placeholderFor(raw, base, false, category);
   }
 
@@ -129,7 +155,7 @@ export class Redactor {
    * Longest first, so a value that contains another is replaced whole.
    */
   redactKnownSecrets(text: string): string {
-    if (!text || !this.known.size) return text;
+    if (!text || !this.known.size || this.level === 'off') return text;
     let out = text;
     // Longest first, so a value containing another is replaced whole.
     for (const [raw, name] of [...this.known].sort((a, b) => b[0].length - a[0].length)) {
@@ -138,9 +164,14 @@ export class Redactor {
     return out;
   }
 
-  /** Scan free text and replace anything a rule recognises. */
+  /** Scan free text and replace anything a rule recognises.
+   *
+   *  This is the whole of what the two lower levels turn off: it is the only
+   *  redaction here that decides by SHAPE, and therefore the only one that can
+   *  be wrong about a value nobody typed. */
   redactText(text: string | null | undefined): string {
     if (!text) return text ?? '';
+    if (this.level !== 'full') return text;
     let out = text;
 
     for (const rule of this.project.sensitive) {

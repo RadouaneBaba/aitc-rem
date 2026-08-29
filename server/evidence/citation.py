@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.evidence.text import contains_literal
 from server.evidence.tools import ToolRunner
-from server.pipeline.validators.base import contains_literal
 
 
 def resolve_call(runner: ToolRunner, tool_call_ids: list[str], literal: str) -> str | None:
@@ -44,6 +44,38 @@ def resolve_call(runner: ToolRunner, tool_call_ids: list[str], literal: str) -> 
             continue
         call = by_id.get(call_id)
         if response_supports(stored, getattr(call, "tool", ""), literal):
+            return call_id
+    return None
+
+
+def resolve_event_call(runner: ToolRunner, tool_call_ids: list[str], event_id: str) -> str | None:
+    """The agent's own retrieval OF this event, or None.
+
+    `resolve_call` finds the retrieval containing a string, which is the right
+    question for every claim except one: a claim that something is **absent**
+    cannot cite a retrieval containing its own literal, because the whole point
+    is that no retrieval contains it. Searching for it would find nothing and the
+    claim would be refused for being true.
+
+    So an `absent` claim is licensed differently -- by the retrieval it is about
+    rather than by the string it names. That is a weaker licence and it is
+    deliberately kept in its own function rather than added as a branch inside
+    `resolve_call`: it is the one place where "the agent went and looked" is
+    established by the ARGUMENTS of a call instead of by its response, and that
+    difference should be visible at every call site.
+
+    Read in reverse for the same reason `resolve_call` is: when several
+    retrievals cover the event, the most recent is the one it was looking at.
+    `see` is excluded here too -- a description of a picture is not a reading of
+    the page, and "I did not see it in the screenshot" is exactly the kind of
+    absence claim that must not be admissible.
+    """
+    by_id = {call.id: call for call in runner.calls}
+    for call_id in reversed(tool_call_ids):
+        call = by_id.get(call_id)
+        if call is None or call.tool == "see" or call.error:
+            continue
+        if call.args.get("eventId") == event_id:
             return call_id
     return None
 
@@ -70,4 +102,4 @@ def response_supports(stored: Any, tool: str, literal: str) -> bool:
     return contains_literal(stored, literal)
 
 
-__all__ = ["resolve_call", "response_supports"]
+__all__ = ["resolve_call", "resolve_event_call", "response_supports"]

@@ -28,6 +28,7 @@ from server.llm.chain import BudgetGuard, FallbackChain, RateLimiter, RetryingCl
 from server.llm.client import ModelClient
 from server.llm.gemini import DEFAULT_MODEL, GeminiClient
 from server.models import AblationConfig, Recording
+from server.pipeline.author import AUTHOR_BUDGET
 from server.pipeline.run import PipelineOptions, run_pipeline
 from server.renderers import export_all
 from server.renderers.gherkin import trace_filename
@@ -164,6 +165,28 @@ def check_origins(recording: Recording, *, allow: bool, policy: str = "warn") ->
     pointing this at a real site is not doing anything wrong. They need to know
     what it costs, not to be stopped. `allowlist` restores the refusal.
     """
+    # An unredacted recording is the one case this refuses on rather than warns
+    # about, and `--allow-any-origin` does not open it either.
+    #
+    # `origin_policy: off` means "this endpoint is paid and carries a no-training
+    # term", which is exactly the condition under which raw values are anybody's
+    # business but the tool's. Anywhere else, sending a recording whose typed
+    # values were deliberately left unredacted means sending real credentials to
+    # something that may train on them and may be read by a human. Warning is not
+    # enough for that: it is the one mistake nobody can take back, and the person
+    # who set `redaction: off` did so in the recorder, possibly days earlier and
+    # possibly not the same person running this.
+    level = getattr(recording.metadata, "redaction", None)
+    if level is not None and level != "full" and policy != "off":
+        raise SystemExit(
+            f"refusing to send.\n\n"
+            f"This recording was made with redaction set to {level.value!r}, so values the\n"
+            f"tester typed are on disk verbatim. Free-tier prompts may be used for training\n"
+            f"and read by human reviewers.\n\n"
+            f"Set origin_policy: off in config/project.yaml if -- and only if -- this is a\n"
+            f"paid endpoint carrying a no-training term."
+        )
+
     if policy == "off":
         return
 
@@ -634,7 +657,15 @@ def main(argv: list[str] | None = None) -> int:
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--model", default=DEFAULT_MODEL)
-    common.add_argument("--budget", type=int, default=8, help="tool calls per step")
+    # Retrievals for the whole RUN, not per step -- the per-step architecture
+    # this default came from is deleted. It stayed at 8 and silently overrode
+    # `AUTHOR_BUDGET` on every CLI and server run, which left an author that
+    # spends one retrieval per expected result nothing to spend on `see`. That
+    # is a measured contributor to `see` and `get_network` being called zero
+    # times across every run on disk.
+    common.add_argument(
+        "--budget", type=int, default=AUTHOR_BUDGET, help="retrievals per run, across the session"
+    )
     common.add_argument(
         "--rpm",
         type=int,
