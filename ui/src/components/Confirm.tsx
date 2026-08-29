@@ -6,6 +6,24 @@ import {
   type ExpectationSet,
   type ExpectationSource,
 } from '../api';
+import { Wordmark } from './Wordmark';
+
+/**
+ * An observed line that carries no information, which is worse than none.
+ *
+ * Live on disk: *"Actually: the page re-rendered with new content."* Under a
+ * confident question that is not context, it is an admission that the tool did
+ * not work out what changed -- and it makes the guess above it look like a
+ * guess. Suppressed rather than shown, so the question stands on its own.
+ *
+ * Deliberately narrow: anything naming a value, a number or a quoted string is
+ * informative and survives. Only the generic "something happened" shapes go.
+ */
+const VAGUE = /^(the )?(page|content|view|list|screen|dom)\b[^"'0-9]*\b(re-?rendered|updated|changed|refreshed|reloaded)\b[^"'0-9]*$/i;
+
+function informative(observed: string | undefined): observed is string {
+  return Boolean(observed && !VAGUE.test(observed.trim()));
+}
 
 /**
  * The confirmation screen.
@@ -132,7 +150,7 @@ export function Confirm({ recordingId, onDone }: { recordingId: string; onDone: 
   const answered = Object.keys(answers).length;
 
   return (
-    <Shell onDone={onDone}>
+    <Shell onDone={onDone} progress={{ answered, total: set.expectations.length }}>
       <p className="muted confirm-lead">
         Here is what we think should have happened. You are the only one who knows — the
         recording can only show what the application <em>did</em>. Answer what you can and skip
@@ -228,7 +246,7 @@ function Card({
           <dl className="confirm-pair">
             <dt>Should have</dt>
             <dd>{answer?.expected ?? expectation.expected}</dd>
-            {expectation.observed && (
+            {informative(expectation.observed) && (
               <>
                 <dt>Actually</dt>
                 <dd>{expectation.observed}</dd>
@@ -236,9 +254,12 @@ function Card({
             )}
           </dl>
 
+          {/* The common answer carries the weight. All three used to be
+              identical plain outlines, so the screen asked a question and then
+              offered no opinion about which answer was ordinary. */}
           <div className="confirm-buttons">
             <button
-              className={chosen === 'confirmed' ? 'primary' : 'secondary'}
+              className={chosen === 'confirmed' ? 'primary' : ''}
               onClick={() => onAnswer(expectation.id, 'confirmed')}
             >
               Right
@@ -247,13 +268,13 @@ function Card({
                 application did the wrong thing, which is the one finding the
                 recording alone can never produce. */}
             <button
-              className={chosen === 'rejected' ? 'primary' : 'secondary'}
+              className={`no${chosen === 'rejected' ? ' on' : ''}`}
               onClick={() => onAnswer(expectation.id, 'rejected')}
             >
               Not right
             </button>
             <button className="ghost" onClick={onEdit}>
-              Edit
+              Reword
             </button>
           </div>
 
@@ -269,11 +290,33 @@ function Card({
   );
 }
 
-function Shell({ children, onDone }: { children: React.ReactNode; onDone: () => void }) {
+function Shell({
+  children,
+  onDone,
+  progress,
+}: {
+  children: React.ReactNode;
+  onDone: () => void;
+  /** How many of how many. There was none, so three cards read as an unbounded
+   *  scroll -- and this screen only works if somebody can see it ending. */
+  progress?: { answered: number; total: number };
+}) {
   return (
     <div className="confirm">
       <header className="confirm-head">
+        <Wordmark small />
         <h1>Was that right?</h1>
+        <div className="spacer" />
+        {progress && progress.total > 0 && (
+          <span className="confirm-progress">
+            <span className="pips">
+              {Array.from({ length: progress.total }, (_, i) => (
+                <span key={i} className={`pip${i < progress.answered ? ' done' : ''}`} />
+              ))}
+            </span>
+            {progress.answered} of {progress.total}
+          </span>
+        )}
         <button className="ghost" onClick={onDone}>
           Drafts
         </button>

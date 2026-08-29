@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "AITC-REM Recorder",
+  "name": "AITC Recorder",
   "version": "0.1.0",
   "description": "Records a QA session as structured evidence: semantic snapshots, network metadata and outcomes, redacted in the browser.",
 
@@ -23,7 +23,7 @@
 
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AITC-REM Recorder"
+    "default_title": "AITC Recorder"
   },
 
   "content_scripts": [

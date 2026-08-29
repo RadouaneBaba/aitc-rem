@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.0",
-  "id": "rec_MTE5BVCZO8QU",
+  "id": "rec_MTENUXLY6H97",
   "projectId": "local",
   "ownerId": "local",
-  "createdAt": "2026-08-29T08:56:16.259Z",
+  "createdAt": "2026-08-29T17:34:58.726Z",
   "objective": "Check that an order over EUR500 requires approval",
   "metadata": {
-    "capturedAt": "2026-08-29T08:56:16.259Z",
-    "durationMs": 4399,
+    "capturedAt": "2026-08-29T17:34:58.726Z",
+    "durationMs": 4401,
     "browser": "Chrome/151.0.0.0",
     "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
     "viewport": {
@@ -28,7 +28,7 @@
     {
       "id": "evt_001",
       "seq": 0,
-      "timestamp": 529,
+      "timestamp": 530,
       "type": "input",
       "url": "http://localhost:5173/",
       "target": {
@@ -44,7 +44,7 @@
         "value": "<<user_email_1>>"
       },
       "before": {
-        "capturedAt": 529,
+        "capturedAt": 530,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "full",
@@ -140,7 +140,7 @@
         "nodeCount": 13
       },
       "after": {
-        "capturedAt": 845,
+        "capturedAt": 840,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "full",
@@ -262,20 +262,20 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 312,
+        "waitedMs": 307,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
       "fidelity": [],
-      "tabId": 1266957707,
+      "tabId": 649397927,
       "screenshot": "screens/evt_001.png"
     },
     {
       "id": "evt_002",
       "seq": 1,
-      "timestamp": 1016,
+      "timestamp": 1010,
       "type": "input",
       "url": "http://localhost:5173/",
       "target": {
@@ -291,7 +291,7 @@
         "value": "<<password>>"
       },
       "before": {
-        "capturedAt": 1016,
+        "capturedAt": 1010,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "full",
@@ -387,7 +387,7 @@
         "nodeCount": 13
       },
       "after": {
-        "capturedAt": 1018,
+        "capturedAt": 1011,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "full",
@@ -496,12 +496,12 @@
       "network": [],
       "console": [],
       "fidelity": [],
-      "tabId": 1266957707
+      "tabId": 649397927
     },
     {
       "id": "evt_003",
       "seq": 2,
-      "timestamp": 1017,
+      "timestamp": 1011,
       "type": "click",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -516,7 +516,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 1017,
+        "capturedAt": 1011,
         "url": "http://localhost:5173/",
         "title": "Northwind Orders",
         "scope": "full",
@@ -612,7 +612,7 @@
         "nodeCount": 13
       },
       "after": {
-        "capturedAt": 1027,
+        "capturedAt": 1022,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "full",
@@ -1222,7 +1222,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 9,
+        "waitedMs": 10,
         "mutationCount": 4,
         "inFlightAtEnd": 0
       },
@@ -1231,13 +1231,13 @@
           "id": "net_0001",
           "method": "POST",
           "url": "http://localhost:5173/api/login",
-          "startTime": 1020,
+          "startTime": 1013,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 1023,
-          "durationMs": 3,
+          "endTime": 1017,
+          "durationMs": 4,
           "status": 200,
           "requestBody": "{\"email\":\"<<user_email_1>>\",\"password\":\"<<password>>\"}",
           "responseBody": "{\"token\":\"<<token>>\",\"user\":\"<<user_email_1>>\"}",
@@ -1251,12 +1251,12 @@
       "fidelity": [
         "rapid_sequence"
       ],
-      "tabId": 1266957707
+      "tabId": 649397927
     },
     {
       "id": "evt_004",
       "seq": 3,
-      "timestamp": 1531,
+      "timestamp": 1490,
       "type": "click",
       "url": "http://localhost:5173/catalog",
       "target": {
@@ -1271,7 +1271,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 1531,
+        "capturedAt": 1490,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "full",
@@ -1564,7 +1564,7 @@
         "nodeCount": 47
       },
       "after": {
-        "capturedAt": 1850,
+        "capturedAt": 1809,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "full",
@@ -1888,7 +1888,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 317,
+        "waitedMs": 318,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
@@ -1897,12 +1897,12 @@
           "id": "net_0002",
           "method": "POST",
           "url": "http://localhost:5173/api/cart",
-          "startTime": 1533,
+          "startTime": 1492,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 1535,
+          "endTime": 1494,
           "durationMs": 2,
           "status": 201,
           "requestBody": "{\"name\":\"Blue Widget\"}",
@@ -1916,7 +1916,7 @@
       "console": [],
       "fidelity": [],
       "transient": {
-        "capturedAt": 1538,
+        "capturedAt": 1497,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "full",
@@ -2213,13 +2213,13 @@
         "liveRegions": [],
         "nodeCount": 48
       },
-      "tabId": 1266957707,
+      "tabId": 649397927,
       "screenshot": "screens/evt_004.png"
     },
     {
       "id": "evt_005",
       "seq": 4,
-      "timestamp": 2004,
+      "timestamp": 1979,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -2234,7 +2234,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 2004,
+        "capturedAt": 1979,
         "url": "http://localhost:5173/catalog",
         "title": "Northwind Orders",
         "scope": "full",
@@ -2532,7 +2532,7 @@
         "nodeCount": 48
       },
       "after": {
-        "capturedAt": 2012,
+        "capturedAt": 1988,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -3251,7 +3251,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 6,
+        "waitedMs": 8,
         "mutationCount": 2,
         "inFlightAtEnd": 0
       },
@@ -3260,12 +3260,12 @@
       "fidelity": [
         "closed_shadow_root"
       ],
-      "tabId": 1266957707
+      "tabId": 649397927
     },
     {
       "id": "evt_006",
       "seq": 5,
-      "timestamp": 2951,
+      "timestamp": 2955,
       "type": "input",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -3281,7 +3281,7 @@
         "value": "PO-4471"
       },
       "before": {
-        "capturedAt": 2951,
+        "capturedAt": 2955,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -3558,7 +3558,7 @@
         "nodeCount": 44
       },
       "after": {
-        "capturedAt": 3268,
+        "capturedAt": 3264,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -3861,7 +3861,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 316,
+        "waitedMs": 307,
         "mutationCount": 0,
         "inFlightAtEnd": 0
       },
@@ -3870,13 +3870,13 @@
       "fidelity": [
         "closed_shadow_root"
       ],
-      "tabId": 1266957707,
+      "tabId": 649397927,
       "screenshot": "screens/evt_006.png"
     },
     {
       "id": "evt_007",
       "seq": 6,
-      "timestamp": 3431,
+      "timestamp": 3433,
       "type": "input",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -3892,7 +3892,7 @@
         "value": "615"
       },
       "before": {
-        "capturedAt": 3431,
+        "capturedAt": 3433,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -4169,7 +4169,7 @@
         "nodeCount": 44
       },
       "after": {
-        "capturedAt": 3434,
+        "capturedAt": 3437,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -4461,12 +4461,12 @@
       "fidelity": [
         "closed_shadow_root"
       ],
-      "tabId": 1266957707
+      "tabId": 649397927
     },
     {
       "id": "evt_008",
       "seq": 7,
-      "timestamp": 3433,
+      "timestamp": 3435,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -4481,7 +4481,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 3433,
+        "capturedAt": 3435,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -4758,7 +4758,7 @@
         "nodeCount": 44
       },
       "after": {
-        "capturedAt": 3749,
+        "capturedAt": 3748,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -5053,7 +5053,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 315,
+        "waitedMs": 312,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
@@ -5062,13 +5062,13 @@
           "id": "net_0003",
           "method": "POST",
           "url": "http://localhost:5173/api/orders",
-          "startTime": 3436,
+          "startTime": 3438,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 3439,
-          "durationMs": 3,
+          "endTime": 3442,
+          "durationMs": 4,
           "status": 409,
           "requestBody": "{\"total\":615,\"approved\":false,\"poNumber\":\"PO-4471\",\"speed\":\"standard\"}",
           "responseBody": "{\"error\":\"Orders over EUR500 require approval\",\"code\":\"APPROVAL_REQUIRED\"}",
@@ -5084,7 +5084,7 @@
         "closed_shadow_root"
       ],
       "transient": {
-        "capturedAt": 3442,
+        "capturedAt": 3445,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -5365,12 +5365,12 @@
         "liveRegions": [],
         "nodeCount": 45
       },
-      "tabId": 1266957707
+      "tabId": 649397927
     },
     {
       "id": "evt_009",
       "seq": 8,
-      "timestamp": 3926,
+      "timestamp": 3921,
       "type": "click",
       "url": "http://localhost:5173/checkout",
       "target": {
@@ -5385,7 +5385,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 3926,
+        "capturedAt": 3921,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -5670,7 +5670,7 @@
         "nodeCount": 45
       },
       "after": {
-        "capturedAt": 4353,
+        "capturedAt": 4325,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -5963,7 +5963,7 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 426,
+        "waitedMs": 403,
         "mutationCount": 1,
         "inFlightAtEnd": 0
       },
@@ -5972,13 +5972,13 @@
       "fidelity": [
         "closed_shadow_root"
       ],
-      "tabId": 1266957707,
+      "tabId": 649397927,
       "screenshot": "screens/evt_009.png"
     },
     {
       "id": "evt_010",
       "seq": 9,
-      "timestamp": 4399,
+      "timestamp": 4401,
       "type": "click",
       "url": "http://localhost:5173/confirmation",
       "target": {
@@ -5993,7 +5993,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 4399,
+        "capturedAt": 4401,
         "url": "http://localhost:5173/checkout",
         "title": "Northwind Orders",
         "scope": "full",
@@ -6273,7 +6273,7 @@
         "nodeCount": 44
       },
       "after": {
-        "capturedAt": 4408,
+        "capturedAt": 4411,
         "url": "http://localhost:5173/confirmation",
         "title": "Northwind Orders",
         "scope": "full",
@@ -6651,7 +6651,7 @@
       },
       "settle": {
         "reason": "url_change",
-        "waitedMs": 8,
+        "waitedMs": 9,
         "mutationCount": 3,
         "inFlightAtEnd": 0
       },
@@ -6660,12 +6660,12 @@
           "id": "net_0004",
           "method": "POST",
           "url": "http://localhost:5173/api/orders",
-          "startTime": 4400,
+          "startTime": 4402,
           "initiator": "fetch",
           "requestHeaders": {
             "content-type": "application/json"
           },
-          "endTime": 4405,
+          "endTime": 4407,
           "durationMs": 5,
           "status": 201,
           "requestBody": "{\"total\":615,\"approved\":true,\"poNumber\":\"PO-4471\",\"speed\":\"standard\"}",
@@ -6681,7 +6681,7 @@
         "closed_shadow_root"
       ],
       "transient": {
-        "capturedAt": 4407,
+        "capturedAt": 4410,
         "url": "http://localhost:5173/confirmation",
         "title": "Northwind Orders",
         "scope": "full",
@@ -6801,7 +6801,7 @@
         "liveRegions": [],
         "nodeCount": 18
       },
-      "tabId": 1266957707
+      "tabId": 649397927
     }
   ],
   "narration": [],

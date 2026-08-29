@@ -11,86 +11,190 @@
  * identical by `tests/test_design_tokens.py` -- two palettes drifting apart is
  * exactly the failure this file exists to end.
  *
- * SS13.4's rule still governs the palette: it is deliberately quiet, so that
- * the few things which ARE coloured mean something.
+ * -----------------------------------------------------------------------
+ * THE BRAND HUE IS NOT A STATUS HUE, and that split is the point of this
+ * revision.
+ *
+ * `--accent` used to be both. It painted the Approve button, the Start
+ * recording button, the Send button and every link -- and it also meant
+ * "grounded", "accepted", "passed". So every ACTION in the product was
+ * rendered in the colour that means an OUTCOME, and a primary button read as a
+ * pass badge.
+ *
+ * `--brand` is cobalt and belongs to things you press: primary buttons, links,
+ * selection, the focus ring, the wordmark. `--accent` keeps its green and its
+ * one job: something was checked and it held. Green, amber and red are spoken
+ * for; the brand may not be any of them.
+ * -----------------------------------------------------------------------
+ *
+ * SS13.4's rule still governs the rest of the palette: it is deliberately
+ * quiet, so that the few things which ARE coloured mean something.
  */
 
+/* Bundled, never fetched. An MV3 extension page cannot reach a font CDN, so a
+ * local file is the only way the recorder and the dashboard can be set in the
+ * same face -- and a demo never waits on a network that is not there.
+ * `/fonts/` resolves against the site root in the UI and against the extension
+ * root in `dist/`, which is why both builds put them in the same place. */
+@font-face {
+  font-family: "AITC Sans";
+  src: url("/fonts/inter-latin.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "AITC Sans";
+  src: url("/fonts/inter-latin-ext.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "AITC Display";
+  src: url("/fonts/instrument-sans-latin.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "AITC Display";
+  src: url("/fonts/instrument-sans-latin-ext.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
-  /* Surfaces and text */
-  --bg: #f7f8fa;
+  /* Surfaces and text. The neutrals carry a slight blue bias so they agree
+     with the brand rather than sitting beside it. */
+  --bg: #f5f6fa;
   --panel: #ffffff;
-  --subtle-bg: #f1f3f5;
-  --selected-bg: #eef3f7;
-  --ink: #1c1f23;
-  --muted: #5b6470;
-  --line: #e3e7ec;
+  --subtle-bg: #eef0f6;
+  --selected-bg: #e8ecfa;
+  --ink: #11141b;
+  --muted: #59637a;
+  --line: #dee2ec;
+  --line-soft: #eceff5;
+
+  /* The brand. Things you press, and nothing that reports an outcome. */
+  --brand: #2b4acb;
+  --brand-bg: #eaeefc;
+  --brand-line: #c3cef1;
+  --on-brand: #ffffff;
 
   /* The three meanings. Each has a fill and a border, so a badge and a banner
-     never invent their own tint. */
+     never invent their own tint. `--accent` is now ONLY "this was checked and
+     it held" -- it is no longer the colour of a button. */
   --accent: #2f6f4f;
   --accent-bg: #e7f2ec;
   --accent-line: #bcd7c7;
-  --warn: #9a6700;
-  --warn-bg: #fff8e6;
-  --warn-line: #f0dfae;
+  --warn: #8a5c00;
+  --warn-bg: #fdf4e0;
+  --warn-line: #eddcae;
   --danger: #b3261e;
   --danger-bg: #fdeceb;
   --danger-line: #f3c9c6;
 
-  /* Text on a filled accent or ink background. Not `white`: it inverts in
-     dark mode, where the accent is light. */
+  /* Text on a filled accent, and text on a filled `--ink` surface. Not
+     `white`: both invert in dark mode, where the accent is light and the ink
+     is nearly so. */
   --on-accent: #ffffff;
+  --on-ink: #ffffff;
 
   /* Kept as an alias: SS9.8's "needs a look" highlight is the warn fill. */
   --attention: var(--warn-bg);
 
-  /* 4px spacing scale. */
+  /* 4px spacing scale. It used to stop at 24, which is why every screen had
+     one flat rhythm regardless of what was being separated. */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
   --s-4: 16px;
   --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
 
-  /* Three radii, down from five. 3px and 8px were noise. */
+  /* Four radii. 3px and 8px were noise; 14px is for the things that float. */
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 10px;
+  --r-xl: 14px;
 
-  /* Five sizes, down from eight -- 11.5, 12.5 and 14.5px were accidents. */
+  /* The type scale spanned 11px to 15px across five sizes, which makes
+     hierarchy arithmetically impossible -- it is why every screen read as one
+     flat sheet of text. Nine sizes now, 11px to 34px. */
   --fs-xs: 11px;
   --fs-sm: 12px;
   --fs-md: 13px;
   --fs-base: 14px;
   --fs-lg: 15px;
+  --fs-xl: 17px;
+  --fs-2xl: 21px;
+  --fs-3xl: 26px;
+  --fs-4xl: 34px;
 
-  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --lh-tight: 1.18;
+  --lh-snug: 1.35;
+  --lh: 1.55;
+
+  /* Negative tracking on display sizes only; positive on the small uppercase
+     eyebrows, which are unreadable set solid. */
+  --track-tight: -0.02em;
+  --track-eyebrow: 0.09em;
+
+  --font-display: "AITC Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font: "AITC Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
 
-  --shadow: 0 4px 16px rgba(15, 20, 28, 0.12);
+  /* Two elevations, so a card can read as a card. There was one shadow and it
+     was used for exactly one thing, which is why nothing on any screen came
+     forward or receded. */
+  --shadow-1: 0 1px 2px rgba(17, 20, 27, 0.06), 0 2px 6px rgba(17, 20, 27, 0.05);
+  --shadow-2: 0 2px 4px rgba(17, 20, 27, 0.06), 0 14px 34px rgba(17, 20, 27, 0.1);
+  --shadow: var(--shadow-2);
 
   /* A visible focus ring, because there was none at all and the review loop is
-     about to become keyboard-first. */
-  --focus: 2px solid var(--accent);
+     keyboard-first. */
+  --focus: 2px solid var(--brand);
   --focus-offset: 2px;
 
   color-scheme: light;
 }
 
 /* Dark mode follows the system by default, and `data-theme` on <html> wins in
-   both directions so an explicit choice is possible later. Every token above
+   both directions so an explicit choice is possible. Every colour token above
    is redefined here -- a token defined only in light is a hole in the theme. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #14171a;
-    --panel: #1b1f24;
-    --subtle-bg: #22272e;
-    --selected-bg: #232c33;
-    --ink: #e6e9ed;
-    --muted: #9aa4b0;
-    --line: #2b3138;
+    --bg: #0d1015;
+    --panel: #151920;
+    --subtle-bg: #1b2029;
+    --selected-bg: #1c2740;
+    --ink: #e7eaf2;
+    --muted: #97a1b3;
+    --line: #282f3a;
+    --line-soft: #1e232c;
+
+    --brand: #8ba1f6;
+    --brand-bg: #18203c;
+    --brand-line: #303f6d;
+    --on-brand: #0b1020;
 
     --accent: #6cc79a;
-    --accent-bg: #17291f;
+    --accent-bg: #16281e;
     --accent-line: #2f5a42;
     --warn: #e0b050;
     --warn-bg: #2a2413;
@@ -99,25 +203,35 @@
     --danger-bg: #2c1715;
     --danger-line: #5e2a26;
 
-    /* Inverted: the dark accent is light, so filled text must be dark. */
+    /* Inverted: the dark accent is light and the dark ink is nearly white, so
+       filled text on either must be dark. */
     --on-accent: #0f1713;
+    --on-ink: #11141b;
 
-    --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --shadow-2: 0 14px 34px rgba(0, 0, 0, 0.55);
+    --shadow: var(--shadow-2);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #14171a;
-  --panel: #1b1f24;
-  --subtle-bg: #22272e;
-  --selected-bg: #232c33;
-  --ink: #e6e9ed;
-  --muted: #9aa4b0;
-  --line: #2b3138;
+  --bg: #0d1015;
+  --panel: #151920;
+  --subtle-bg: #1b2029;
+  --selected-bg: #1c2740;
+  --ink: #e7eaf2;
+  --muted: #97a1b3;
+  --line: #282f3a;
+  --line-soft: #1e232c;
+
+  --brand: #8ba1f6;
+  --brand-bg: #18203c;
+  --brand-line: #303f6d;
+  --on-brand: #0b1020;
 
   --accent: #6cc79a;
-  --accent-bg: #17291f;
+  --accent-bg: #16281e;
   --accent-line: #2f5a42;
   --warn: #e0b050;
   --warn-bg: #2a2413;
@@ -127,7 +241,10 @@
   --danger-line: #5e2a26;
 
   --on-accent: #0f1713;
+  --on-ink: #11141b;
 
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 14px 34px rgba(0, 0, 0, 0.55);
+  --shadow: var(--shadow-2);
   color-scheme: dark;
 }

@@ -9,11 +9,21 @@ function send<T>(message: WorkerInbound | { type: string }): Promise<T> {
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 /**
- * SS6.6 -- what to say when the microphone is not doing what was asked.
+ * Where the how-to page lives.
+ *
+ * The popup cannot know the server address for certain, so it uses the one the
+ * send page defaults to and remembers whatever was actually used last. A
+ * how-to nobody can reach from the recorder is how the current one ended up
+ * reachable from exactly one button on one screen.
+ */
+const DEFAULT_SERVER = 'http://127.0.0.1:8000';
+
+/**
+ * What to say when the microphone is not doing what was asked.
  *
  * `denied` and `unsupported` are different sentences because they are different
  * situations: one is a person who said no, the other is a browser that cannot.
- * Telling a tester to check their microphone when they deliberately declined is
+ * Telling somebody to check their microphone when they deliberately declined is
  * how a tool loses their trust.
  */
 const MIC_TROUBLE: Partial<Record<NarrationStatus, string>> = {
@@ -23,57 +33,87 @@ const MIC_TROUBLE: Partial<Record<NarrationStatus, string>> = {
   unsupported: 'This browser will not record audio here, so narration is off for this session.',
 };
 
-/** Rendered live, and it has to be: transcription happens on the server after
- *  the run, so the meter is the ONLY answer to "can it hear me". */
+/**
+ * One poll, and it runs whenever a recording is running.
+ *
+ * It used to run only while the microphone was live, because the level meter
+ * was the only thing that moved. There was no elapsed timer and no recording
+ * indicator at all -- the only sign a session was in progress was a number
+ * labelled "Events", which is not a state a person can read at a glance.
+ */
 let poll: number | undefined;
 
+function elapsed(startedAt: number | undefined): string {
+  if (!startedAt) return '0:00';
+  const total = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const minutes = Math.floor(total / 60);
+  return `${minutes}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function render(state: RecorderState): void {
-  $('idle').hidden = state.recording;
+  const settingsOpen = !$('settings-pane').hidden;
+
+  $('idle').hidden = state.recording || settingsOpen;
+  $('settings-pane').hidden = state.recording || !settingsOpen;
   $('active').hidden = !state.recording;
+  $('settings').hidden = state.recording;
+
   $('count').textContent = String(state.eventCount);
   $('annotations').textContent = String(state.annotationCount);
   $('origins').textContent = state.origins.length ? String(state.origins.length) : '-';
+  $('elapsed').textContent = elapsed(state.startedAt);
   ($('narrate') as HTMLInputElement).checked = state.narrationEnabled;
 
   const trouble = MIC_TROUBLE[state.narrationStatus];
   const live = state.narrationStatus === 'listening' || state.narrationStatus === 'muted';
 
   $('mic').hidden = !live;
+  $('mute').hidden = !live;
   $('micwarn').hidden = !trouble;
   $('micwarn').textContent = trouble ?? '';
 
   if (live) {
     const muted = state.narrationStatus === 'muted';
-    $('micdot').className = muted ? 'dot quiet' : 'dot';
+    $('recdot').className = muted ? 'recdot muted-dot' : 'recdot';
     $('micmeter').style.width = `${Math.round((state.narrationLevel ?? 0) * 100)}%`;
     $('mute').textContent = muted ? 'Unmute' : 'Mute';
+  } else {
+    $('recdot').className = 'recdot';
   }
 
-  // Only while there is a meter to move. A popup that polls the worker awake
-  // every 300ms for nothing is a worker that never gets evicted.
-  if (live && poll === undefined) {
+  // Only while something is actually moving. A popup that polls the worker
+  // awake every 300ms for nothing is a worker that never gets evicted.
+  if (state.recording && poll === undefined) {
     poll = window.setInterval(async () => render(await send<RecorderState>({ type: 'query-state' })), 300);
-  } else if (!live && poll !== undefined) {
+  } else if (!state.recording && poll !== undefined) {
     window.clearInterval(poll);
     poll = undefined;
   }
 }
 
 /**
- * The objective coach (SS6.7), live as they type.
+ * The objective coach, live as they type.
  *
  * Deterministic, so there is no spinner and nothing to wait for, and it NEVER
- * blocks Start -- a tester who disagrees is very often right, and a coach that
- * argues gets switched off. It shows one sentence and no more.
+ * blocks Start -- somebody who disagrees is very often right, and a coach that
+ * argues gets switched off. One line, never a paragraph.
  */
 const objectiveField = $('objective') as HTMLTextAreaElement;
 const objectiveAdvice = $('objective-advice');
 
 function coach(): void {
   const advice = coachObjective(objectiveField.value);
-  objectiveAdvice.textContent = advice.message;
-  objectiveAdvice.hidden = !advice.message;
   objectiveField.setAttribute('data-verdict', advice.verdict);
+  objectiveAdvice.className = `coach ${advice.verdict}`;
+
+  if (advice.verdict === 'empty') {
+    objectiveAdvice.textContent = 'Optional — and the strongest single thing you can give the tool.';
+    return;
+  }
+  // `sharp` carries no message, because there is nothing to correct. Saying so
+  // is worth a line: somebody who has just rewritten a vague objective should
+  // be told it landed.
+  objectiveAdvice.textContent = advice.message || 'Specific enough.';
 }
 
 objectiveField.addEventListener('input', coach);
@@ -90,33 +130,56 @@ coach();
  * same project, and the level travels with each recording so the server never
  * has to guess which was which.
  *
- * Remembered, because somebody who had to turn it down once will have to again,
- * and burying it in a `<details>` is enough friction for a setting this narrow.
+ * It was a `<select>` inside a bare `<details>` labelled "Redaction", so the
+ * current state was invisible unless you opened it. Three buttons, one of them
+ * lit.
  */
-const redactionField = $('redaction') as HTMLSelectElement;
+const redactionSeg = $('redaction-seg');
 const redactionHint = $('redaction-hint');
+let redaction: RedactionLevel = 'full';
 
 const REDACTION_HINTS: Record<string, string> = {
-  full: 'Emails, card numbers, tokens and anything you type into a password field are replaced with a placeholder before anything reaches the disk.',
+  full: 'Emails, card numbers, tokens and anything typed into a password field are replaced with a placeholder before anything reaches the disk.',
   secrets_only:
     'For applications whose real data looks sensitive — an order reference that scans as a card number, a code that scans as a phone number. Passwords are still hidden; nothing is guessed at by shape.',
   off: 'Nothing is hidden. Values you type are saved exactly as you type them, and this recording can only be processed against a paid model endpoint that does not train on it.',
 };
 
 function describeRedaction(): void {
-  redactionHint.textContent = REDACTION_HINTS[redactionField.value] ?? '';
-  redactionField.setAttribute('data-level', redactionField.value);
-  ($('redaction-details') as HTMLDetailsElement).open = redactionField.value !== 'full';
+  redactionHint.textContent = REDACTION_HINTS[redaction] ?? '';
+  for (const button of redactionSeg.querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.level === redaction));
+  }
 }
 
 void chrome.storage.local.get('redaction').then((stored) => {
-  if (typeof stored.redaction === 'string') redactionField.value = stored.redaction;
+  if (typeof stored.redaction === 'string') redaction = stored.redaction as RedactionLevel;
   describeRedaction();
 });
 
-redactionField.addEventListener('change', () => {
-  void chrome.storage.local.set({ redaction: redactionField.value });
-  describeRedaction();
+for (const button of redactionSeg.querySelectorAll('button')) {
+  button.addEventListener('click', () => {
+    redaction = (button.dataset.level ?? 'full') as RedactionLevel;
+    void chrome.storage.local.set({ redaction });
+    describeRedaction();
+  });
+}
+
+$('settings').addEventListener('click', async () => {
+  $('settings-pane').hidden = false;
+  render(await send<RecorderState>({ type: 'query-state' }));
+});
+
+$('settings-done').addEventListener('click', async () => {
+  $('settings-pane').hidden = true;
+  render(await send<RecorderState>({ type: 'query-state' }));
+});
+
+$('howto').addEventListener('click', async () => {
+  const stored = await chrome.storage.local.get('serverUrl');
+  const base = typeof stored.serverUrl === 'string' ? stored.serverUrl : DEFAULT_SERVER;
+  await chrome.tabs.create({ url: `${base.replace(/\/$/, '')}/help` });
+  window.close();
 });
 
 $('start').addEventListener('click', async () => {
@@ -125,16 +188,24 @@ $('start').addEventListener('click', async () => {
     await send<RecorderState>({
       type: 'start',
       objective: objective || undefined,
-      redaction: redactionField.value as RedactionLevel,
+      redaction,
     }),
   );
 });
 
+/**
+ * One Stop.
+ *
+ * There were two side by side -- `Stop` and `Stop & export` -- with nothing on
+ * screen to say which one you wanted, and no flow in which somebody stops a
+ * session and does not want to see what they recorded.
+ *
+ * The message order is unchanged and load-bearing. `stop` cancels open settle
+ * windows, waits for in-flight captures and only then acknowledges; the send
+ * page then waits for `session.stopped` before it assembles. Reorder any of
+ * that and the recording comes back one event short and looks complete.
+ */
 $('stop').addEventListener('click', async () => {
-  render(await send<RecorderState>({ type: 'stop' }));
-});
-
-$('export').addEventListener('click', async () => {
   await send({ type: 'stop' });
   await chrome.tabs.create({ url: chrome.runtime.getURL('export.html') });
   window.close();
@@ -168,10 +239,10 @@ async function annotate(kind: AnnotationKind, text?: string): Promise<void> {
 }
 
 /**
- * An intent note names the step VERBATIM -- nothing downstream rewrites it
- * (SS6.7) -- and it was being collected in a `window.prompt`: no example, no
- * room to see what you typed, and no way to correct it after the fact. The one
- * input the tester is asked to write carefully had the worst field in the tool.
+ * An intent note names the step VERBATIM -- nothing downstream rewrites it --
+ * and it was being collected in a `window.prompt`: no example, no room to see
+ * what you typed, and no way to correct it. The one input somebody is asked to
+ * write carefully had the worst field in the tool.
  */
 const noteForm = $('noteform');
 const noteText = $('notetext') as HTMLTextAreaElement;

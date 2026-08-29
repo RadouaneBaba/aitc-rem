@@ -2,124 +2,284 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>AITC-REM Recorder</title>
+    <title>AITC Recorder</title>
     <link rel="stylesheet" href="tokens.css" />
     <style>
-      body { font: 13px system-ui, sans-serif; width: 320px; margin: 0; padding: 14px; color: var(--ink); }
-      h1 { font-size: 14px; margin: 0 0 10px; }
-      label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 12px; }
-      textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; padding: 7px; font: inherit; resize: vertical; }
-      button { border: 0; border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer; }
-      button.primary { background: var(--accent); color: var(--on-accent); }
-      button.stop { background: var(--danger); color: var(--on-accent); }
-      button.ghost { background: var(--subtle-bg); color: var(--ink); }
-      .row { display: flex; gap: 8px; margin-top: 12px; }
-      .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--subtle-bg); }
-      .muted { color: var(--muted); }
-      .hint { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
-      .ann { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
-      .ann button { font-size: 12px; padding: 6px 8px; }
-      button.wide { width: 100%; }
-      .help { margin: 8px 0 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
-      .help dt { font-weight: 600; color: var(--ink); margin-top: 5px; }
-      .help dd { margin: 0; }
-      .toggle { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; }
-      .toggle input { margin: 2px 0 0; flex: none; }
-      .toggle label { margin: 0; font-weight: 600; font-size: 12px; }
-      .mic { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-      .mic .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; }
-      .mic .dot.quiet { background: var(--line); }
-      .meter { flex: 1; height: 5px; border-radius: 3px; background: var(--subtle-bg); overflow: hidden; }
+      /* The recorder popup.
+       *
+       * It used to carry three controls and three paragraphs of grey body text
+       * explaining them -- helper prose outweighing controls about three to
+       * one -- plus a glossary that re-explained the four annotation buttons
+       * directly beneath the four annotation buttons. All of that moved to the
+       * how-to page, which is where somebody goes to be taught.
+       *
+       * Every colour comes from tokens.css. Nothing here declares one:
+       * `tests/test_design_tokens.py` fails the build if it does. */
+
+      body {
+        width: 340px;
+        margin: 0;
+        font-family: var(--font);
+        font-size: var(--fs-base);
+        line-height: var(--lh-snug);
+        color: var(--ink);
+        background: var(--panel);
+      }
+
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        padding: var(--s-3) var(--s-4);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .wordmark {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: var(--fs-base);
+        letter-spacing: 0.06em;
+      }
+      .wordmark svg { width: 17px; height: 17px; }
+      .ring { fill: none; stroke: var(--brand); stroke-width: 2; }
+      .dot { fill: var(--brand); }
+
+      .spacer { flex: 1; }
+
+      .pane { padding: var(--s-4); }
+
+      label.field {
+        display: block;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: var(--fs-md);
+        margin-bottom: var(--s-2);
+      }
+
+      textarea, input, select {
+        width: 100%;
+        font: inherit;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        padding: var(--s-2) var(--s-3);
+        resize: vertical;
+      }
+      textarea:focus, input:focus, select:focus { outline: none; border-color: var(--brand); }
+
+      button {
+        font: inherit;
+        font-weight: 500;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--ink);
+        border-radius: var(--r-md);
+        padding: 7px var(--s-3);
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--muted); }
+      button.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+      button.stop { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
+      button.icon { border-color: transparent; background: none; color: var(--muted); padding: 4px 7px; }
+      button.icon:hover { color: var(--ink); background: var(--subtle-bg); }
+      button.big { width: 100%; padding: 12px; font-size: var(--fs-lg); font-weight: 600; border-radius: var(--r-lg); }
+
+      :where(button, input, textarea, select, [tabindex]):focus-visible {
+        outline: var(--focus);
+        outline-offset: var(--focus-offset);
+      }
+
+      /* The objective coach: one line, never a paragraph, and it never blocks
+         Start -- somebody who disagrees is very often right, and a coach that
+         argues gets switched off. */
+      .coach {
+        display: flex;
+        gap: 6px;
+        margin: var(--s-2) 0 0;
+        font-size: var(--fs-sm);
+        color: var(--muted);
+        line-height: var(--lh-snug);
+      }
+      .coach.sharp { color: var(--accent); }
+      .coach.vague { color: var(--warn); }
+      #objective[data-verdict='sharp'] { border-color: var(--accent-line); }
+
+      /* One row, one switch, one caption. */
+      .switch { display: flex; align-items: center; gap: var(--s-3); margin-top: var(--s-5); }
+      .switch label { font-weight: 600; font-size: var(--fs-md); flex: 1; cursor: pointer; }
+      .switch input { width: 34px; height: 20px; flex: none; margin: 0; accent-color: var(--brand); }
+      .caption { font-size: var(--fs-sm); color: var(--muted); margin: 4px 0 0; line-height: var(--lh-snug); }
+
+      .actions { margin-top: var(--s-5); }
+
+      /* -- recording ---------------------------------------------------- */
+
+      .recbar {
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        padding: var(--s-3) var(--s-4);
+        border-bottom: 1px solid var(--line);
+        background: var(--danger-bg);
+      }
+      .recdot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: var(--danger); flex: none;
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      .recdot.muted-dot { background: var(--muted); animation: none; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.28; } }
+      @media (prefers-reduced-motion: reduce) { .recdot { animation: none; } }
+
+      .reclabel {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: var(--fs-xs);
+        letter-spacing: 0.12em;
+        color: var(--danger);
+      }
+      .elapsed {
+        font-family: var(--font-mono);
+        font-size: var(--fs-base);
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+      }
+      .meter { width: 54px; height: 5px; border-radius: 3px; background: var(--subtle-bg); overflow: hidden; }
       .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 120ms linear; }
-      .mic button { font-size: 11px; padding: 3px 8px; }
-      .warn { font-size: 11px; color: var(--danger); margin: 6px 0 0; line-height: 1.4; }
-      .coach { margin: 6px 0 0; font-size: var(--fs-sm); line-height: 1.45;
-        color: var(--ink); background: var(--warn-bg); border: 1px solid var(--warn-line);
-        border-radius: var(--r-sm); padding: 8px 10px; }
-      #objective[data-verdict="sharp"] { border-color: var(--accent-line); }
-      #noteform { margin-top: 8px; }
-      #noteform textarea { width: 100%; box-sizing: border-box; font: inherit;
-        border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 8px;
-        background: var(--panel); color: var(--ink); }
+      .recbar button { font-size: var(--fs-xs); padding: 3px 8px; }
+
+      .tally {
+        display: flex;
+        gap: var(--s-3);
+        padding: var(--s-2) var(--s-4);
+        border-bottom: 1px solid var(--line);
+        font-size: var(--fs-sm);
+        color: var(--muted);
+      }
+      .tally b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+      .warn { font-size: var(--fs-sm); color: var(--danger); margin: var(--s-2) 0 0; line-height: var(--lh-snug); }
+
+      /* The four annotations. The glossary that used to sit under them lives on
+         the how-to page now; the titles carry it here. */
+      .ann { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); margin-top: var(--s-4); }
+      .ann button { font-size: var(--fs-md); padding: 9px var(--s-2); text-align: center; }
+
+      #noteform { margin-top: var(--s-3); }
+      #noteform .row { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+
+      .stopwrap { margin-top: var(--s-5); }
+
+      /* -- settings ------------------------------------------------------ */
+
+      .seg { display: flex; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; margin-top: var(--s-2); }
+      .seg button { flex: 1; border: 0; border-radius: 0; font-size: var(--fs-sm); padding: 7px 4px; color: var(--muted); background: none; }
+      .seg button + button { border-left: 1px solid var(--line); }
+      .seg button[aria-pressed='true'] { background: var(--brand); color: var(--on-brand); }
     </style>
   </head>
   <body>
-    <h1>AITC-REM Recorder</h1>
+    <div class="bar" id="topbar">
+      <span class="wordmark">
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="10" cy="10" r="9" class="ring" />
+          <rect x="6.5" y="6.5" width="7" height="7" rx="1.5" class="dot" />
+        </svg>
+        AITC
+      </span>
+      <span class="spacer"></span>
+      <button class="icon" id="settings" title="Settings">⚙</button>
+      <button class="icon" id="howto" title="How to use this">?</button>
+    </div>
 
-    <div id="idle">
-      <label for="objective">What are you checking?</label>
-      <textarea id="objective" rows="3" placeholder="Check that an order over EUR500 triggers the approval flow."></textarea>
-      <p class="hint">Optional, and the strongest single signal there is &mdash; it is the one thing the recorder cannot observe for itself.</p>
-      <p class="coach" id="objective-advice" hidden></p>
+    <!-- Before recording -->
+    <div id="idle" class="pane">
+      <label class="field" for="objective">What are you checking?</label>
+      <textarea id="objective" rows="3" placeholder="Check that an order over EUR500 needs approval"></textarea>
+      <p class="coach" id="objective-advice"></p>
 
-      <div class="toggle">
+      <div class="switch">
         <input type="checkbox" id="narrate" />
         <label for="narrate">Talk while I record</label>
       </div>
-      <p class="hint">Say what you are checking as you go. Transcribed on your own machine and
-        kept with the recording, so you can play back what you actually said.
-        <strong>Everything you say is written down.</strong></p>
+      <p class="caption">
+        Say what you are checking as you go. Transcribed on this machine.
+        <strong>Everything you say is written down.</strong>
+      </p>
 
-      <details id="redaction-details">
-        <summary>Redaction</summary>
-        <label for="redaction">What to hide before anything is saved</label>
-        <select id="redaction">
-          <option value="full">Everything that looks sensitive (recommended)</option>
-          <option value="secrets_only">Only what I type into password fields</option>
-          <option value="off">Nothing</option>
-        </select>
-        <p class="hint" id="redaction-hint"></p>
-      </details>
-
-      <div class="row"><button class="primary" id="start">Start recording</button></div>
+      <div class="actions">
+        <button class="primary big" id="start">Start recording</button>
+      </div>
     </div>
 
+    <!-- Settings, reached from the gear. Redaction lives here rather than in a
+         server config because it happens in the browser BEFORE anything is
+         persisted, and it is genuinely per-recording. -->
+    <div id="settings-pane" class="pane" hidden>
+      <label class="field" for="redaction">What to hide before anything is saved</label>
+      <div class="seg" id="redaction-seg" role="group" aria-label="Redaction level">
+        <button data-level="full" aria-pressed="true">Anything sensitive</button>
+        <button data-level="secrets_only" aria-pressed="false">Passwords only</button>
+        <button data-level="off" aria-pressed="false">Nothing</button>
+      </div>
+      <p class="caption" id="redaction-hint"></p>
+      <div class="actions">
+        <button class="big" id="settings-done">Done</button>
+      </div>
+    </div>
+
+    <!-- While recording -->
     <div id="active" hidden>
-      <div class="stat"><span class="muted">Events</span><strong id="count">0</strong></div>
-      <div class="stat"><span class="muted">Annotations</span><strong id="annotations">0</strong></div>
-      <div class="stat"><span class="muted">Origins</span><strong id="origins">-</strong></div>
-
-      <div class="mic" id="mic" hidden>
-        <span class="dot" id="micdot"></span>
-        <span class="meter"><i id="micmeter"></i></span>
-        <button class="ghost" id="mute">Mute</button>
-      </div>
-      <p class="warn" id="micwarn" hidden></p>
-
-      <div class="row">
-        <button class="primary wide" id="pick">Mark what I&rsquo;m verifying</button>
-      </div>
-      <p class="hint">Point at the thing you are checking &mdash; a banner, a total, a badge.
-        It becomes the expected result word for word, instead of the tool guessing which of
-        the changes on screen mattered. This is the single biggest thing you can do for the
-        output.</p>
-
-      <div class="ann">
-        <button class="ghost" data-kind="checkpoint" title="Alt+Shift+C">Checkpoint</button>
-        <button class="ghost" data-kind="scenario_break" title="Alt+Shift+S">New scenario</button>
-        <button class="ghost" data-kind="bug_marker" title="Alt+Shift+B">Mark a bug</button>
-        <button class="ghost" data-kind="intent_note">Note&hellip;</button>
+      <div class="recbar">
+        <span class="recdot" id="recdot"></span>
+        <span class="reclabel">REC</span>
+        <span class="elapsed" id="elapsed">0:00</span>
+        <span class="spacer"></span>
+        <span class="meter" id="mic" hidden><i id="micmeter"></i></span>
+        <button id="mute" hidden>Mute</button>
       </div>
 
-      <div id="noteform" hidden>
-        <label for="notetext">Name this step, in your words</label>
-        <textarea id="notetext" rows="2" placeholder="tries to place the order without approval"></textarea>
-        <p class="hint">Used <strong>word for word</strong> and never rewritten. Start with the verb.</p>
-        <div class="row"><button class="primary" id="notesave">Save note</button><button class="ghost" id="notecancel">Cancel</button></div>
+      <div class="tally">
+        <span><b id="count">0</b> actions</span>
+        <span><b id="annotations">0</b> marks</span>
+        <span><b id="origins">-</b> sites</span>
       </div>
-      <dl class="help">
-        <dt>Checkpoint</dt><dd>Ends the current step here, when the tool would have run two together.</dd>
-        <dt>New scenario</dt><dd>A separate test case starts from this point.</dd>
-        <dt>Mark a bug</dt><dd>Something went wrong here. Flags the session and the step.</dd>
-        <dt>Note</dt><dd>Type the step name yourself. Used word for word, never rewritten.</dd>
-      </dl>
 
-      <div class="row">
-        <button class="stop" id="stop">Stop</button>
-        <button class="ghost" id="export">Stop &amp; export</button>
+      <div class="pane">
+        <p class="warn" id="micwarn" hidden></p>
+
+        <button class="primary big" id="pick">Mark what I&rsquo;m verifying</button>
+        <p class="caption">
+          Point at the thing you came to check &mdash; a banner, a total, a badge. It becomes the
+          expected result word for word.
+        </p>
+
+        <div class="ann">
+          <button data-kind="checkpoint" title="Ends the current step here, when the tool would have run two together. Alt+Shift+C">Checkpoint</button>
+          <button data-kind="scenario_break" title="A separate test case starts from this point. Alt+Shift+S">New scenario</button>
+          <button data-kind="bug_marker" title="Something went wrong here. Flags the session and the step. Alt+Shift+B">Mark a bug</button>
+          <button data-kind="intent_note" title="Name this step yourself. Used word for word, never rewritten.">Note&hellip;</button>
+        </div>
+
+        <div id="noteform" hidden>
+          <label class="field" for="notetext">Name this step, in your words</label>
+          <textarea id="notetext" rows="2" placeholder="tries to place the order without approval"></textarea>
+          <p class="caption">Used <strong>word for word</strong>. Start with the verb.</p>
+          <div class="row">
+            <button class="primary" id="notesave">Save note</button>
+            <button id="notecancel">Cancel</button>
+          </div>
+        </div>
+
+        <div class="stopwrap">
+          <button class="stop big" id="stop">Stop</button>
+          <p class="caption">Opens the page where you check what was recorded, then send it.</p>
+        </div>
       </div>
-      <p class="hint">None of this is required &mdash; the tool works with zero annotations.
-        They raise quality; they are never the price of admission.</p>
     </div>
   </body>
   <script src="popup.js"></script>

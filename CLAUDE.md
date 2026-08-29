@@ -1039,9 +1039,20 @@ itself.** All five validators pass on all nine runs on disk, and
 one real commercial session. Five checks that have never produced a non-pass
 are the fourteen in a smaller costume: keep them, because they cost nothing and
 cannot be wrong, and do not render the count as a trust signal -- it can only
-ever say green. **The badge is gone from `TrustStrip` as of 2026-08-29**; what
-is shown is the numbers that can move (retrievals, rejected claims, judge
-findings).
+ever say green. **The badge is gone as of 2026-08-29**; what is shown is the
+numbers that can move (retrievals, rejected claims, judge findings). It lives in
+`components/StatusLine.tsx` now -- `TrustStrip`, `JobBanner` and `ConfirmBanner`
+were three stacked full-width bars carrying one sentence each, which is 175px of
+a 900px laptop viewport spent before the first step.
+
+**The judge's findings reach the reviewer, and until the interface rebuild they
+reached nobody.** `judge.json` has been written on every run since the judge
+landed; nothing served it and nothing rendered it, so the only thing on screen
+was an unclickable red badge reading *"3 a QA lead would send back"*.
+`GET /api/runs/{rec}/{run}/judge` serves the file and `StepDetail` renders each
+finding -- `what` and `fix` -- on the step its `stepId` names. Absent is not an
+error: A0 has no judgement by construction, and neither does any run made before
+the judge existed.
 
 **And the LEDGER row that would answer *did the rebuild work* cannot be
 produced from the recordings it names.** Its three held-out sessions were

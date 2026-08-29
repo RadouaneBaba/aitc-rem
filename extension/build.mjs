@@ -54,6 +54,11 @@ if (watch) {
 await cp(resolve(HERE, 'manifest.json'), `${OUT}/manifest.json`);
 // One palette for all four surfaces. `dist` is flat, so the pages link it by bare name.
 await cp(resolve(HERE, 'src/styles/tokens.css'), `${OUT}/tokens.css`);
+// And one set of faces. `tokens.css` is byte-identical to the review UI's copy,
+// so its `@font-face` rules point at `/fonts/...` -- which resolves against the
+// site root there and against the extension root here. Copied from `ui/public`
+// rather than duplicated, so there is one set of binaries in the repo.
+await cp(resolve(HERE, '../ui/public/fonts'), `${OUT}/fonts`, { recursive: true });
 await cp(resolve(HERE, 'src/popup/popup.html'), `${OUT}/popup.html`);
 await cp(resolve(HERE, 'src/export/export.html'), `${OUT}/export.html`);
 await cp(resolve(HERE, 'src/offscreen/offscreen.html'), `${OUT}/offscreen.html`);

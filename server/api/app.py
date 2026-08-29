@@ -467,6 +467,39 @@ def create_app(
             ],
         }
 
+    @app.get("/api/runs/{recording_id}/{run_id}/judge")
+    def get_judge(recording_id: str, run_id: str) -> dict[str, Any]:
+        """What a QA lead would send back, and why.
+
+        `judge.py` has written this file on every run since it landed, and
+        nothing has ever read it. The review screen showed the COUNT -- a red
+        badge saying "3 a QA lead would send back" that could not be clicked --
+        while the sentences that say which three and what to do about them sat
+        on disk. That is the sharpest instance of this UI's general failure:
+        the expensive, checked thing folded away.
+
+        A finding carries `stepId`, so the reviewer meets it on the step it is
+        about rather than in a corner of the header. `severity` is `fail` or
+        `weak`; both are shown, because a `weak` finding is one a lead would
+        sign AFTER an edit and the reviewer is the person making the edit.
+
+        Absent is not an error: A0 has no judge by construction (no tools, and
+        a judge that cannot look cannot answer), and every run made before the
+        judge existed has no file.
+        """
+        run = storage.existing_run(recording_id, run_id)
+        judgement = _load_json(run.root / "judge.json")
+        if not isinstance(judgement, dict):
+            return {"findings": [], "failed": ""}
+        return {
+            "findings": judgement.get("findings") or [],
+            # Set when the judge call itself failed. The run survives -- a
+            # judgement is worth less than the document it judges -- and saying
+            # so is the difference between "nothing was wrong" and "nobody
+            # looked", which is not a distinction to leave to a blank panel.
+            "failed": judgement.get("failed") or "",
+        }
+
     @app.get("/api/runs/{recording_id}/{run_id}/tools/{tool_call_id}")
     def get_tool_response(recording_id: str, run_id: str, tool_call_id: str) -> Any:
         """SS13.3's evidence panel: the retrieval itself, not a summary of it."""
@@ -845,6 +878,12 @@ def _list_runs(storage: Storage) -> list[dict[str, Any]]:
         flagged = sum(
             1 for c in ir.testCases for s in c.steps if s.whyNot or s.criticNotes or s.escalation
         )
+        # What a QA lead would send back, counted without opening the run. It is
+        # the one number here that is about the OUTPUT rather than about how much
+        # of it is unfinished, and it is the reason to open one draft before
+        # another.
+        judgement = _load_json(ir_path.parent / "judge.json")
+        findings = judgement.get("findings") or [] if isinstance(judgement, dict) else []
         out.append(
             {
                 "recordingId": ir.recordingId,
@@ -862,6 +901,7 @@ def _list_runs(storage: Storage) -> list[dict[str, Any]]:
                 # count of "how far through this has somebody got".
                 "editedSteps": len({e.stepId for e in review.edits if e.stepId}),
                 "hasBug": any(c.kind == "bug_report" for c in ir.testCases),
+                "judgeFails": sum(1 for f in findings if f.get("severity") == "fail"),
             }
         )
     return sorted(out, key=lambda r: r["createdAt"], reverse=True)

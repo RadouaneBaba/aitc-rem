@@ -10,11 +10,29 @@
 export type Confidence = 'high' | 'medium' | 'low';
 export type Provenance = 'annotated' | 'narrated' | 'objective' | 'inferred' | 'confirmed';
 
+/**
+ * WHAT is claimed about the literal, not just that it appeared.
+ *
+ * Without this the gate was substring containment, so *"the first product is
+ * 'The Autumnal Hamper'"* was proved by that string appearing anywhere on the
+ * page: the sentence said FIRST and the check said PRESENT. It has been in the
+ * schema since the predicate work landed and the UI has never rendered it, so a
+ * reviewer could not tell a positional claim from a presence one -- which is
+ * the exact distinction the judge keeps sending documents back over.
+ */
+export interface Predicate {
+  form: 'contains' | 'first_of' | 'count' | 'absent';
+  container?: { role?: string; name?: string };
+  role?: string;
+  n?: number;
+}
+
 export interface Evidence {
   literal: string;
   toolCallId: string;
   eventId: string;
   kind: string;
+  predicate?: Predicate;
 }
 
 export interface Assertion {
@@ -75,6 +93,16 @@ export interface BugDetail {
   environment: { browser: string; viewport: string; url: string };
 }
 
+/** A shared opening lifted into a `Background`. The second scenario's own steps
+ *  begin partway through the flow, so without these on screen a reviewer reads
+ *  scenario 2 as starting from nowhere. */
+export interface Precondition {
+  id: string;
+  text: string;
+  eventIds: string[];
+  shared?: boolean;
+}
+
 export interface TestCase {
   id: string;
   kind: 'test_case' | 'bug_report';
@@ -84,6 +112,11 @@ export interface TestCase {
   objective?: string;
   tags: string[];
   steps: Step[];
+  preconditions?: Precondition[];
+  /** One flow exercised with several sets of values -- a judgement about test
+   *  design the author makes, distinct from the `parameters: outline` rendering
+   *  setting. Two rows minimum: one row is not a table. */
+  examples?: { columns: string[]; rows: string[][] };
   parameters: { name: string; placeholder: string; category: string }[];
   omitted: { segmentId: string; reason: string; eventCount: number; summary: string }[];
   warnings: { id: string; source: string; severity: string; message: string; stepId?: string; code?: string }[];
@@ -213,6 +246,40 @@ export interface RunSummary {
   flaggedSteps?: number;
   editedSteps?: number;
   hasBug?: boolean;
+  /** How many things a QA lead would refuse to sign. The one number in this
+   *  list that is about the OUTPUT rather than about how much of it is
+   *  unfinished, which makes it the reason to open one draft before another. */
+  judgeFails?: number;
+}
+
+/**
+ * What a QA lead would send back, and why.
+ *
+ * `judge.py` has written `judge.json` on every run since it landed and nothing
+ * ever read it. The review screen showed the COUNT -- an unclickable red badge
+ * reading "3 a QA lead would send back" -- while the sentences saying which
+ * three and what to do about them sat on disk.
+ *
+ * `fail` is what a lead would refuse to sign. `weak` is what they would sign
+ * after an edit, which is worth showing to the person making edits even though
+ * the pipeline deliberately does not spend a revision round on it.
+ */
+export interface JudgeFinding {
+  check: string;
+  severity: 'fail' | 'weak' | string;
+  what: string;
+  fix?: string;
+  scenario?: string;
+  stepId?: string;
+}
+
+export interface Judgement {
+  findings: JudgeFinding[];
+  /** Set when the judge call itself failed. The run survives -- a judgement is
+   *  worth less than the document it judges -- and the difference between
+   *  "nothing was wrong" and "nobody looked" is not one to leave to a blank
+   *  panel. */
+  failed: string;
 }
 
 /**
@@ -284,6 +351,11 @@ export const api = {
 
   toolResponse: (rec: string, run: string, id: string) =>
     call<unknown>(`/api/runs/${rec}/${run}/tools/${id}`),
+
+  /** Absent is not an error -- A0 has no judge by construction, and every run
+   *  made before the judge existed has no file. The endpoint answers with an
+   *  empty list rather than a 404 so the panel has nothing to special-case. */
+  judge: (rec: string, run: string) => call<Judgement>(`/api/runs/${rec}/${run}/judge`),
 
   /** SS13.2 -- edit the prose where a reader actually reads it. The changes are
    *  replayed through the same review functions the step forms call, so the

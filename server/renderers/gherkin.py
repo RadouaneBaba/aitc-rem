@@ -27,7 +27,7 @@ from server.pipeline.narrative import Line, Narrative, build_narrative
 from server.renderers.base import test_cases
 
 INDENT = "  "
-GENERATOR = "aitc-rem"
+GENERATOR = "AITC"
 WIDTH = 78
 
 #: SS6.8 splits its flags into warnings and notices. Only the warnings mean

@@ -1,9 +1,19 @@
-/* SS13.4 -- trust affordances.
+/* The review UI.
  *
- * Low-confidence steps and escalations are visually distinct and never hidden,
- * warnings are never collapsed by default, and every assertion shows where it
- * came from. The palette is deliberately quiet so that the few things which
- * are coloured mean something. */
+ * Every colour here comes from `tokens.css` and nothing declares its own --
+ * `tests/test_design_tokens.py` enforces that, because a literal hex in a rule
+ * is a colour the theme cannot reach.
+ *
+ * Two rules shape the whole sheet:
+ *
+ *   `--brand` is for things you PRESS. `--accent` is for things that HELD.
+ *   They used to be the same green, so every primary button read as a pass
+ *   badge and the palette could not tell an action from an outcome.
+ *
+ *   Nothing unverified is louder than something verified. The coverage
+ *   suggestions used to own a permanent full-width footer under every screen
+ *   while the checked result sat in a card a third the size.
+ */
 
 @import './tokens.css';
 
@@ -11,424 +21,796 @@
 
 body {
   margin: 0;
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--ink);
   background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: var(--lh);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-code, pre { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
+code, pre { font-family: var(--font-mono); font-size: var(--fs-sm); }
 .muted { color: var(--muted); }
+.small { font-size: var(--fs-sm); line-height: var(--lh-snug); }
 .spacer { flex: 1; }
 .error { color: var(--danger); }
 
+/* A section label. Small, tracked, and the same everywhere -- it is how a
+   reader tells a heading from a sentence at 12px. */
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--s-2);
+}
+
+.block { margin-top: var(--s-6); }
+
+/* -- controls ----------------------------------------------------------- */
+
 button {
   font: inherit;
+  font-weight: 500;
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
-  border-radius: 6px;
-  padding: 5px 10px;
+  border-radius: var(--r-md);
+  padding: 6px 12px;
   cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
 }
 button:hover:not(:disabled) { border-color: var(--muted); }
-button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+button.primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+}
+button.primary:hover:not(:disabled) { border-color: var(--brand); filter: brightness(1.08); }
+
+button.ghost { background: none; border-color: transparent; color: var(--muted); }
+button.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--line); }
 button.danger { color: var(--danger); }
-button.link { border: 0; background: none; padding: 0; color: var(--muted); text-align: left; }
-button.link:hover { color: var(--ink); text-decoration: underline; }
+button.danger:hover:not(:disabled) { border-color: var(--danger); }
+
+button.link {
+  border: 0; background: none; padding: 0;
+  color: var(--muted); text-align: left; font-weight: 400;
+}
+button.link:hover { color: var(--brand); }
+
+button.icon {
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  padding: 5px 8px;
+  min-width: 32px;
+  font-size: var(--fs-md);
+}
+button.icon:hover { color: var(--ink); background: var(--subtle-bg); border-color: transparent; }
 
 input, textarea, select {
   font: inherit;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: var(--r-md);
+  padding: 7px 10px;
   background: var(--panel);
-  color: inherit;
+  color: var(--ink);
+}
+input:focus, textarea:focus, select:focus { border-color: var(--brand); }
+
+:where(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: var(--focus);
+  outline-offset: var(--focus-offset);
 }
 
-.empty { padding: 60px; text-align: center; color: var(--muted); }
+/* -- chips: one shape for every piece of state --------------------------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--subtle-bg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+button.chip { cursor: pointer; }
+.chip-ok { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
+.chip-warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); }
+.chip-bad { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
+.chip-work { background: var(--brand-bg); color: var(--brand); border-color: var(--brand-line); }
+.chip-note { font-weight: 400; color: var(--muted); max-width: 42ch; overflow: hidden; text-overflow: ellipsis; }
+.chip-action {
+  border: 0; background: none; padding: 0;
+  font: inherit; font-weight: 600; color: inherit;
+  text-decoration: underline; cursor: pointer;
+}
+.chip-x { border: 0; background: none; padding: 0 2px; color: inherit; cursor: pointer; font-size: var(--fs-base); line-height: 1; }
+
+/* -- the shell ----------------------------------------------------------- */
 
 .app { display: flex; flex-direction: column; height: 100vh; }
 
-header {
+.topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+  flex: none;
 }
-/* The run list. A dropdown answered "which runs exist"; a tester with fifteen
-   recordings needs "which of these wants me", so the row carries what the run
-   covers and how much of it is flagged. */
-.runpicker { position: relative; }
-.runpicker-current {
-  display: flex; align-items: center; gap: 10px;
-  background: none; border: 1px solid var(--line); border-radius: 6px;
-  padding: 6px 10px; cursor: pointer; font: inherit; color: var(--ink);
-}
-.runpicker-current:hover { border-color: var(--muted); }
-.runpicker-title { font-weight: 600; }
-.runpicker-list {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
-  width: min(560px, 90vw); max-height: 60vh; overflow-y: auto;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.12);
-}
-.runpicker-search {
-  width: 100%; box-sizing: border-box; padding: 10px 12px;
-  border: none; border-bottom: 1px solid var(--line); font: inherit;
-  background: transparent; color: var(--ink);
-}
-.runpicker-search:focus { outline: none; }
-.runpicker-empty { padding: 14px; margin: 0; }
-.runpicker-row {
-  display: block; width: 100%; text-align: left; background: none;
-  border: none; border-bottom: 1px solid var(--line);
-  padding: 10px 12px; cursor: pointer; font: inherit; color: var(--ink);
-}
-.runpicker-row:last-child { border-bottom: none; }
-.runpicker-row:hover { background: var(--bg); }
-.runpicker-row.current { background: var(--bg); box-shadow: inset 3px 0 0 var(--accent); }
-.runpicker-row-main { display: flex; align-items: center; gap: 8px; }
-.runpicker-row-sub { font-size: 13px; margin-top: 2px; }
-.runpicker-row-stats { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; margin-top: 4px; }
-.runpicker-attention { color: var(--warn); }
-.badge.approved { color: var(--accent); font-weight: 600; }
-.exports { display: flex; align-items: center; gap: 8px; }
-.exports a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--line); }
-.exports a:hover { color: var(--ink); }
-.exports a.fresh { color: var(--accent); font-weight: 600; }
 
-.banner {
-  padding: 8px 14px;
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  margin-right: var(--s-3);
+  user-select: none;
+}
+.wordmark svg { width: 19px; height: 19px; flex: none; }
+.wordmark-ring { fill: none; stroke: var(--brand); stroke-width: 2; }
+.wordmark-dot { fill: var(--brand); }
+.wordmark-sm { font-size: var(--fs-md); }
+
+/* One line where there were three stacked banners. */
+.statusline {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 7px var(--s-4);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-md);
+  flex: none;
+  flex-wrap: wrap;
+}
+.status-facts { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+.status-fact { color: var(--muted); }
+.status-fact b { color: var(--ink); font-weight: 600; }
+.status-live { display: flex; align-items: center; gap: var(--s-2); flex: 1; flex-wrap: wrap; }
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel);
+}
+.segmented button {
+  border: 0;
+  border-radius: 0;
+  padding: 4px 12px;
+  font-size: var(--fs-md);
+  color: var(--muted);
+  background: none;
+}
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button[aria-selected='true'] { background: var(--brand); color: var(--on-brand); }
+
+.errorbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
   background: var(--danger-bg);
   border-bottom: 1px solid var(--danger-line);
-  display: flex;
-  gap: 12px;
-  align-items: center;
+  color: var(--danger);
+  flex: none;
 }
-.banner button { margin-left: auto; }
+.errorbar button { margin-left: auto; }
 
 main {
   display: grid;
-  grid-template-columns: minmax(260px, 24%) minmax(380px, 1fr) minmax(300px, 30%);
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
-main > * { overflow-y: auto; padding: 14px; }
+main > * { overflow-y: auto; min-width: 0; }
 
-/* Below ~1100px the three panes cannot each hold their minimum, so the grid
- * silently overflows the viewport and the evidence pane goes off-screen -- on
- * a laptop, and on any projector. There were no media queries at all.
- *
- * The evidence pane drops under the other two first, because it is the one a
- * reviewer consults rather than works in. Below 760px everything stacks and
- * `.app` stops pinning to 100vh, because a stacked column that still claims
- * exactly one viewport height is a column you cannot scroll. */
-@media (max-width: 1100px) {
-  main {
-    grid-template-columns: minmax(220px, 30%) minmax(320px, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, auto);
-  }
-  main > :nth-child(3) {
-    grid-column: 1 / -1;
-    border-top: 1px solid var(--line);
-    max-height: 45vh;
-  }
+/* -- left rail ----------------------------------------------------------- */
+
+.steplist {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: var(--s-4) var(--s-3) var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
 }
 
-@media (max-width: 760px) {
-  .app { height: auto; min-height: 100vh; }
-  main { grid-template-columns: 1fr; }
-  main > * { max-height: none; }
-  main > :nth-child(3) { max-height: none; }
+.scenario-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  line-height: var(--lh-snug);
+  margin: 0 0 var(--s-2);
+  padding: 0 var(--s-2);
+  cursor: text;
+}
+.titleedit { width: 100%; font-weight: 600; }
+
+.tagrow { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 var(--s-2) var(--s-2); }
+.tag {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--brand);
+  background: var(--brand-bg);
+  border: 1px solid var(--brand-line);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
 }
 
-/* -- left: test cases and steps ---------------------------------------- */
+.railhead {
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+.preconditions { padding: 0 var(--s-2) var(--s-3); }
+.preconditions ul { list-style: none; margin: 0; padding: 0; }
+.preconditions li {
+  font-size: var(--fs-md);
+  color: var(--muted);
+  line-height: var(--lh-snug);
+  margin-bottom: 3px;
+  padding-left: var(--s-2);
+  border-left: 2px solid var(--line);
+}
 
-.steplist { background: var(--panel); border-right: 1px solid var(--line); }
-.steplist h2 { font-size: 14px; margin: 0; cursor: text; }
-.steplist .feature-name { margin: 2px 0 10px; font-size: 12px; }
-.steplist .titleedit { width: 100%; font-weight: 600; }
-.steplist ol { list-style: none; margin: 0; padding: 0; }
-.steplist li { display: flex; gap: 6px; align-items: flex-start; border-radius: 6px; padding: 2px; }
-.steplist li button { border: 0; background: none; text-align: left; padding: 4px 6px; flex: 1; }
-.steplist li.selected { background: var(--selected-bg); }
-.steplist li.attention { background: var(--attention); }
-.keyword { color: var(--muted); font-weight: 600; margin-right: 4px; }
-.keyword.big { font-size: 15px; color: var(--ink); }
-.flag { color: var(--warn); font-weight: 700; margin-left: 5px; }
-.edited { color: var(--accent); font-weight: 700; margin-left: 4px; }
-button.merge { margin-top: 8px; width: 100%; }
-.omitted { margin-top: 12px; font-size: 12.5px; }
-.omitted ul { margin: 6px 0 0; padding-left: 16px; color: var(--muted); }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.step > button {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: var(--s-2);
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  border-radius: var(--r-md);
+  padding: 7px var(--s-2);
+  font-weight: 400;
+  line-height: var(--lh-snug);
+}
+.step > button:hover { background: var(--subtle-bg); border-color: transparent; }
+.step.selected > button { background: var(--selected-bg); }
+.step.picked > button { background: var(--brand-bg); box-shadow: inset 2px 0 0 var(--brand); }
+.step.wants > button { box-shadow: inset 2px 0 0 var(--warn); }
+.step.selected.wants > button { box-shadow: inset 2px 0 0 var(--warn); }
 
-/* -- middle: the selected step ----------------------------------------- */
+.keyword {
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  text-align: right;
+}
+.steptext-inline { font-size: var(--fs-md); }
 
-.detail { background: var(--bg); }
-.keyword-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.role { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; }
-.confidence { font-size: 12px; }
+.marks { display: inline-flex; align-items: center; gap: 4px; }
+.mark-fail {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--danger); display: inline-block; flex: none;
+}
+.mark-ask, .mark-low { font-weight: 700; color: var(--warn); font-size: var(--fs-sm); }
+.mark-edited {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--brand); display: inline-block; flex: none;
+}
+
+.mergebar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding: var(--s-2);
+  background: var(--brand-bg);
+  border: 1px solid var(--brand-line);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+}
+.mergebar span { flex: 1; color: var(--brand); font-weight: 600; }
+
+.omitted { margin-top: var(--s-3); padding: 0 var(--s-2); font-size: var(--fs-sm); }
+.omitted ul { margin: var(--s-2) 0 0; padding-left: var(--s-4); color: var(--muted); }
+
+.railfoot {
+  margin-top: auto;
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 2px;
+}
+.railitem {
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 6px var(--s-2);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 400;
+}
+.railitem:hover { background: var(--subtle-bg); color: var(--ink); border-color: transparent; }
+.railitem.on { background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+
+/* -- the step ------------------------------------------------------------ */
+
+.detail, .featureview, .notcovered {
+  padding: var(--s-5) var(--s-6) var(--s-7);
+  max-width: 900px;
+}
+
+.detail-head { display: flex; align-items: center; gap: var(--s-3); margin-bottom: var(--s-3); }
+.keyword-lg {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  letter-spacing: var(--track-tight);
+}
+.role {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.confidence { font-size: var(--fs-sm); }
 .confidence.low { color: var(--danger); font-weight: 600; }
 .confidence.medium { color: var(--warn); }
-.confidence.high { color: var(--muted); }
 
-.steptext { width: 100%; font-size: 15px; resize: vertical; }
-.hint { font-size: 12px; margin: 4px 0 18px; }
+.steptext {
+  width: 100%;
+  font-size: var(--fs-xl);
+  line-height: var(--lh-snug);
+  resize: vertical;
+  padding: var(--s-3);
+}
+.editbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  font-size: var(--fs-sm);
+  min-height: 30px;
+}
 
-.detail h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 20px 0 8px; }
+/* The picture of the page, which used to be a 220px thumbnail of a full
+   commercial page -- smaller than the paragraph beside it. */
+.shot { margin: var(--s-5) 0 0; }
+.shot-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--panel);
+  cursor: zoom-in;
+  box-shadow: var(--shadow-1);
+}
+.shot-open:hover { border-color: var(--brand); }
+/* Cropped to the top of the page rather than scaled to fit it.
+ *
+ * The old rule was `max-height: 220px` on the image, so a 4000px commercial
+ * page was squashed into 220px and became unreadable -- which is the whole
+ * reason nobody used it. Full width at natural scale is readable, but an
+ * uncropped page then pushes the expected result off screen, and the expected
+ * result is what the reviewer is here to decide. So: full width, natural
+ * scale, top-anchored, and the rest is one click away. */
+.shot img {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  object-fit: cover;
+  object-position: top;
+}
+.shot figcaption { font-size: var(--fs-sm); color: var(--muted); margin-top: var(--s-2); }
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(8, 10, 14, 0.82);
+  display: grid;
+  place-items: center;
+  padding: var(--s-5);
+  overflow: auto;
+}
+.lightbox img {
+  max-width: 100%;
+  border-radius: var(--r-md);
+  cursor: zoom-out;
+  box-shadow: var(--shadow-2);
+}
+.lightbox-close {
+  position: fixed;
+  top: var(--s-4);
+  right: var(--s-5);
+  font-size: var(--fs-2xl);
+  line-height: 1;
+  padding: 2px 12px;
+}
 
 .escalation {
-  background: var(--attention);
+  background: var(--warn-bg);
   border: 1px solid var(--warn-line);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 6px;
+  border-radius: var(--r-lg);
+  padding: var(--s-3) var(--s-4);
+  margin-top: var(--s-5);
 }
-.escalation p { margin: 0 0 8px; }
-.escalation .row { display: flex; gap: 8px; }
+.escalation p { margin: 0 0 var(--s-2); }
+.escalation .row { display: flex; gap: var(--s-2); }
 .escalation input { flex: 1; }
 
-.assertions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.assertions li { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
-.assertions li.accepted { border-color: var(--accent-line); }
-.assertions label { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
-.assertions .text { font-size: 14.5px; }
-.assertions .meta { display: flex; gap: 10px; align-items: center; margin: 6px 0 0 24px; }
-.literal { background: var(--subtle-bg); padding: 1px 6px; border-radius: 4px; }
+/* -- expected results ---------------------------------------------------- */
 
-.provenance { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 10px; padding: 1px 8px; border: 1px solid var(--line); }
-.provenance.annotated, .provenance.narrated { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
-.provenance.confirmed { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.provenance.objective { background: var(--selected-bg); }
-.provenance.inferred { color: var(--muted); }
-
-.fidelity { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
-
-/* -- right: evidence --------------------------------------------------- */
-
-.evidence { background: var(--panel); border-left: 1px solid var(--line); }
-.tabs { display: flex; gap: 6px; margin-bottom: 12px; }
-.tabs .on { background: var(--ink); color: var(--on-accent); border-color: var(--ink); }
-.evidence h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 18px 0 6px; }
-.evidence h4 { font-size: 13px; margin: 10px 0 4px; }
-.grounding { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.grounding > li { border-left: 2px solid var(--accent); padding-left: 9px; }
-.retrieval pre, .feature {
-  background: var(--subtle-bg);
-  border-radius: 6px;
-  padding: 9px;
-  overflow-x: auto;
-  max-height: 320px;
-  white-space: pre;
-}
-.feature { max-height: none; }
-/* SS6.6 -- narration, the one lossy evidence source. Set apart from the
- * retrievals above it because it is the one a human still has to check: the
- * clip is the only verification a transcript can have. */
-.spoken { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 7px; }
-.spoken > li { border-left: 2px solid var(--accent); padding-left: 9px; font-size: 13px; }
-.spoken .at { color: var(--muted); font-size: 11.5px; margin-right: 6px; font-variant-numeric: tabular-nums; }
-.spoken q { quotes: '\201C' '\201D'; }
-.spoken > li.unsure { border-left-color: var(--line); color: var(--muted); }
-.spoken em { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
-.evidence audio { width: 100%; margin: 2px 0 4px; }
-.small { font-size: 11.5px; line-height: 1.45; }
-
-.narrative { border-left: 2px solid var(--line); padding-left: 9px; margin-bottom: 12px; }
-.trail { margin: 4px 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
-.ids { color: var(--muted); font-size: 12.5px; word-break: break-all; }
-
-/* Job progress. Amber rather than red: a run in flight is normal, and the
- * palette above reserves red for things that went wrong. */
-.jobbanner { display: flex; flex-direction: column; }
-.job {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  flex-wrap: wrap;
-  padding: 8px 14px;
-  background: var(--attention);
-  border-bottom: 1px solid var(--warn-line);
-}
-.job-failed { background: var(--danger-bg); border-bottom-color: var(--danger-line); }
-.job-state { font-weight: 600; color: var(--warn); }
-.job-failed .job-state { color: var(--danger); }
-.job-note { font-size: 12.5px; }
-.job-error { color: var(--danger); }
-.empty .jobbanner { margin-bottom: 16px; }
-.text-edit {
-  flex: 1;
-  font: inherit;
-  padding: 2px 6px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-}
-
-/* Phase 3. The three outputs that are not steps (SS9.8, SS9.9, SS14).
-   Below the three panes rather than inside them: each would be worthless if a
-   reader mistook it for part of the test case, so none of them shares a
-   container with one. */
-.casenotes {
-  border-top: 1px solid var(--line);
+.assertions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+.assertions li {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s-3) var(--s-4);
   background: var(--panel);
-  padding: 14px 18px;
-  max-height: 34vh;
-  overflow-y: auto;
+  box-shadow: var(--shadow-1);
+}
+.assertions li.accepted { border-color: var(--accent-line); background: var(--panel); }
+.assertions label { display: flex; gap: var(--s-3); align-items: flex-start; cursor: pointer; }
+.assertions input[type='checkbox'] { margin-top: 4px; width: 16px; height: 16px; accent-color: var(--brand); flex: none; }
+.assertions .text { font-size: var(--fs-lg); line-height: var(--lh-snug); }
+.text-edit { flex: 1; font: inherit; font-size: var(--fs-lg); }
+
+/* Three lines and then it stops: what kind of claim, the value, and where the
+   value came from. This used to live in a separate pane behind a triangle. */
+.proof {
   display: flex;
-  gap: 28px;
-  align-items: flex-start;
+  align-items: center;
+  gap: var(--s-2);
   flex-wrap: wrap;
+  margin: var(--s-3) 0 0 29px;
+  font-size: var(--fs-sm);
 }
-.casenotes > div { flex: 1 1 320px; min-width: 280px; }
-.casenotes h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin: 0 0 8px;
-}
-.casenotes ul { list-style: none; margin: 0; padding: 0; }
-.casenotes li { margin-bottom: 10px; line-height: 1.45; }
-.casenotes p { margin: 4px 0; line-height: 1.45; }
-.casenotes .badge {
-  font-size: 11px;
+.provenance {
+  font-size: var(--fs-xs);
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: 999px;
+  padding: 2px 8px;
   border: 1px solid var(--line);
   color: var(--muted);
 }
-.badge.warn { color: var(--warn); border-color: var(--warn); }
-.badge.error { color: var(--danger); border-color: var(--danger); }
-.badge.bug { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+.provenance.annotated, .provenance.narrated {
+  background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line);
+}
+.provenance.confirmed { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.provenance.objective { background: var(--subtle-bg); }
 
-/* Unverified, and it has to look it. SS9.8's quarantine is only real if a
-   reader can tell at a glance which column was checked and which was not. */
-.suggestions { border-left: 3px dashed var(--line); padding-left: 14px; }
-.bugreport { border-left: 3px solid var(--danger); padding-left: 14px; }
+.predicate {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  padding: 2px 7px;
+  background: var(--brand-bg);
+  color: var(--brand);
+  border: 1px solid var(--brand-line);
+}
+.predicate-absent { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
+
+.literal {
+  background: var(--subtle-bg);
+  border: 1px solid var(--line);
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.at-event { font-family: var(--font-mono); font-size: var(--fs-xs); }
+
+.retrieval { margin: var(--s-2) 0 0 29px; }
+.retrieval pre {
+  background: var(--subtle-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s-3);
+  overflow-x: auto;
+  max-height: 340px;
+  margin: var(--s-2) 0 0;
+}
 
 /* The author's own refusal, in the tester's language.
    Not styled as a warning: a step with no verdict because the recording does
    not contain one is the DESIGNED outcome, and a visible gap beats an invisible
-   falsehood. It reads as a statement, and it is never collapsed -- a gap a
-   reviewer has to go looking for is one the tool may as well have hidden. */
+   falsehood. Never collapsed -- a gap somebody has to go looking for is one the
+   tool may as well have hidden. */
 .whynot {
   border-left: 3px solid var(--muted);
-  padding: 6px 0 6px 10px;
+  padding: var(--s-2) 0 var(--s-2) var(--s-3);
   margin: 0;
-  line-height: 1.5;
+  line-height: var(--lh);
 }
 
-/* SS9.9 -- never collapsed by default. A finding a reviewer has to go looking
-   for is one the repair loop may as well have swallowed. */
-.critic { list-style: none; margin: 0; padding: 0; }
-.critic li {
-  border-left: 3px solid var(--warn);
-  padding: 4px 0 4px 10px;
-  margin-bottom: 8px;
-  line-height: 1.45;
+/* The judge, on the step it is about. */
+.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+.findings li {
+  border: 1px solid var(--danger-line);
+  border-left-width: 3px;
+  border-radius: var(--r-md);
+  background: var(--danger-bg);
+  padding: var(--s-3) var(--s-4);
+}
+.findings li.weak { border-color: var(--warn-line); background: var(--warn-bg); }
+.findings p { margin: var(--s-2) 0 0; line-height: var(--lh-snug); }
+.findings .fix { color: var(--muted); }
+
+/* The spec wrote this copy sentence by sentence and the UI shipped the enum. */
+.fidelity { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.fidelity li { line-height: var(--lh-snug); padding-left: var(--s-3); border-left: 3px solid var(--line); }
+.fidelity li.warn { border-left-color: var(--warn); }
+.fidelity li.note { color: var(--muted); }
+
+/* Narration -- the one lossy evidence source, so it keeps its clip. */
+.spoken { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: grid; gap: var(--s-2); }
+.spoken > li { border-left: 2px solid var(--accent); padding-left: var(--s-3); font-size: var(--fs-md); }
+.spoken .at { color: var(--muted); font-size: var(--fs-xs); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.spoken q { quotes: '\201C' '\201D'; }
+.spoken > li.unsure { border-left-color: var(--line); color: var(--muted); }
+.spoken em { display: block; font-size: var(--fs-xs); color: var(--muted); margin-top: 2px; }
+.detail audio { width: 100%; margin: var(--s-2) 0; }
+
+/* -- the feature file, at full width ------------------------------------- */
+
+.featureview-head { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-4); }
+.featureview-head h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  margin: 0;
 }
 
-/* The page the step happened on (SS13.1). Captured since Phase 1, rendered
-   nowhere until now -- judging a step from a sentence and an event id is hard,
-   and trivial beside the picture. */
-.shot { margin: 10px 0 14px; }
-.shot img {
-  display: block; max-width: 100%; max-height: 220px;
-  border: 1px solid var(--line); border-radius: 6px; cursor: zoom-in;
+/* Prose with keywords in it, not code. Set in the body face, at a size
+   somebody reads, with nothing clipped. */
+.gherkin {
   background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--s-5) var(--s-5);
+  overflow-x: auto;
 }
-.shot.zoomed img { max-height: none; cursor: zoom-out; }
-.shot-hint { display: block; font-size: 12px; margin-top: 4px; }
-
-/* SS6.8's copy, not SS6.8's enum. The severity split is the spec's: flagging
-   every notice for review is why six of seven steps once carried a marker,
-   which teaches the reader to ignore all of them. */
-.fidelity li { margin-bottom: 6px; line-height: 1.45; }
-.fidelity li.warn { color: var(--ink); border-left: 3px solid var(--warn); padding-left: 8px; }
-.fidelity li.note { color: var(--muted); border-left: 3px solid var(--line); padding-left: 8px; }
-
-/* SS13.2 -- the prose is editable where a reader actually reads it. */
-.featureedit { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
-textarea.feature {
-  flex: 1; min-height: 260px; resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
-  line-height: 1.5; padding: 10px; border: 1px solid var(--line); border-radius: 6px;
-  background: var(--panel); color: var(--ink);
+.gherkin p { margin: 0; font-size: var(--fs-lg); line-height: 1.75; white-space: pre-wrap; }
+.g-indent { white-space: pre; }
+.g-keyword { color: var(--brand); font-weight: 600; }
+.g-feature > .g-keyword, .g-scenario > .g-keyword, .g-background > .g-keyword, .g-rule > .g-keyword {
+  font-family: var(--font-display);
+  letter-spacing: var(--track-tight);
 }
-.featureedit-actions { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.g-feature, .g-scenario, .g-background, .g-rule { font-size: var(--fs-xl); margin-top: var(--s-3); }
+.g-comment { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-sm); }
+.g-row { font-family: var(--font-mono); font-size: var(--fs-md); color: var(--muted); }
+.g-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: var(--s-2); }
 
-/* The retrieval chain, one click away rather than in a tester's face. SS13.3
-   asks for "trust and proof, both load-bearing" -- only trust is load-bearing
-   for the tester, and trust comes from the output being right. */
-.telemetry { margin-top: 14px; }
-.telemetry summary { cursor: pointer; }
-.grounding-sentence { margin: 0 0 4px; line-height: 1.5; }
-.grounding details summary { cursor: pointer; font-size: 12px; }
-
-/* -- the trust strip, the keyboard sheet, and safe editing --------------- */
-
-/* SS13.3 -- `trace.metrics` and `trace.validatorResults` were in every run body
- * and rendered nowhere. A grounding rate never appears without the count of
- * expected results beside it. */
-.trust {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  flex-wrap: wrap;
-  padding: var(--s-2) var(--s-4);
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
+.feature-edit {
+  width: 100%;
+  min-height: 420px;
+  resize: vertical;
+  font-family: var(--font-mono);
   font-size: var(--fs-md);
+  line-height: 1.65;
+  padding: var(--s-4);
 }
-.trust.ok { border-left: 3px solid var(--accent); }
-.trust.warn { border-left: 3px solid var(--warn); background: var(--warn-bg); }
-.trust.bad { border-left: 3px solid var(--danger); background: var(--danger-bg); }
-.trust-gates { display: flex; align-items: center; gap: var(--s-2); }
-.badge.ok { background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent-line); }
-.badge.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); }
-.badge.bad { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-line); }
-.trust-detail { flex-basis: 100%; margin: var(--s-2) 0 0; padding-left: var(--s-4); }
-.trust-detail li { margin-bottom: var(--s-1); }
-.trust-detail li.fail { color: var(--danger); }
-.linkish {
+
+.inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--s-5);
+  margin-top: var(--s-6);
+}
+.tablewrap { overflow-x: auto; }
+table.grid { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
+table.grid th {
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--s-2);
+  border-bottom: 1px solid var(--line);
+}
+table.grid td { padding: var(--s-2); border-bottom: 1px solid var(--line-soft); }
+
+.bugreport {
+  margin-top: var(--s-6);
+  border-left: 3px solid var(--danger);
+  padding: var(--s-2) 0 var(--s-2) var(--s-4);
+}
+.bugreport p { margin: var(--s-2) 0; }
+
+/* -- what was not covered ------------------------------------------------ */
+
+.suggestions { list-style: none; margin: var(--s-4) 0 0; padding: 0; display: grid; gap: var(--s-4); }
+.suggestions li {
+  border: 1px dashed var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s-3) var(--s-4);
+  background: var(--panel);
+}
+.suggestion-text { margin: var(--s-2) 0 0; font-size: var(--fs-lg); line-height: var(--lh-snug); }
+
+/* -- menus and pickers --------------------------------------------------- */
+
+.menu, .runpicker { position: relative; }
+.menu-scrim { position: fixed; inset: 0; z-index: 25; }
+.menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 26;
+  min-width: 260px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: var(--s-2);
+  display: grid;
+  gap: 2px;
+}
+.menu-head {
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: var(--s-2) var(--s-2) 2px;
+}
+.menu-group { display: grid; gap: 1px; margin-bottom: var(--s-2); }
+.menu-label { font-size: var(--fs-sm); color: var(--muted); padding: 0 var(--s-2); }
+.menu-list a, .menu-list button {
+  display: block;
+  padding: 6px var(--s-2);
+  border-radius: var(--r-sm);
   border: 0;
   background: none;
-  color: var(--accent);
-  text-decoration: underline;
-  padding: 0;
-  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: var(--fs-md);
+  font-weight: 400;
 }
+.menu-list a:hover, .menu-list button:hover { background: var(--subtle-bg); border-color: transparent; }
+.menu-list a.fresh { color: var(--brand); font-weight: 600; }
 
-/* Explicit save. It used to commit on blur with no dirty state and no undo. */
-.editbar { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); }
-.editbar .hint { margin: 0; }
+.runpicker-current {
+  display: flex; align-items: center; gap: var(--s-2);
+  background: none; border: 1px solid transparent; border-radius: var(--r-md);
+  padding: 5px 10px; cursor: pointer; color: var(--ink);
+}
+.runpicker-current:hover { border-color: var(--line); background: var(--subtle-bg); }
+.runpicker-title { font-weight: 600; }
+.caret { font-size: var(--fs-sm); line-height: 1; }
+.runpicker-list {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 26;
+  width: min(580px, 92vw); max-height: 64vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+}
+.runpicker-search {
+  width: 100%; padding: var(--s-3) var(--s-4);
+  border: none; border-bottom: 1px solid var(--line); border-radius: 0;
+  background: transparent;
+}
+.runpicker-search:focus { outline: none; border-color: var(--line); }
+.runpicker-empty { padding: var(--s-4); margin: 0; }
+.runpicker-row {
+  display: block; width: 100%; text-align: left; background: none;
+  border: none; border-bottom: 1px solid var(--line-soft);
+  padding: var(--s-3) var(--s-4); cursor: pointer; color: var(--ink); font-weight: 400;
+}
+.runpicker-row:last-child { border-bottom: none; }
+.runpicker-row:hover { background: var(--subtle-bg); border-color: transparent; }
+.runpicker-row.current { background: var(--selected-bg); box-shadow: inset 3px 0 0 var(--brand); }
+.runpicker-row-main { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.runpicker-row-sub { display: block; font-size: var(--fs-md); margin-top: 2px; }
+.runpicker-row-stats { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: var(--fs-sm); margin-top: 4px; }
+.runpicker-row-stats .wants { color: var(--warn); }
+
+/* -- the command palette ------------------------------------------------- */
+
+.palette-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(8, 10, 14, 0.4);
+  display: grid; place-items: start center;
+  padding-top: 12vh;
+}
+.palette {
+  width: min(640px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.palette-input {
+  width: 100%;
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
+  padding: var(--s-4);
+  font-size: var(--fs-xl);
+  background: transparent;
+}
+.palette-input:focus { outline: none; border-color: var(--line); }
+.palette-list { list-style: none; margin: 0; padding: var(--s-2); max-height: 52vh; overflow-y: auto; display: grid; gap: 1px; }
+.palette-list button {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: var(--s-3);
+  align-items: baseline;
+  width: 100%;
+  border: 0; background: none; border-radius: var(--r-md);
+  padding: 8px var(--s-3);
+  text-align: left; font-weight: 400;
+}
+.palette-list button.on { background: var(--selected-bg); border-color: transparent; }
+.palette-group {
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--track-eyebrow);
+  color: var(--muted); font-weight: 600;
+}
+.palette-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-hint { font-family: var(--font-mono); font-size: var(--fs-xs); }
+.palette-empty { padding: var(--s-4); }
+
+/* -- the keyboard sheet -------------------------------------------------- */
 
 .sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(10, 14, 18, 0.45);
-  display: grid;
-  place-items: center;
-  z-index: 20;
+  position: fixed; inset: 0; z-index: 45;
+  background: rgba(8, 10, 14, 0.45);
+  display: grid; place-items: center; padding: var(--s-4);
 }
 .sheet {
   background: var(--panel);
-  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-2);
   padding: var(--s-5);
   max-width: 620px;
-  max-height: 80vh;
+  max-height: 84vh;
   overflow-y: auto;
 }
 .sheet header { display: flex; align-items: center; gap: var(--s-3); }
-.sheet header h2 { margin: 0; font-size: var(--fs-lg); flex: 1; }
-.sheet h3 { font-size: var(--fs-md); margin: var(--s-5) 0 var(--s-2); }
+.sheet header h2 {
+  margin: 0; flex: 1;
+  font-family: var(--font-display); font-size: var(--fs-2xl);
+  font-weight: 600; letter-spacing: var(--track-tight);
+}
+.sheet h3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-md); margin: var(--s-5) 0 var(--s-2);
+}
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-2) var(--s-4); margin: 0; }
 .keys dt { text-align: right; white-space: nowrap; }
 .keys dd { margin: 0; }
@@ -443,168 +825,249 @@ kbd {
 }
 .mark {
   display: inline-block;
-  width: 1.4em;
+  width: 1.5em; height: 1.5em; line-height: 1.4em;
   text-align: center;
   font-weight: 700;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--subtle-bg);
 }
+.mark-fail-key { background: var(--danger); border-color: var(--danger); }
 
-/* There was no focus ring anywhere, and the loop is now keyboard-first. */
-:where(button, a, input, textarea, [tabindex]):focus-visible {
-  outline: var(--focus);
-  outline-offset: var(--focus-offset);
+/* -- first run ----------------------------------------------------------- */
+
+.firstrun { display: flex; flex-direction: column; min-height: 100vh; }
+.firstrun-body { max-width: 620px; margin: 0 auto; padding: var(--s-7) var(--s-5); }
+.firstrun-body h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-3xl);
+  font-weight: 700;
+  letter-spacing: var(--track-tight);
+  margin: 0 0 var(--s-2);
+}
+.firstrun-steps { margin: var(--s-5) 0; padding-left: var(--s-5); display: grid; gap: var(--s-4); }
+.firstrun-steps li { line-height: var(--lh); }
+
+/* -- responsive ---------------------------------------------------------- */
+
+/* Below ~900px the two panes cannot both hold their minimum. The rail becomes
+   a band across the top rather than disappearing: it is the navigation. */
+@media (max-width: 900px) {
+  .app { height: auto; min-height: 100vh; }
+  main { grid-template-columns: minmax(0, 1fr); }
+  .steplist {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 42vh;
+  }
+  .detail, .featureview, .notcovered { padding: var(--s-4); }
+  main > * { overflow-y: visible; }
 }
 
 /* --------------------------------------------------------------------------
    The confirmation screen.
 
-   Deliberately unlike the rest of this UI. Everything else here is a console
-   for someone reviewing a draft; this is one question asked of a tester who has
+   Deliberately unlike the rest of this UI. Everything else is a console for
+   somebody reviewing a draft; this is one question asked of a tester who has
    just pressed Stop and is about to move on to the next test. Wide cards, big
    pictures, three buttons, no panes.
    -------------------------------------------------------------------------- */
-.confirm { max-width: 760px; margin: 0 auto; padding: 24px 20px 60px; }
-.confirm-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 6px; }
-.confirm-head h1 { font-size: 22px; margin: 0; }
-.confirm-head button { margin-left: auto; }
-.confirm-lead { margin: 0 0 22px; line-height: 1.5; }
+
+.confirm { max-width: 780px; margin: 0 auto; padding: var(--s-5) var(--s-5) var(--s-7); }
+.confirm-head {
+  display: flex; align-items: center; gap: var(--s-4);
+  margin-bottom: var(--s-2);
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bg);
+  padding: var(--s-4) 0 var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+.confirm-head h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-3xl);
+  font-weight: 700;
+  letter-spacing: var(--track-tight);
+  margin: 0;
+}
+.confirm-head .spacer { flex: 1; }
+.confirm-lead { margin: var(--s-4) 0 var(--s-5); line-height: var(--lh); font-size: var(--fs-lg); }
 .confirm .ok { color: var(--accent); }
 .confirm .bad { color: var(--danger); }
 
-.confirm button.secondary { background: var(--panel); }
-.confirm button.ghost { border-color: transparent; color: var(--muted); }
-.confirm button.ghost:hover { color: var(--ink); }
+/* Progress. There was none, so three cards read as an unbounded scroll. */
+.confirm-progress { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-md); color: var(--muted); }
+.pips { display: inline-flex; gap: 4px; }
+.pip { width: 8px; height: 8px; border-radius: 50%; background: var(--line); display: inline-block; }
+.pip.done { background: var(--accent); }
 
-.confirm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
+.confirm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-5); }
 
 .confirm-card {
-  border: 1px solid var(--line); border-radius: 10px; padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: var(--s-4);
   background: var(--panel);
+  box-shadow: var(--shadow-1);
 }
-.confirm-card h3 { font-size: 15px; margin: 0 0 12px; }
-/* Answered cards recede rather than disappear: a tester scanning back for the
+.confirm-card h3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  margin: 0 0 var(--s-3);
+}
+/* Answered cards recede rather than disappear: somebody scanning back for the
    one they got wrong has to be able to find it. */
-.confirm-card.answered { opacity: 0.72; }
+.confirm-card.answered { opacity: 0.66; }
 .confirm-card.answered.confirmed { box-shadow: inset 3px 0 0 var(--accent); }
 .confirm-card.answered.corrected { box-shadow: inset 3px 0 0 var(--warn); }
 .confirm-card.answered.rejected { box-shadow: inset 3px 0 0 var(--danger); }
 
 .confirm-shot {
-  display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px;
-  margin-bottom: 12px;
+  display: block; width: 100%;
+  max-height: 320px; object-fit: cover; object-position: top;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  margin-bottom: var(--s-3);
+  background: var(--subtle-bg);
 }
 
-.confirm-pair { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 14px; }
-.confirm-pair dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-.confirm-pair dd { margin: 0; }
+.confirm-pair {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: var(--s-1) var(--s-4); margin: 0 0 var(--s-4);
+}
+.confirm-pair dt {
+  color: var(--muted); font-size: var(--fs-xs);
+  text-transform: uppercase; letter-spacing: var(--track-eyebrow); font-weight: 600;
+  padding-top: 3px;
+}
+.confirm-pair dd { margin: 0; font-size: var(--fs-lg); line-height: var(--lh-snug); }
 
-.confirm-buttons { display: flex; gap: 8px; }
-.confirm-flag { margin: 10px 0 0; font-size: 13px; }
+.confirm-buttons { display: flex; gap: var(--s-2); align-items: center; }
+.confirm-buttons button { padding: 8px 18px; }
+.confirm-buttons .no { color: var(--danger); }
+.confirm-buttons .no:hover:not(:disabled) { border-color: var(--danger); }
+.confirm-buttons .no.on { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
+.confirm-flag { margin: var(--s-3) 0 0; font-size: var(--fs-md); }
 
-.confirm-edit textarea { width: 100%; margin-bottom: 6px; }
-.confirm-edit p { margin: 0 0 10px; font-size: 13px; }
-.confirm-edit button { margin-right: 8px; }
+.confirm-edit textarea { width: 100%; margin-bottom: var(--s-2); font-size: var(--fs-lg); }
+.confirm-edit p { margin: 0 0 var(--s-3); font-size: var(--fs-md); }
+.confirm-edit button { margin-right: var(--s-2); }
 
 .confirm-actions {
-  display: flex; align-items: center; gap: 12px; margin-top: 26px;
-  padding-top: 18px; border-top: 1px solid var(--line);
-}
-
-/* -------------------------------------------------------------------------
-   The unanswered-guesses banner.
-
-   Styled as an invitation rather than an error, because it is not one: the
-   draft already exists and was built on the guesses alone. It uses the
-   attention colour rather than the danger colour for the same reason -- a red
-   bar on the review screen says something is broken, and nothing is.
-   ------------------------------------------------------------------------- */
-
-.confirm-banner {
   display: flex; align-items: center; gap: var(--s-3);
-  padding: var(--s-3) var(--s-4);
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-line);
-  border-radius: var(--r-md);
-  margin-bottom: var(--s-3);
+  margin-top: var(--s-6); padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
 }
-.confirm-banner span { flex: 1; }
-.confirm-banner code { font-size: 12px; }
 
-/* -------------------------------------------------------------------------
-   The how-to page.
+/* --------------------------------------------------------------------------
+   The how-to page. One column, read top to bottom, at a measure that does not
+   fight the eye. The only screen here somebody READS rather than works in.
+   -------------------------------------------------------------------------- */
 
-   One column, read top to bottom, at a measure that does not fight the eye.
-   It is the only screen here a person READS rather than works in, so it does
-   not use the three-pane grid and does not try to.
-   ------------------------------------------------------------------------- */
-
-.help {
-  max-width: 760px; margin: 0 auto; padding: var(--s-5);
-  line-height: 1.55;
-}
+.help { max-width: 760px; margin: 0 auto; padding: var(--s-5) var(--s-5) var(--s-7); line-height: var(--lh); }
 .help > header {
   display: flex; align-items: center; gap: var(--s-3);
   margin-bottom: var(--s-5); padding-bottom: var(--s-3);
   border-bottom: 1px solid var(--line);
 }
-.help h1 { font-size: 22px; margin: 0; }
+.help h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-3xl); font-weight: 700;
+  letter-spacing: var(--track-tight);
+  margin: 0;
+}
 .help h2 {
-  font-size: 17px; margin: var(--s-5) 0 var(--s-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl); font-weight: 600;
+  letter-spacing: var(--track-tight);
+  margin: var(--s-7) 0 var(--s-3);
   padding-top: var(--s-4); border-top: 1px solid var(--line);
 }
-.help h3 { font-size: 14px; margin: var(--s-4) 0 var(--s-2); }
+.help h3 { font-family: var(--font-display); font-size: var(--fs-xl); font-weight: 600; margin: var(--s-5) 0 var(--s-2); }
 .help p { margin: 0 0 var(--s-3); }
 .help ul { margin: 0 0 var(--s-3); padding-left: var(--s-5); }
 .help li { margin-bottom: var(--s-2); }
+.help .lead { font-size: var(--fs-xl); color: var(--muted); line-height: var(--lh-snug); }
 
-/* A note is context that changes what you would do, not an aside. It is set
-   apart rather than shrunk, because the two most load-bearing facts on this
-   page -- a vague objective is worse than none, and nobody has ever answered
-   the confirmation screen -- are both in one. */
+/* The walkthrough: what to click, in order. This is the top of the page and
+   the reason somebody opened it. */
+.walkthrough { list-style: none; counter-reset: step; margin: var(--s-5) 0; padding: 0; display: grid; gap: var(--s-3); }
+.walkthrough li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: baseline;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s-3) var(--s-4);
+  margin: 0;
+}
+.walkthrough li::before {
+  content: counter(step);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  color: var(--on-brand);
+  background: var(--brand);
+  border-radius: var(--r-sm);
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  align-self: start;
+}
+.walkthrough b { font-weight: 600; }
+.walkthrough .say { color: var(--muted); display: block; margin-top: 2px; }
+
+/* A control named in prose, so "press Stop" points at something the reader can
+   recognise on screen rather than at a word. */
+.ui {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.92em;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  background: var(--subtle-bg);
+  white-space: nowrap;
+}
+
 .help .note {
   background: var(--subtle-bg);
-  border-left: 3px solid var(--accent-line);
+  border-left: 3px solid var(--brand);
   padding: var(--s-3) var(--s-4);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
 }
 
 .help table.compare { width: 100%; border-collapse: collapse; margin: 0 0 var(--s-3); }
 .help table.compare th {
-  text-align: left; font-size: 12px; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.04em;
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: var(--fs-xs); color: var(--muted);
+  text-transform: uppercase; letter-spacing: var(--track-eyebrow);
   padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line);
 }
 .help table.compare td {
-  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line);
+  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line-soft);
   vertical-align: top;
 }
 .help table.compare td:first-child { width: 40%; }
 
-/* -------------------------------------------------------------------------
-   The journey diagram.
-
-   The one thing worth drawing rather than describing: where the tool is
-   WAITING FOR YOU. It used to draw which stages run a model, which is a fact
-   about the architecture -- true, worth documenting elsewhere, and of no use
-   to somebody deciding what to do next.
-   ------------------------------------------------------------------------- */
-
+/* The journey diagram: where the tool is WAITING FOR YOU. */
 .pipeline { margin: 0 0 var(--s-5); }
 .pipeline svg { width: 100%; height: auto; }
-.pipeline figcaption {
-  color: var(--muted); font-size: 13px; margin-top: var(--s-2);
-}
+.pipeline figcaption { color: var(--muted); font-size: var(--fs-md); margin-top: var(--s-2); }
 
 .stage { stroke: var(--line); fill: var(--panel); }
-/* The two states a reader acts on: yours, and not yours. `you` is the warm
-   one, because the whole failure this page exists to fix is a step nobody
-   realised was theirs. */
 .stage-auto { fill: var(--subtle-bg); }
-.stage-you { fill: var(--warn-bg); stroke: var(--warn-line); }
+.stage-you { fill: var(--brand-bg); stroke: var(--brand-line); }
 .stage-name { font-size: 12px; font-weight: 600; fill: var(--ink); }
 .stage-kind { font-size: 9px; fill: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
 .stage-what { font-size: 9px; fill: var(--muted); }
 .stage-arrow { stroke: var(--line); stroke-width: 1.5; }
 .stage-arrow-tip { fill: var(--line); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

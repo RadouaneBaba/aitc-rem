@@ -48,6 +48,20 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
           </dd>
 
           <dt>
+            <kbd>f</kbd>
+          </dt>
+          <dd>Show the finished feature file, and come back.</dd>
+
+          <dt>
+            <kbd>⌘</kbd>
+            <kbd>K</kbd>
+          </dt>
+          <dd>
+            Everything else: jump to any step, switch run, approve, change the theme, open the
+            how-to.
+          </dd>
+
+          <dt>
             <kbd>⌘</kbd>
             <kbd>↵</kbd>
           </dt>
@@ -61,6 +75,13 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
 
         <h3>The marks beside a step</h3>
         <dl className="keys">
+          <dt>
+            <span className="mark mark-fail-key" />
+          </dt>
+          <dd>
+            A QA lead would send this step back. Open it — the reason and the fix are written
+            out under the expected result.
+          </dd>
           <dt>
             <span className="mark">?</span>
           </dt>
@@ -77,6 +98,12 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
           </dt>
           <dd>You have already edited this step.</dd>
         </dl>
+
+        <h3>Selecting more than one</h3>
+        <p className="muted">
+          Click a step, then <kbd>Shift</kbd>-click another in the same scenario to select the
+          range. A <b>Merge</b> control appears once there is something to merge.
+        </p>
 
         <p className="muted">
           Nothing here is destructive. Deleting a step and approving the run both ask first.

@@ -1,5 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#1f2430"/>
-  <path d="M8 17.5 L13.5 23 L24 9.5" fill="none" stroke="#5ee0a0"
-        stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- The AITC mark: a record button with a frame inside it. Record, and the
+       thing that comes out of recording. Matches `Wordmark.tsx` and the two
+       extension pages, which draw the same shape in plain markup. -->
+  <rect width="32" height="32" rx="7" fill="#12151c"/>
+  <circle cx="16" cy="16" r="9.5" fill="none" stroke="#5b78ee" stroke-width="2.6"/>
+  <rect x="12" y="12" width="8" height="8" rx="2" fill="#5b78ee"/>
 </svg>

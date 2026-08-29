@@ -155,8 +155,18 @@ async function stopAndCollect(): Promise<Captured> {
     return { recording: w.__aitcRecording, audio: w.__aitcAudio };
   })) as unknown as Captured;
 
-  // The export page runs the generated Ajv validator over what it assembled.
-  await expect(exportPage.locator('#validity .ok')).toBeVisible();
+  // The send page runs the generated Ajv validator over what it assembled, and
+  // reports a pass as four characters in the summary line rather than as a
+  // section headed "Schema check" -- a heading in the recorder's own vocabulary
+  // is not something a tester can act on. A FAILURE is still a section, because
+  // that is the one time it is.
+  await expect(exportPage.locator('#summary .ok')).toBeVisible();
+  await expect(exportPage.locator('#invalid')).toBeEmpty();
+
+  // And it SHOWS what was recorded. The frames were captured, held in memory on
+  // that very page, and reported as a count -- on the one screen whose whole job
+  // is answering "did I record the right thing" before anything is sent.
+  await expect(exportPage.locator('#recorded .film img').first()).toBeVisible();
   await exportPage.close();
   return captured;
 }

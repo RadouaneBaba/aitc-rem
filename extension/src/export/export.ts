@@ -261,33 +261,86 @@ function attributeAnnotations(
   }
 }
 
-function renderSummary(recording: Recording, shots: number): void {
-  const flags = recording.metadata.fidelitySummary ?? {};
-  const flagRows = Object.entries(flags)
-    .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+function escape(text: string): string {
+  return text.replace(/[&<>"]/g, (c) => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
+}
+
+function duration(ms: number): string {
+  const total = Math.round(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The three questions, in the order somebody asks them.
+ *
+ * The old page opened with a table of ids and counts and then a heading reading
+ * "Schema check" -- developer vocabulary at the moment a tester is most anxious
+ * about what they are about to hand over. The schema check is now four
+ * characters in the line below the title, and only becomes a section when it
+ * fails, which is the one time it means anything to the reader.
+ */
+function renderSummary(
+  recording: Recording,
+  screenshots: { key: string; dataUrl: string }[],
+  valid: boolean,
+): void {
+  $('summary').innerHTML = [
+    `<span><b>${recording.events.length}</b> actions</span>`,
+    `<span><b>${duration(recording.metadata.durationMs)}</b></span>`,
+    `<span><b>${recording.metadata.origins.length || 1}</b> site${
+      recording.metadata.origins.length === 1 ? '' : 's'
+    }</span>`,
+    screenshots.length ? `<span><b>${screenshots.length}</b> screenshots</span>` : '',
+    recording.annotations.length ? `<span><b>${recording.annotations.length}</b> marks</span>` : '',
+    valid ? '<span class="ok">&#10003; valid</span>' : '<span class="bad">&#10007; not valid</span>',
+  ]
+    .filter(Boolean)
     .join('');
 
-  $('summary').innerHTML = `
-    <table>
-      <tr><td>Recording</td><td><code>${recording.id}</code></td></tr>
-      <tr><td>Events</td><td>${recording.events.length}</td></tr>
-      <tr><td>Screenshots</td><td>${shots}</td></tr>
-      <tr><td>Annotations</td><td>${recording.annotations.length}</td></tr>
-      <tr><td>Duration</td><td>${(recording.metadata.durationMs / 1000).toFixed(1)}s</td></tr>
-      <tr><td>Origins</td><td>${recording.metadata.origins.join(', ') || '-'}</td></tr>
-      <tr><td>Objective</td><td>${recording.objective ?? '<em>none stated</em>'}</td></tr>
-    </table>
-    ${flagRows ? `<h3>Fidelity flags</h3><table>${flagRows}</table>` : ''}
-  `;
+  // The frames. They were captured, they are in memory on this very page, and
+  // the old version reported them as a number -- on the one screen whose whole
+  // job is answering "did I record the right thing".
+  const film = screenshots.length
+    ? `<div class="film">${screenshots
+        .map(
+          (shot) =>
+            `<figure><img src="${shot.dataUrl}" alt="the page at ${escape(shot.key)}" />` +
+            `<figcaption>${escape(shot.key)}</figcaption></figure>`,
+        )
+        .join('')}</div>`
+    : '<p class="muted">No screenshots were captured for this session.</p>';
 
-  // SS7.3 -- exactly what will be sent, with redactions applied, before any of
-  // it reaches a model.
+  const flags = recording.metadata.fidelitySummary ?? {};
+  const flagged = Object.entries(flags);
+
+  $('recorded').innerHTML =
+    film +
+    (recording.objective
+      ? `<p class="objective">You were checking: <q>${escape(recording.objective)}</q></p>`
+      : '<p class="objective muted">No objective was stated for this session.</p>') +
+    (flagged.length
+      ? `<p class="small muted">The recorder was unsure about ${flagged
+          .map(([k, v]) => `${v}&times; ${escape(k.replace(/_/g, ' '))}`)
+          .join(', ')}. Each is spelled out beside its step in the review.</p>`
+      : '');
+
+  // Exactly what will be sent, with redactions applied, before any of it
+  // reaches a model.
   const params = recording.parameters;
   $('redaction').innerHTML = params.length
-    ? `<table>${params
-        .map((p) => `<tr><td><code>${p.placeholder}</code></td><td>${p.category}</td><td>${p.occurrences}&times;</td></tr>`)
-        .join('')}</table>`
-    : '<p class="muted">No values were redacted in this recording.</p>';
+    ? `<p><b>${params.length}</b> value${params.length === 1 ? ' was' : 's were'} replaced before ` +
+      `anything was written to disk. The raw ones were never saved.</p>` +
+      `<table>${params
+        .map(
+          (p) =>
+            `<tr><td><code>${escape(p.placeholder)}</code></td><td>${escape(
+              p.category.replace(/_/g, ' '),
+            )}</td><td class="muted">${p.occurrences}&times;</td></tr>`,
+        )
+        .join('')}</table>` +
+      `<p class="small muted">They carry forward into the generated test as parameters, so ` +
+      `whoever runs it supplies the real values.</p>`
+    : '<p class="muted">Nothing in this recording looked sensitive, so nothing was replaced.</p>';
 }
 
 /**
@@ -303,30 +356,26 @@ function renderSummary(recording: Recording, shots: number): void {
  * nothing.
  */
 function renderNarration(audio: Blob | null, offsetMs: number | undefined): void {
+  // A heading with nothing under it is worse than no heading. The section only
+  // exists when there is audio to talk about.
   if (!audio) {
-    $('narration').innerHTML =
-      '<p class="muted">No audio was recorded. Turn on <em>Talk while I record</em> ' +
-      'in the popup before you start, if you want to narrate.</p>';
+    $('narration-section').hidden = true;
     return;
   }
+  $('narration-section').hidden = false;
 
-  const kb = Math.round(audio.size / 1024);
   $('narration').innerHTML = `
-    <table>
-      <tr><td>Audio</td><td>${kb} KB, <code>${audio.type || 'audio/webm'}</code></td></tr>
-      <tr><td>Starts at</td><td>${((offsetMs ?? 0) / 1000).toFixed(1)}s into the recording</td></tr>
-    </table>
-    <p class="muted">
-      Transcribed on the machine running aitc-rem and kept beside the recording, so you can
-      play back what you actually said. It is not uploaded anywhere.
+    <p><audio controls src="${URL.createObjectURL(audio)}"></audio></p>
+    <p class="small muted">
+      ${Math.round(audio.size / 1024)} KB, starting ${((offsetMs ?? 0) / 1000).toFixed(1)}s into the
+      recording. Transcribed on this machine and kept beside the recording, so you can play back
+      what you actually said. It is not uploaded anywhere.
     </p>
     <div class="note">
-      <strong>Everything you said is written down.</strong> Typed values are redacted because
-      the recorder can see that a field was a password. It cannot hear that a sentence was one.
-      If you said something you would rather not keep, save the file below instead of sending,
-      or record again.
+      <strong>Everything you said is written down.</strong> Typed values are hidden because the
+      recorder can see that a field was a password. It cannot hear that a sentence was one. If you
+      said something you would rather not keep, save the file instead of sending, or record again.
     </div>
-    <p><audio controls src="${URL.createObjectURL(audio)}"></audio></p>
   `;
 }
 
@@ -362,17 +411,31 @@ function narrationNote(narration: { status?: string; segments?: number; unsure?:
 }
 
 async function main(): Promise<void> {
+  // The how-to, reachable from here. It used to be reachable from exactly one
+  // button on one screen of the review UI, which is not a route for somebody
+  // whose whole contact with the tool is the recorder and this page.
+  const stored = await chrome.storage.local.get('serverUrl');
+  const remembered = typeof stored.serverUrl === 'string' ? stored.serverUrl : null;
+  if (remembered) ($('server') as HTMLInputElement).value = remembered;
+  $('howto').addEventListener('click', (event) => {
+    event.preventDefault();
+    const base = ($('server') as HTMLInputElement).value.trim().replace(/\/$/, '');
+    window.open(`${base}/help`, '_blank');
+  });
+
   const assembled = await assemble();
   if (!assembled) {
-    $('summary').innerHTML = '<p class="muted">No recording found. Record something first.</p>';
+    $('summary').innerHTML = '<span class="muted">No recording found — record something first.</span>';
+    $('recorded').innerHTML = '<p class="muted">Nothing to show.</p>';
+    $('redaction').innerHTML = '<p class="muted">Nothing to show.</p>';
+    $('narration-section').hidden = true;
     $('save').setAttribute('disabled', 'true');
+    $('send').setAttribute('disabled', 'true');
     return;
   }
 
   const { recording, screenshots } = assembled;
   const audio = await audioBlob();
-  renderSummary(recording, screenshots.length);
-  renderNarration(audio, recording.metadata.audioOffsetMs);
 
   // A deliberate test seam: the end-to-end suite drives the real extension in a
   // real browser and reads the assembled recording from here, rather than
@@ -393,12 +456,20 @@ async function main(): Promise<void> {
   // should fail here, at the recorder, not three pipeline stages downstream.
   const valid = validateRecording(recording);
   const errors = validateRecording.errors ?? [];
-  $('validity').innerHTML = valid
-    ? '<p class="ok">Valid against recording.schema.json.</p>'
-    : `<p class="bad">Does NOT validate against recording.schema.json:</p><pre>${errors
+  // A pass is four characters in the summary line. A failure is a section,
+  // because that is the only time it is something the reader has to act on.
+  $('invalid').innerHTML = valid
+    ? ''
+    : `<h2 class="bad">This recording is malformed</h2>` +
+      `<p>It does not match <code>recording.schema.json</code>, so the pipeline would reject ` +
+      `it. Save the file below and send this to whoever set the tool up.</p>` +
+      `<pre>${errors
         .slice(0, 12)
         .map((e) => `${e.instancePath || '/'} ${e.message ?? ''}`)
         .join('\n')}</pre>`;
+
+  renderSummary(recording, screenshots, valid);
+  renderNarration(audio, recording.metadata.audioOffsetMs);
 
   // SS13 -- the tester never touches a terminal. This button is the whole of
   // that promise: the pipeline runs on a local server and the browser opens on
@@ -408,6 +479,10 @@ async function main(): Promise<void> {
   $('send').addEventListener('click', async () => {
     const button = $('send') as HTMLButtonElement;
     const base = ($('server') as HTMLInputElement).value.trim().replace(/\/$/, '');
+    // Remembered so the popup's "?" and this page's how-to link point at the
+    // server that actually answered, rather than at a default somebody had to
+    // override once already.
+    void chrome.storage.local.set({ serverUrl: base });
     button.disabled = true;
     $('sent').textContent = 'Sending…';
     let shotNote = '';

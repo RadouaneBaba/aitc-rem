@@ -5,14 +5,14 @@ import type { RunSummary } from '../api';
  * Which run to open, and which one needs you first.
  *
  * This was a `<select>` of run ids. It answered "which runs exist" and nothing
- * else, which is fine for one recording and useless for fifteen: a tester
- * opening the tool wants to know where to start, and a dropdown makes them
- * open every run to find out.
+ * else, which is fine for one recording and useless for fifteen: somebody
+ * opening the tool wants to know where to start, and a dropdown makes them open
+ * every run to find out.
  *
- * Everything shown here was already in `ir.json`. Nothing new is computed, and
- * nothing here is a metric about the tool -- it is all about the tester's own
- * work: what this run covers, how much of it is flagged, and whether they have
- * already been through it.
+ * Everything here was already on disk. The one addition is `judgeFails` -- how
+ * much of this draft a QA lead would refuse to sign -- which is the only number
+ * in the list about the OUTPUT rather than about how much of it is unfinished,
+ * and therefore the actual reason to open one draft before another.
  */
 export function RunPicker({
   runs,
@@ -40,64 +40,65 @@ export function RunPicker({
     );
   }, [runs, query]);
 
-  const needsAttention = runs.filter((r) => !r.approved && attention(r) > 0).length;
+  const waiting = runs.filter((r) => !r.approved && attention(r) > 0).length;
 
   return (
     <div className="runpicker">
-      <button className="runpicker-current" onClick={() => setOpen((v) => !v)}>
+      <button className="runpicker-current" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <span className="runpicker-title">{label(selected)}</span>
         <span className="muted">{selected.runId}</span>
-        {needsAttention > 0 && !open && (
-          <span className="badge warn">{needsAttention} need a look</span>
-        )}
-        <span className="muted">{open ? '▲' : '▼'}</span>
+        {waiting > 0 && !open && <span className="chip chip-warn">{waiting} waiting</span>}
+        <span className="muted caret">{open ? '▴' : '▾'}</span>
       </button>
 
       {open && (
-        <div className="runpicker-list" role="listbox">
-          <input
-            className="runpicker-search"
-            placeholder={`Search ${runs.length} run${runs.length === 1 ? '' : 's'}…`}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
-          {matches.length === 0 && <p className="muted runpicker-empty">Nothing matches.</p>}
-          {matches.map((run) => (
-            <button
-              key={key(run)}
-              role="option"
-              aria-selected={key(run) === key(selected)}
-              className={`runpicker-row${key(run) === key(selected) ? ' current' : ''}`}
-              onClick={() => {
-                onSelect(run);
-                setOpen(false);
-                setQuery('');
-              }}
-            >
-              <div className="runpicker-row-main">
-                <span className="runpicker-title">{label(run)}</span>
-                {run.approved && <span className="badge approved">approved</span>}
-                {run.hasBug && <span className="badge warn">bug report</span>}
-              </div>
-              <div className="runpicker-row-sub muted">
-                {(run.scenarios ?? []).slice(0, 2).join(' · ') || run.recordingId}
-              </div>
-              <div className="runpicker-row-stats muted">
-                <span>{run.steps} steps</span>
-                <span>
-                  {run.assertions ?? 0} expected result
-                  {(run.assertions ?? 0) === 1 ? '' : 's'}
+        <>
+          <div className="menu-scrim" onClick={() => setOpen(false)} />
+          <div className="runpicker-list" role="listbox">
+            <input
+              className="runpicker-search"
+              placeholder={`Search ${runs.length} run${runs.length === 1 ? '' : 's'}…`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoFocus
+            />
+            {matches.length === 0 && <p className="muted runpicker-empty">Nothing matches.</p>}
+            {matches.map((run) => (
+              <button
+                key={key(run)}
+                role="option"
+                aria-selected={key(run) === key(selected)}
+                className={`runpicker-row${key(run) === key(selected) ? ' current' : ''}`}
+                onClick={() => {
+                  onSelect(run);
+                  setOpen(false);
+                  setQuery('');
+                }}
+              >
+                <span className="runpicker-row-main">
+                  <span className="runpicker-title">{label(run)}</span>
+                  {run.approved && <span className="chip chip-ok">approved</span>}
+                  {(run.judgeFails ?? 0) > 0 && (
+                    <span className="chip chip-bad">{run.judgeFails} to fix</span>
+                  )}
+                  {run.hasBug && <span className="chip chip-warn">bug report</span>}
                 </span>
-                {attention(run) > 0 && (
-                  <span className="runpicker-attention">{summarise(run)}</span>
-                )}
-                {(run.editedSteps ?? 0) > 0 && <span>{run.editedSteps} edited</span>}
-                <span>{new Date(run.createdAt).toLocaleDateString()}</span>
-              </div>
-            </button>
-          ))}
-        </div>
+                <span className="runpicker-row-sub muted">
+                  {(run.scenarios ?? []).slice(0, 2).join(' · ') || run.recordingId}
+                </span>
+                <span className="runpicker-row-stats muted">
+                  <span>{run.steps} steps</span>
+                  <span>
+                    {run.assertions ?? 0} check{(run.assertions ?? 0) === 1 ? '' : 's'}
+                  </span>
+                  {attention(run) > 0 && <span className="wants">{summarise(run)}</span>}
+                  {(run.editedSteps ?? 0) > 0 && <span>{run.editedSteps} edited</span>}
+                  <span>{new Date(run.createdAt).toLocaleDateString()}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -105,7 +106,7 @@ export function RunPicker({
 
 /** How much of this run is asking for a human. */
 function attention(run: RunSummary): number {
-  return (run.warnings ?? 0) + (run.flaggedSteps ?? 0);
+  return (run.warnings ?? 0) + (run.flaggedSteps ?? 0) + (run.judgeFails ?? 0);
 }
 
 function summarise(run: RunSummary): string {

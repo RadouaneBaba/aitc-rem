@@ -251,7 +251,10 @@ def test_one_header_line_says_where_the_evidence_is():
     text = render_test_case(build_case(), generated_on="2026-08-17")
     header = text.splitlines()[0]
 
-    assert header.startswith("# aitc-rem - rec_test01 - 2026-08-17")
+    # The product name, and it travels: this line is the top of every feature
+    # file the tool produces, so it lands in Jira, in git and in front of
+    # whoever reviews the test.
+    assert header.startswith("# AITC - rec_test01 - 2026-08-17")
     assert "tc_case_001.trace.md" in header
     # ...and it is the only comment in the file.
     assert len([ln for ln in text.splitlines() if ln.strip().startswith("#")]) == 1
