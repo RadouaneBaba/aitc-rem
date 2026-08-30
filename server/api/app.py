@@ -188,7 +188,7 @@ def create_app(
         transcription = _transcribe_if_audio(recording, storage, config)
         storage.save_recording(recording)
 
-        run_id = _next_run_id(storage, recording.id)
+        run_id = _run_id(storage, recording.id)
         job = runner.enqueue(
             recording.id,
             lambda job: _run(job, recording, storage, _model(), options, config),
@@ -223,11 +223,18 @@ def create_app(
         the pipeline can otherwise know is a restatement of what the application
         DID; this is the only place anybody says what it SHOULD have done.
 
-        Answering enqueues a fresh run, because the answers are an INPUT to
-        authoring rather than an edit to its output. The first run has already
+        Answering re-runs the recording, because the answers are an INPUT to
+        authoring rather than an edit to its output. The run has already
         happened by now on the guesses alone -- a run must never wait for a
-        screen somebody might not open -- so this produces a better second
-        draft beside it rather than unblocking a first one.
+        screen somebody might not open -- so this REPLACES that draft with one
+        written against the answers, in place.
+
+        It used to produce a second run beside the first, which is where
+        `rec_MTEU954A8F5X`'s three runs came from: one from Stop and one per
+        submission of this screen. Keeping both looks like history and is not
+        one -- nothing recorded which run had been answered, so the picker
+        showed three near-identical rows and the reviewer had to open each to
+        find out. See `_run_id`.
         """
         stored = storage.load_expectations(recording_id)
         if stored is None:
@@ -254,7 +261,7 @@ def create_app(
         storage.save_expectations(expectations)
 
         recording = Recording.model_validate(storage.load_recording_json(recording_id))
-        run_id = _next_run_id(storage, recording_id)
+        run_id = _run_id(storage, recording_id)
         job = runner.enqueue(
             recording_id,
             lambda job: _run(
@@ -522,10 +529,16 @@ def create_app(
 
         review_ops.resync_keywords(ir)
         _save(run.root, ir, review, config)
+        # The SAME shape `get_run` returns. `act()` in the UI replaces the whole
+        # run body with whatever a mutation hands back, so dropping `trace` and
+        # `screens` here made the screenshot and the retrieval panel vanish
+        # after any edit -- Approve included, which is where it was first seen.
         return {
             "ir": ir.model_dump(mode="json", exclude_none=True),
+            "trace": _load_json(run.root / "trace.json"),
             "review": review.model_dump(mode="json", exclude_none=True),
             "feature": _feature_text(run.root, ir, config),
+            "screens": _screens(storage, recording_id),
         }
 
     @app.patch("/api/runs/{recording_id}/{run_id}/steps/{step_id}")
@@ -657,6 +670,14 @@ def create_app(
             )
 
         results = export_all(ir, out_dir=run.root, config=config, names=body.formats or None)
+
+        # `jira.auto_push: true` posts the payloads straight after export. Never
+        # raises: a missing credential comes back as a line and the export still
+        # succeeds, because the files are on disk for `server.cli jira-push`.
+        from server.renderers.jira import auto_push_run
+
+        jira_push = auto_push_run(run.root, config)
+
         return {
             "exports": [
                 {
@@ -665,7 +686,8 @@ def create_app(
                     "warnings": r.warnings,
                 }
                 for r in results
-            ]
+            ],
+            "jiraPush": jira_push,
         }
 
     @app.get("/api/runs/{recording_id}/{run_id}/files/{name}")
@@ -848,10 +870,33 @@ def _transcribe_if_audio(
     }
 
 
-def _next_run_id(storage: Storage, recording_id: str) -> str:
+def _run_id(storage: Storage, recording_id: str) -> str:
+    """One recording, one run. Re-running replaces it rather than adding to it.
+
+    Answering the confirmation screen used to enqueue a SECOND run beside the
+    first, so `rec_MTEU954A8F5X` finished with three: `run_001` from pressing
+    Stop, then one more for each submission of the confirmation screen. Three
+    rows in the picker for one session, differing only in what the author
+    happened to decide that time, with nothing on screen saying which was which
+    or why there was more than one. A reviewer cannot tell a better draft from
+    an older one by looking.
+
+    The guarantee that actually mattered is kept: `POST /api/recordings` still
+    guesses, runs and produces a draft the moment Stop is pressed, so a run
+    never waits on a screen somebody might not open. Answering re-runs IN
+    PLACE, replacing that draft with one written against the answers -- which
+    is what the answers are for. The skip path is untouched, and it is still
+    what happens by default.
+
+    The most recently written directory rather than the highest-numbered one:
+    the runs already on disk carry hand-given ids (`run_judge`, `run_live4`)
+    that no numbering scheme orders, and mtime is true of all of them.
+    """
     root = storage.runs_dir / recording_id
-    existing = [p.name for p in root.iterdir() if p.is_dir()] if root.exists() else []
-    return f"run_{len(existing) + 1:03d}"
+    existing = [p for p in root.iterdir() if p.is_dir()] if root.exists() else []
+    if not existing:
+        return "run_001"
+    return max(existing, key=lambda p: p.stat().st_mtime).name
 
 
 def _list_runs(storage: Storage) -> list[dict[str, Any]]:

@@ -27,6 +27,45 @@ from typing import Any
 
 from server.evidence.text import contains_literal
 from server.evidence.tools import ToolRunner
+from server.util.canonical import response_hash
+
+
+def corrupted(runner: ToolRunner, tool_call_ids: list[str]) -> list[str]:
+    """Retrievals whose stored file no longer hashes to what was recorded.
+
+    This should never return anything, and when it does, nothing downstream can
+    be trusted about those calls: the trace says the agent was shown one thing
+    and the file on disk is another.
+
+    It exists because the failure is otherwise invisible AND actively
+    misleading. `resolve_call` re-reads the FILE rather than the response it
+    hashed, so a replaced file makes a true claim unresolvable -- and the
+    refusal that follows blames the recording. On `rec_MTFTJE9BK2PO` two jobs
+    for one recording ran at once, each numbering its retrievals from
+    `tc_0001`, and one overwrote `tc_0006` with the previous page. The tester
+    had pointed at the order total by hand; the run retrieved it, the trace
+    still carries the hash proving it, and the feature file said *"nothing this
+    run retrieved contains '$49.50'"*.
+
+    `evidence_retrieved` performs the same check and would have caught it -- but
+    only for a claim that BECAME an assertion, and this one was refused before
+    it ever got there. So the check has to happen where the refusal is written,
+    not only at the gate.
+    """
+    out: list[str] = []
+    by_id = {call.id: call for call in runner.calls}
+    for call_id in tool_call_ids:
+        call = by_id.get(call_id)
+        if call is None:
+            continue
+        try:
+            stored = runner.storage.load_tool_response(runner.run, call_id)
+        except OSError:
+            out.append(call_id)
+            continue
+        if response_hash(stored) != call.responseHash:
+            out.append(call_id)
+    return out
 
 
 def resolve_call(runner: ToolRunner, tool_call_ids: list[str], literal: str) -> str | None:
@@ -102,4 +141,4 @@ def response_supports(stored: Any, tool: str, literal: str) -> bool:
     return contains_literal(stored, literal)
 
 
-__all__ = ["resolve_call", "resolve_event_call", "response_supports"]
+__all__ = ["corrupted", "resolve_call", "resolve_event_call", "response_supports"]

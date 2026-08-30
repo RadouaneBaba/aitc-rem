@@ -98,15 +98,28 @@ SHAPE, and therefore the only half that can be wrong about a value nobody typed.
 CONTEXT (a password field is secret whatever its value looks like) cannot be.
 `off` keeps nothing.
 
+**`secrets_only` is the recorder's DEFAULT as of 2026-08-30**, and the argument
+is the same one that narrowed the scan two days earlier: shape is the half that
+can be wrong, and on a commercial page it is wrong about the values a test
+asserts on. `full` remains one click away for an application whose real data
+scans as sensitive.
+
 Two things follow, and both are consequences rather than weakenings:
 `no_placeholder_leak` WARNS below `full` -- the same scan, the same finding, a
 different consequence, because you cannot ask for raw values and also gate on
 their absence, and leaving it fatal would mean the setting silently produced no
-output at all. And `check_origins` REFUSES a recording below `full` unless
-`origin_policy` is `off`: free-tier prompts may be used for training and read by
-human reviewers, and that is the one mistake nobody can take back. `no_placeholder_leak` is
-the only validator whose action is `hard_fail`: the feature file is not written
-at all.
+output at all. And `check_origins` REFUSES `off` -- and only `off` -- unless
+`origin_policy` is also `off`: nothing is hidden there, so a password the tester
+typed is on disk verbatim, and sending that to a training-eligible tier is the
+one mistake nobody can take back. `no_placeholder_leak` is the only validator
+whose action is `hard_fail`: the feature file is not written at all.
+
+*That refusal used to read "anything below `full`", which caught `secrets_only`
+too.* Once `secrets_only` became the default, the default recorder setting and
+the default `origin_policy` refused every recording between them -- and a guard
+that fires on the normal path is not a guard, it is a thing people learn to
+switch off, and the case actually worth protecting goes with it. The line is
+drawn where the GUARANTEE changes rather than where the label does.
 
 *What is scanned changed on 2026-08-28, and the narrowing is the point.* The
 pattern rules (`redaction/rules.ts`) run over the tester's **input** and over
@@ -195,6 +208,55 @@ marks the document `degraded`.
 no review markers, no fidelity flags. All of that lives in the `.trace.md`
 sidecar (`server/renderers/trace_md.py`); the machine-readable form is in
 `ir.json` and `trace.json`, which is what the validators read.
+
+*After the body, two things are named, and both are completeness rather than
+traceability.* `_omissions` says what the narrative left out, and `_unproved`
+names each verdict the author wanted and could not prove, in the author's own
+words. A scenario that checks nothing is otherwise indistinguishable from a
+scenario that had nothing worth checking, and the `.feature` is the file that
+gets imported into Xray and mailed around. Both are keyed on the same field
+`@needs-review` is (`step.whyNot`), and they must not drift: a marker on a
+scenario whose file says nothing about why is the unclickable red badge this
+project already removed once.
+
+**One recording, one `.feature`.** `render_document` returns a single entry
+holding every scenario. It used to return one file PER TEST CASE, and a reader
+saw the consequence: `rec_MTEU954A8F5X/run_003` wrote two files with the same
+`Feature:` line, the same description and the same `Background`, and
+`rec_MTE6XZL14IY9/run_001` wrote three. A `Feature:` is a capability and a
+`Scenario` is one way of exercising it. `Background` is lifted out of the FIRST
+scenario only, which is what removes the duplication rather than relocating it
+-- a later case's `preconditions` ARE the earlier case's setup steps, so
+rendering both printed the same sentences twice in one file. `TestCaseIR` stays
+one per scenario: the replay runner drives `case.preconditions`, and the
+exporters number their rows per case.
+
+**`needs_review` keys on `whyNot`, and `criticNotes` is why it needs saying.**
+The tag tested `step.criticNotes`, nothing has written that field since the
+critic was deleted, and so `@needs-review` was unreachable on every run since
+-- `run_003` shipped three judge `fail`s with no marker on either scenario. The
+tag now sits on the SCENARIO rather than the feature, so a four-scenario
+document points at the one that needs looking at rather than at all four.
+
+**A vague objective is worse than none, so the model is not shown one.**
+`docs/RECORDING.md`'s ablation measured it and every recording on disk agrees:
+four of four vague objectives produced output the judge called bad, five of five
+sharp ones were acceptable. A vague objective names a MECHANISM ("check the
+filters work correctly") and the mechanism is what the test then gets written
+about, in place of the outcome the tester was checking.
+
+`server/pipeline/objective.py` is the same classifier `extension/src/popup/objective.ts`
+runs as the tester types, ported, with the same cases in both suites -- they
+must agree, or the tester is told one thing and the run does another. **Only
+`vague` is dropped**: `actions` ("sign in and add a hamper") is weaker than a
+proposition and still true, still theirs, and still names the part of the
+session they cared about.
+
+The drop happens in `digest.py`, on the way IN to the model, and **never in the
+recorder**. SS6.7 ranks the objective above everything the pipeline infers, so a
+recorder that silently improved it would invert that ladder -- and a recording
+already on disk has to keep meaning what it meant when it was made.
+`Recording.objective` is the sentence as typed, forever.
 
 **A style is a worked example, not a rule.** `style:` in `project.yaml` selects
 a file in `server/pipeline/styles/` holding one good feature file written that
@@ -306,8 +368,9 @@ server/
   config/        ProjectConfig: style, voice, tags, sidecar, parameter rendering
   evidence/      store.py = the recording, indexed. tools.py = the six tools +
                  ToolRunner. citation.py = which retrieval licenses a claim.
-                 predicate.py = WHAT is claimed about it. text.py = the one
-                 containment primitive, below both
+                 predicate.py = WHAT is claimed about it. strength.py = how
+                 precisely the literal resolves (grades, never refuses).
+                 text.py = the one containment primitive, below them all
   pipeline/      segment.py (code, hints only) -> digest.py (code, the session
                  index) -> expectations.py (agentic, what SHOULD have happened,
                  retrieving on a small budget) -> author.py (agentic, one
@@ -317,6 +380,7 @@ server/
                  checks) -> judge.py (agentic, seven questions: would a QA lead
                  sign it) -> coverage.py -> run.py
                  investigate.py = the shared decide-retrieve-observe loop
+                 objective.py = is the tester's objective a CHECK or a topic
                  styles/ = one worked .feature per house style, which IS the
                  specification of that style
                  transcribe.py = narration audio -> text, before any of it
@@ -332,8 +396,10 @@ scripts/         setup.sh + start.sh (one command each, _python.sh shared),
                  capture_cost.py (is full capture affordable -- ask it, do not
                  guess), replay.mjs,
                  snapshot_features.py (before/after), compare_features.py (A0/A1/A2)
-ui/              the review UI. route.ts = three addresses (review, confirm,
-                 help), Help.tsx = the how-to as a page a tester can reach
+ui/              the review UI. route.ts = four addresses (review, one run,
+                 confirm, help), Help.tsx = the how-to as a page a tester can
+                 reach. `/runs/<rec>/<run>` is where Send lands: it shows the
+                 pipeline working and becomes the draft
 docs/            RECORDING.md (for the tester, no terminal), HOWTO.md (for
                  whoever runs it: every feature and its command), DESIGN_NOTES.md
                  (why every rule exists), COMPLAINT.md (what was wrong, and the
@@ -376,6 +442,30 @@ after this click"*. A claim that could not be proved used to be deleted, the
 scenario ended silently without a `Then`, and a style warning said so in a
 vocabulary nobody outside the pipeline reads -- 27 of those warnings turned out
 to be a readout of the capture bug, and not one told a reviewer what to do.
+
+**The FILE decides whether a line is a verdict; the annotation only decides
+whether it can be proved.** A `Then` line -- or an `And` continuing a `Then`
+block -- is read as a verdict whatever its annotation says, and refused through
+`_attach_claim` when nothing proves it. It used to be the annotation that
+decided, and a line whose annotation went missing became a step *in silence*:
+`_align` appends a bare `{}` for a line it cannot match, `_role` defaults to
+`test_step`, and the renderer wrote `And`. On `rec_MTEU954A8F5X` that shipped a
+`Scenario Outline` whose only verdict had become an action -- no `whyNot`,
+nothing in `document.refused`, and so nothing for `_revision_feedback` to tell
+the author. `event_coverage` cannot catch it either: a verdict accounts for no
+events of its own, so every event was still covered by the steps around it. An
+annotation that named events was written for a step, so those events move to
+the step the verdict attaches to rather than being orphaned.
+
+**An explicit `Then` wins outright; a continuing `And` does not.** `And`
+continues the block above it, so an action written there is a Gherkin mistake
+rather than a claim, and the annotation is where the author says which it meant.
+Reading every continuing line as a verdict destroyed a real recorded step on
+`rec_MTFFU45SYTV5`: *"And the tester opens the shopping bag"* became *"Could not
+check that the tester opens the shopping bag"* -- not even a proposition -- and
+the step and its events went with it. So `kind: step` on a CONTINUING line is
+honoured; on an explicit `Then` it is not, because that is the contradiction the
+file has to win.
 
 **Nothing checks that a `whyNot` is TRUE, and a false one is worse than a
 missing verdict.** On `rec_MTD2DLZRFCEH` the author refused with *"the tester
@@ -531,6 +621,36 @@ things about it are load-bearing and each was a way to ship it broken:
   Cannot-evaluate goes to `whyNot` -- never to pass, which builds a laundering
   machine, and never to reject, which kills true claims when a shape changes.
 
+**`Evidence.strength` and `occurrences` GRADE a claim and can never refuse one.**
+`server/evidence/strength.py`, applied in `_attach_claim` after every decision
+is already made. The gate's check is substring containment over the response, so
+a bare literal makes a verdict vacuous without saying so anywhere: *"the cart
+badge shows 1"* bound to `1` passes `evidence_retrieved`, `contains_at` and every
+validator, and `1` occurs **198 times** in the snapshot it cites. Empty the cart
+and the test still passes.
+
+Two fields because either alone misleads. `strength` is structural -- `strong`
+(exactly one element is NAMED this), `medium`, `weak` (no element carries it;
+found only in loose text), `None` where the response holds no elements to grade,
+which is not a criticism of a network claim. `occurrences` is how many places
+satisfied the check that actually ran. `1` grades **strong / 198x**: it does
+name one element, AND the containment check had 198 ways to pass. The gap
+between them is the finding.
+
+**It grades and never rejects, and that is what keeps it out of
+`evidence_discriminates`' company** -- one of the nine deleted refusal rules. Any
+threshold here would kill true claims: `$7.99` is five characters and occurs
+once. Backtested over the 46 assertions on disk: 31 strong, 15 medium, 0 weak,
+and the six cautions are the bare-digit badge verdicts on four separate
+recordings. Surfaced in the `.trace.md` **Resolves** column, on the review card
+when it means "look at this", and as `assertionsWeaklyResolved` and
+`evidenceOccurrencesMax` -- the only metrics here that are not vacuously 1.0.
+
+*Not wired back to the author yet, deliberately.* Feeding a weak match back with
+the candidate element names is the actual fix; it can trigger a rewrite, and
+every attempt so far to move literal choice by INSTRUCTION has measured at or
+below zero (see *Things that bit us*).
+
 **`ToolSpec.view` splits what is STORED from what is SENT.** The stored value is
 the evidence -- re-hashed by `evidence_retrieved`, re-read by every predicate --
 so it must be complete. The sent value is a budget: `get_snapshot` returns 65-72
@@ -675,20 +795,70 @@ human is worth -- was unmeasurable.
 
 `GET /api/expectations/pending` reports the unanswered ones (by `confirmedAt`,
 which was in the schema for exactly this question and which nothing had ever
-read), `ConfirmBanner` puts them on the review screen, and `ui/src/route.ts` is
+read), `StatusLine` puts them on the review screen, and `ui/src/route.ts` is
 a ~40-line router so `/confirm/:id` and `/help` are addresses somebody can
 return to. `?confirm=` still works, permanently: it is what every recording made
 before this links to.
 
 **A run must never wait on a screen somebody might not open.** `POST
-/api/recordings` guesses, runs, and produces a draft on the guesses alone.
-Answering the confirmation screen enqueues a SECOND run. The skip path is the
-one that has to be right, because it is what happens by default.
+/api/recordings` guesses, runs, and produces a draft on the guesses alone. The
+skip path is the one that has to be right, because it is what happens by
+default.
+
+**One recording, one run.** Answering the confirmation screen re-runs IN PLACE
+(`api._run_id`) rather than enqueuing a second run beside the first, which is
+what gave `rec_MTEU954A8F5X` three runs -- one from Stop and one per submission
+of the screen. Keeping both looks like history and is not one: nothing recorded
+which run had been answered, so the picker showed three near-identical rows and
+a reviewer had to open each to find out which to trust. Newer is not better
+either -- on that recording the two later runs, both written against CONFIRMED
+expectations, shipped ONE bound verdict against the first run's two, because
+the author reached for a `Scenario Outline` whose templated verdict cannot bind
+to a literal. `scripts/collapse_runs.py` applies the same rule to what is
+already on disk, keeping the run with the most bound assertions; it prints its
+plan and deletes nothing without `--delete`.
 
 ## Things that bit us, so you do not repeat them
 
 Each of these shipped once. The full story of every one is in
 [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md).
+
+**Two jobs for one recording ran at the same time and overwrote each other's
+evidence.** `_run_id` gives them the SAME run directory on purpose -- one
+recording, one run -- and answering the confirmation screen re-runs in place on
+top of the draft that Stop produced. Nothing stopped the first job from still
+being in flight, and each builds its own `ToolRunner` whose ids restart at
+`tc_0001`, so their retrievals clobber each other file by file. On
+`rec_MTFTJE9BK2PO` the trace recorded `tc_0006` with the hash of the basket page
+the author had genuinely retrieved, and the file at that path held the previous
+page. `JobRunner` now takes a lock per recording; a job that waits says so in
+its `detail`, and a crash releases it.
+
+**A refusal must never report a broken artifact as a fact about the recording.**
+`resolve_call` re-reads the stored FILE rather than the response it hashed, so
+the overwrite above made a true claim unresolvable -- and the run told the
+tester *"nothing this run retrieved contains '$49.50'"* about a value they had
+pointed at with the picker themselves. `citation.corrupted` re-hashes before
+`_attach_claim` writes a refusal and says the evidence is broken instead.
+`evidence_retrieved` performs the same check and would have caught it, but only
+for a claim that BECAME an assertion, and a refused one never does.
+
+**`off` is a YAML boolean, and the setting was silently discarded.** The refusal
+above tells you to write `origin_policy: off`; YAML 1.1 reads that as `False`,
+the loader's `if value in ORIGIN_POLICIES` matched nothing, and the config fell
+back to `warn`. Somebody followed the instruction exactly, re-ran, and got the
+identical error with nothing on screen to explain it. `_origin_policy` now
+coerces the boolean AND raises on an unrecognised value -- a privacy setting
+that quietly means its default is indistinguishable from one nobody wrote.
+
+**Guidance about which literal to quote has now failed twice, in both
+directions.** Told to prefer the phrase around a value, the author dropped a
+verdict entirely and left a scenario ending mid-air on a `When`; told again in
+softer wording, it invented `'Sauce Labs Onesie $7.99'`, a string on no page.
+Both were measured on `public` and both were reverted. That is the
+worked-example law reasserting itself -- but note the direction: this was not
+zero uptake, it was NEGATIVE uptake, and the working fix was deterministic
+grading in `_attach_claim` rather than anything said to the model.
 
 **Pydantic copies the list you hand it, so `trace.toolCalls` is not
 `runner.calls`.** Any stage retrieving after the trace was built is invisible to
@@ -772,10 +942,47 @@ set-up-less case reported red deflates it, and both make the column measure the
 harness. Preconditions replay without assertions; a precondition states shared
 state rather than a verdict this scenario reached.
 
+**`server.cli run` defaults to `run_001` and `runs/` is gitignored.** So
+re-running a recording from the CLI to check a change OVERWRITES that
+recording's first run, with no reflog and nothing to recover from. Pass
+`--run-id` when the existing run is evidence you still need, and take the
+measurement you care about (`trace.json` `metrics`) into a scratch file first.
+
 **`hash()` is salted per process.** Use `hashlib.sha256`.
+
+**A cassette replay is not a controlled experiment.** `runs/_cassettes/` is
+keyed on the exact request, and a request whose shape has drifted either misses
+outright (`CassetteMiss`, which is honest) or matches a response recorded under
+a different prompt -- so re-running a recording can produce a *better* document
+than the one on disk for reasons that have nothing to do with the change being
+tested. Attribute an improvement by stashing the change and re-running the same
+command, not by comparing against the artifact already in the run directory.
 
 **The picker's own click was recorded as a step that never happened.** The
 recorder ignores events while `picker.active`.
+
+**A mark with no words in it is not a mark, and the picker used to record one
+anyway.** `nameOf` returns `""` for an unnamed `<div>` -- which is what a
+commercial site's mini-cart panel is -- so both real marks ever made with this
+tool came back `{role: "div", name: ""}` on the same `#ui-id-17`. The tester
+pointed at the bag twice, believed they had marked it twice, and the pipeline
+received nothing twice, with no feedback either time. The popup promises the
+mark becomes an expected result WORD FOR WORD, and there were no words.
+`picker.describe` now falls back to the element's visible text (redacted through
+`redactKnownSecrets`, capped at `MAX_FALLBACK_NAME` because a whole panel is not
+a verdict), and a click with nothing quotable is REFUSED with a hint while the
+picker stays open. Silently recording an empty target is what taught the tester
+the feature works.
+
+**A predicate addresses a container by role and accessible name, and a
+commercial page's containers have neither.** On `rec_MTFGTP9YNBNC` the author
+scoped a `count` to `{role: "list", name: "Your Selection"}`; the real tree has
+`"Your Selection"` as a bare `text` node inside an unnamed `group`, so
+`predicate.evaluate` returned cannot-evaluate and the claim was refused -- with
+the literal sitting in the retrieval the whole time. That is the third outcome
+working as designed and it is also a real limit: `first_of` and `count` are
+close to unusable on the sites this tool is for. Do not fix it by loosening the
+lookup.
 
 **Attribution direction is not the same for every annotation.** An assertion
 annotation comes AFTER what it points at; an intent note comes BEFORE.
@@ -997,6 +1204,30 @@ seen a `.feature` file.** What was built in response, one line each:
   author's budget was 8 rather than 24 on every run; the default model was one
   no longer served; the SDK's AFC warning.
 
+### And 2026-08-30 -- the first real commercial session end to end
+
+One recording of a signed-in storefront (`rec_MTFTJE9BK2PO`) surfaced three
+defects in one run, and each is written up above:
+
+* **Two jobs raced into one run directory** and overwrote each other's stored
+  retrievals, so the gate re-read the wrong page.
+* **The refusal blamed the recording for it** -- the tester had pointed at the
+  order total by hand and was told the run never retrieved it.
+* **`origin_policy: off` was silently discarded**, because YAML reads bare `off`
+  as `False`. The documented escape hatch had never worked.
+
+Also landed: **evidence grading** (`strength` / `occurrences`, which report
+vacuity rather than refusing it), the **`secrets_only` default** with the origin
+refusal narrowed to `off`, and **`/runs/<rec>/<run>`** so Send opens the run it
+just started instead of whichever draft sorted first.
+
+**What that session then showed, and what is still open:** of its three
+verdicts, one is a real test (`$49.50`, 2 occurrences) and two are decoration
+(`10` at 250, `30` at 56). The judge names all three. **Vacuous literals are the
+open defect**, they are the most common judge `fail` in the corpus, and the next
+move is feeding a weak grade back to the author with the candidate element
+names -- not another rule in the prompt.
+
 **Not done, and next: MCP.** `ToolRunner.call` is the seam -- a live agent's
 retrievals must be persisted and hashed there or they never reach
 `trace.toolCalls`, which is what `evidence_retrieved` resolves against.
@@ -1040,7 +1271,10 @@ one real commercial session. Five checks that have never produced a non-pass
 are the fourteen in a smaller costume: keep them, because they cost nothing and
 cannot be wrong, and do not render the count as a trust signal -- it can only
 ever say green. **The badge is gone as of 2026-08-29**; what is shown is the
-numbers that can move (retrievals, rejected claims, judge findings). It lives in
+numbers that can move (retrievals, rejected claims, judge findings, and since
+2026-08-30 `assertionsWeaklyResolved` / `evidenceOccurrencesMax`, which are the
+first columns here that describe how much the verdicts are WORTH rather than
+whether they resolved). It lives in
 `components/StatusLine.tsx` now -- `TrustStrip`, `JobBanner` and `ConfirmBanner`
 were three stacked full-width bars carrying one sentence each, which is 175px of
 a 900px laptop viewport spent before the first step.

@@ -136,7 +136,20 @@ coach();
  */
 const redactionSeg = $('redaction-seg');
 const redactionHint = $('redaction-hint');
-let redaction: RedactionLevel = 'full';
+// Passwords by default, not the pattern scan.
+//
+// `full` adds a scan that decides by SHAPE, and shape is the half that can be
+// wrong about a value nobody typed. On one storefront listing it produced 214
+// parameters, every one classified as a phone number, and what it had actually
+// matched was dates -- "Updated 2026-08-28 14:32" became `<<phone_n>>`. A date
+// or a price on a page is routinely the thing a test asserts on, so on a real
+// commercial site the safer-sounding setting is the one that destroys the
+// evidence the test needed.
+//
+// `secrets_only` keeps the half that decides by CONTEXT and cannot be wrong
+// that way: a password field is secret whatever its value looks like, and an
+// exact string the tester typed is still redacted wherever it is displayed.
+let redaction: RedactionLevel = 'secrets_only';
 
 const REDACTION_HINTS: Record<string, string> = {
   full: 'Emails, card numbers, tokens and anything typed into a password field are replaced with a placeholder before anything reaches the disk.',

@@ -118,6 +118,13 @@ class ProjectConfig:
     #: suite rather than the person who can fix it.
     jira_bug_issue_type: str = "Bug"
     jira_project_key: str = ""
+    #: Post issues to Jira automatically after every run that emits the `jira`
+    #: export, instead of leaving `server.cli jira-push` as a separate step.
+    #: Off by default: posting creates issues in a shared system and there is
+    #: no dedup, so a re-export files duplicates. Turn on only for a private
+    #: or throwaway Jira. Needs JIRA_SITE / JIRA_EMAIL / JIRA_API_TOKEN in the
+    #: environment; a run with them absent says so and still succeeds.
+    jira_auto_push: bool = False
 
     #: SS11 -- Xray. Its feature-file import takes the `.feature` this project
     #: already produces, so there is no exporter to write; what it needs is the
@@ -198,8 +205,8 @@ def load_project_config(path: Path | None = None) -> ProjectConfig:
         fields["header"] = data["header"]
     if isinstance(data.get("exports"), list):
         fields["exports"] = tuple(str(e).strip().lower() for e in data["exports"] if str(e).strip())
-    if data.get("origin_policy") in ORIGIN_POLICIES:
-        fields["origin_policy"] = data["origin_policy"]
+    if "origin_policy" in data:
+        fields["origin_policy"] = _origin_policy(data["origin_policy"])
 
     xray = data.get("xray")
     if isinstance(xray, dict) and isinstance(xray.get("test_key"), str):
@@ -226,6 +233,8 @@ def load_project_config(path: Path | None = None) -> ProjectConfig:
             fields["jira_bug_issue_type"] = jira["bug_issue_type"].strip()
         if isinstance(jira.get("project_key"), str):
             fields["jira_project_key"] = jira["project_key"].strip()
+        if isinstance(jira.get("auto_push"), bool):
+            fields["jira_auto_push"] = jira["auto_push"]
 
     return ProjectConfig(**fields)
 
@@ -259,6 +268,43 @@ def normalise_origin(origin: str) -> str:
     the slash.
     """
     return origin.strip().rstrip("/")
+
+
+def _origin_policy(value: Any) -> str:
+    """`off` is a YAML BOOLEAN, and this setting is the one that must not be lost.
+
+    YAML 1.1 reads `off`, `on`, `yes` and `no` as booleans, so the line the
+    refusal message tells you to write --
+
+        origin_policy: off
+
+    -- arrives here as `False`. The old check was `if value in ORIGIN_POLICIES`,
+    and `False` is in nothing, so the setting was **silently discarded** and the
+    config fell back to `warn`. The tester follows the instruction exactly, sees
+    the identical refusal, and there is nothing on screen to say why. Reported
+    from a real terminal after doing precisely what the error said.
+
+    Silently ignoring a value somebody wrote is the worse half of the bug. An
+    unrecognised policy now raises, because the two ways this field is wrong --
+    a typo, and a YAML type nobody expected -- both used to look like "the file
+    had no opinion".
+    """
+    if value is False:
+        return "off"
+    if value is True:
+        # `on` is not a policy in either direction; guessing which one somebody
+        # meant is how a privacy setting ends up meaning its opposite.
+        raise ValueError(
+            "origin_policy: on is not a setting. YAML reads `on` as a boolean; "
+            f"write one of {', '.join(ORIGIN_POLICIES)} instead."
+        )
+    if isinstance(value, str) and value.strip().lower() in ORIGIN_POLICIES:
+        return value.strip().lower()
+    raise ValueError(
+        f"origin_policy: {value!r} is not one of {', '.join(ORIGIN_POLICIES)}. "
+        "Note that YAML reads an unquoted `off` as false, which is accepted and "
+        "means 'off'."
+    )
 
 
 def _read_yaml(path: Path) -> Any:

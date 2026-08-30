@@ -165,19 +165,30 @@ def check_origins(recording: Recording, *, allow: bool, policy: str = "warn") ->
     pointing this at a real site is not doing anything wrong. They need to know
     what it costs, not to be stopped. `allowlist` restores the refusal.
     """
-    # An unredacted recording is the one case this refuses on rather than warns
-    # about, and `--allow-any-origin` does not open it either.
+    # `off` -- nothing redacted at all -- is the one case this refuses on rather
+    # than warns about, and `--allow-any-origin` does not open it either.
     #
-    # `origin_policy: off` means "this endpoint is paid and carries a no-training
-    # term", which is exactly the condition under which raw values are anybody's
-    # business but the tool's. Anywhere else, sending a recording whose typed
-    # values were deliberately left unredacted means sending real credentials to
-    # something that may train on them and may be read by a human. Warning is not
-    # enough for that: it is the one mistake nobody can take back, and the person
-    # who set `redaction: off` did so in the recorder, possibly days earlier and
-    # possibly not the same person running this.
+    # It used to refuse on anything below `full`, which caught `secrets_only`
+    # too, and that was the wrong line. `secrets_only` turns off only the
+    # pattern scan: the half that decides by SHAPE, and therefore the only half
+    # that can be wrong about a value nobody typed. Deciding by CONTEXT still
+    # runs, so a password field is still redacted whatever its value looks like,
+    # and an exact string the tester typed is still redacted wherever the page
+    # displays it. That is a real guarantee, and it is the setting a commercial
+    # site usually needs -- the shape scan turned "Updated 2026-08-28 14:32"
+    # into `<<phone_n>>` on a real storefront, 214 times.
+    #
+    # It is now the recorder's default, so refusing on it would mean the default
+    # recorder setting and the default `origin_policy` refuse every recording
+    # between them. A guard that fires on the normal path is not a guard.
+    #
+    # `off` is different in kind and still refuses: nothing is hidden, so a
+    # password the tester typed is on disk verbatim, and sending that to a
+    # training-eligible tier is the one mistake nobody can take back. The person
+    # who chose it did so in the recorder, possibly days earlier and possibly
+    # not the same person running this.
     level = getattr(recording.metadata, "redaction", None)
-    if level is not None and level != "full" and policy != "off":
+    if level is not None and level == "off" and policy != "off":
         raise SystemExit(
             f"refusing to send.\n\n"
             f"This recording was made with redaction set to {level.value!r}, so values the\n"
@@ -288,6 +299,11 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"Exported:       {export}")
             for warning in export.warnings:
                 print(f"                - {warning}")
+
+        from server.renderers.jira import auto_push_run
+
+        for line in auto_push_run(result.run.root, project):
+            print(f"                {line}")
 
     if args.replay and not result.report.hard_failed:
         print()

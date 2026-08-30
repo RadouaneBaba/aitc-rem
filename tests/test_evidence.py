@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from server.evidence.citation import corrupted
 from server.evidence.store import EvidenceStore
 from server.evidence.tools import TOOLS, ToolRunner
 from server.models import PipelineStage, Recording
@@ -386,3 +387,44 @@ def test_queries_a_real_recorded_session(tmp_path: Path):
 
     # The redacted password must not be retrievable as a literal.
     assert store.find_text("hunter2") == []
+
+
+def test_a_replaced_tool_response_is_detected_rather_than_blamed_on_the_page(
+    runner: ToolRunner,
+):
+    """The trace and the stored evidence must agree, and when they do not, the
+    run says so instead of reporting it as a fact about the recording.
+
+    `resolve_call` re-reads the stored FILE rather than the response it hashed,
+    so a replaced file makes a true claim unresolvable. On `rec_MTFTJE9BK2PO`
+    two jobs for one recording ran at once and one overwrote `tc_0006` with the
+    previous page; the author had retrieved the basket and the trace still
+    carried the hash proving the order total was in it, and the feature file
+    told the tester *"nothing this run retrieved contains '$49.50'"* about a
+    value they had pointed at by hand.
+
+    `evidence_retrieved` runs the same check, but only on a claim that became an
+    assertion -- and a refused claim never does. So it has to be checked where
+    the refusal is written too.
+    """
+    call_id, _ = runner.call("get_snapshot", {"eventId": "evt_001", "when": "after"})
+    assert corrupted(runner, [call_id]) == [], "an untouched retrieval is intact"
+
+    # Exactly what the other job did: same path, different page.
+    runner.storage.save_tool_response(runner.run, call_id, {"present": False, "root": None})
+
+    assert corrupted(runner, [call_id]) == [call_id]
+
+
+def test_a_missing_tool_response_counts_as_corrupted(runner: ToolRunner):
+    """A file that is gone is not a claim about the page either."""
+    call_id, _ = runner.call("get_snapshot", {"eventId": "evt_001", "when": "after"})
+    runner.run.tool_response(call_id).unlink()
+
+    assert corrupted(runner, [call_id]) == [call_id]
+
+
+def test_an_id_the_runner_never_made_is_not_reported_as_corruption(runner: ToolRunner):
+    """Only retrievals this run actually made can be checked against a hash;
+    an unknown id is a different fault and must not be dressed as this one."""
+    assert corrupted(runner, ["tc_9999"]) == []

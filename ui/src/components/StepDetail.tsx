@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import type { Assertion, JudgeFinding, Step, Trace } from '../api';
 import { fidelityCopy } from '../fidelity';
 import { Screenshot } from './Screenshot';
-import { PredicateLabel, Retrieval } from './Evidence';
+import { PredicateLabel, ResolvesLabel, Retrieval } from './Evidence';
 import { Narration } from './Narration';
 
 const PROVENANCE_HINT: Record<string, string> = {
@@ -131,22 +131,12 @@ export function StepDetail({
 
       <section className="block">
         <h3 className="eyebrow">Expected result</h3>
-        {step.assertions.length === 0 && step.whyNot ? (
-          // The author tried, could not, and said why. That is a different fact
-          // from "this step is just an action", and printing the generic line
-          // over it threw away the most useful sentence in the run: a reviewer
-          // who knows the product list was never captured can act on it, where
-          // "nothing to check here" invites them to move on.
-          //
-          // Not styled as a warning. A refusal is the designed outcome when the
-          // recording does not contain a verdict, and a visible gap beats an
-          // invisible falsehood.
-          <p className="whynot">
-            <strong>No check here.</strong> {step.whyNot}
+        {step.assertions.length > 0 && (
+          <p className="hint">
+            Ticked means the line is in the feature file. Unticking removes it.
           </p>
-        ) : step.assertions.length === 0 ? (
-          <p className="muted">Nothing to check — this step is an action.</p>
-        ) : (
+        )}
+        {step.assertions.length > 0 && (
           <ul className="assertions">
             {step.assertions.map((assertion) => (
               <Candidate
@@ -161,6 +151,34 @@ export function StepDetail({
               />
             ))}
           </ul>
+        )}
+
+        {/* The author tried, could not, and said why. That is a different fact
+            from "this step is just an action", and printing the generic line
+            over it threw away the most useful sentence in the run: a reviewer
+            who knows the product list was never captured can act on it, where
+            "nothing to check here" invites them to move on.
+
+            Shown WHENEVER it is set, not only on a step with no assertions.
+            `_attach_claim` clears `whyNot` when a claim lands, so a step
+            carrying both means a SECOND verdict was refused -- the scenario is
+            still missing a check, and hiding the reason behind the one that
+            succeeded is how a gap stays invisible. The feature file and its
+            `@needs-review` tag key on exactly this, so the screen and the file
+            must not disagree about whether there is something to look at.
+
+            Not styled as a warning. A refusal is the designed outcome when the
+            recording does not contain a verdict, and a visible gap beats an
+            invisible falsehood. */}
+        {step.whyNot && (
+          <p className="whynot">
+            <strong>{step.assertions.length ? 'Also unchecked.' : 'No check here.'}</strong>{' '}
+            {step.whyNot}
+          </p>
+        )}
+
+        {step.assertions.length === 0 && !step.whyNot && (
+          <p className="muted">Nothing to check — this step is an action.</p>
         )}
       </section>
 
@@ -248,10 +266,22 @@ function Candidate({
   return (
     <li className={assertion.accepted ? 'accepted' : ''}>
       <label>
+        {/* This edits the feature file, and nothing on screen used to say so.
+            Unticking removes the `Then` line entirely, and can move the
+            Given/When boundary with it: `narrative._opening_block` ends the
+            opening block at the first setup step carrying an ACCEPTED
+            expected result, so the step above can change keyword too. A
+            reviewer who reads it as "mark as reviewed" is unticking a verdict
+            out of the artifact. */}
         <input
           type="checkbox"
           checked={assertion.accepted}
           disabled={busy}
+          title={
+            assertion.accepted
+              ? 'In the feature file. Untick to remove this Then line.'
+              : 'Not in the feature file. Tick to put this Then line back.'
+          }
           onChange={(e) => onToggle(e.target.checked)}
         />
         {draft === null ? (
@@ -292,6 +322,7 @@ function Candidate({
           {assertion.evidence.literal}
         </code>
         <span className="muted at-event">at {assertion.evidence.eventId}</span>
+        <ResolvesLabel evidence={assertion.evidence} />
       </div>
 
       <Retrieval

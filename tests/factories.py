@@ -177,8 +177,20 @@ def evidence(
     tool_call_id: str = "tc_0447",
     event_id: str = "evt_001",
     kind: str = "semantic_node",
+    strength: str | None = None,
+    occurrences: int | None = None,
 ) -> Evidence:
-    return Evidence(literal=literal, toolCallId=tool_call_id, eventId=event_id, kind=kind)
+    # `strength` and `occurrences` default to unset, which is what every claim
+    # bound before they existed carries -- a factory that always populated them
+    # could not build the input the renderers must still handle.
+    return Evidence(
+        literal=literal,
+        toolCallId=tool_call_id,
+        eventId=event_id,
+        kind=kind,
+        strength=strength,
+        occurrences=occurrences,
+    )
 
 
 def assertion(

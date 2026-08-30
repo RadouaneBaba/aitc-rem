@@ -52,9 +52,10 @@ from pathlib import Path
 from typing import Any
 
 from server.config import ProjectConfig
-from server.evidence.citation import resolve_call, resolve_event_call
+from server.evidence.citation import corrupted, resolve_call, resolve_event_call
 from server.evidence.predicate import evaluate
 from server.evidence.store import EvidenceStore
+from server.evidence.strength import grade, occurrences
 from server.evidence.tools import ToolRunner
 from server.llm.client import ModelClient
 from server.llm.gemini import fenced_block
@@ -415,6 +416,35 @@ string is somewhere in the response:
 A container is named by its ROLE and its accessible NAME, as the page's own
 accessibility tree names them -- never a css selector or an id.
 
+**A predicate is counted in the response you cited, so cite a `get_snapshot` of
+the event the verdict is about.** A bare `contains` literal can be re-pointed to
+whichever event turns out to hold it; `first_of` and `count` cannot, because
+they are questions about the SHAPE of one stored response. Two ways to answer
+them about the wrong moment, and both come back confident:
+
+  * a `get_diff` holds the before AND the after, so counting rows in one
+    answers neither -- a list that went from 9 items to 3 diffs as 12.
+  * a snapshot of the PREVIOUS event describes the page before your action
+    changed it. It will report the old count as though it were the new one.
+
+So: a claim about ORDER or COUNT needs a predicate, and a predicate needs a
+snapshot of its own event. If you are about to write `count` or `first_of` for
+event N, call `get_snapshot(eventId=N, when="after")` first, even when you
+already have a diff for N. A predicate answered from the wrong response does not
+fail quietly: it turns a true verdict into a refusal that states something false
+about the application.
+
+**A container the page does not NAME cannot carry a predicate.** The lookup is
+by role and accessible name, so `{{"role": "list", "name": "Your Selection"}}`
+finds nothing on a page where "Your Selection" is a bare text node inside an
+unnamed `group` -- which is the normal shape of a real storefront. That returns
+neither true nor false but cannot-evaluate, and the verdict is refused with the
+literal sitting in your retrieval the whole time. Before scoping a predicate,
+check the snapshot for a container that actually carries that role and name. If
+there is none, prefer a sentence the page states in words -- a summary line like
+"Showing 3 of 24 products" is a quantity claim that needs no container at all --
+and where the page says nothing of the kind, that is a `whyNot`.
+
 **Only the scenario needs a verdict, not every step.** `When ... And ... Then`
 is normal and often better than a verdict on every line.
 
@@ -423,6 +453,15 @@ tester can act on beats a claim that proves nothing. Never pad a scenario with
 a verdict that says the interface appeared. And a `whyNot` is a statement about
 the recording that somebody will read and believe, so it has to be TRUE: check
 the session index before you write that something was out of scope.
+
+**A refusal that describes the application needs the same evidence a verdict
+does.** "The list holds 9 here, not 3" is not a shrug -- it is a claim about
+what the page showed, and a tester will act on it. Nothing downstream checks a
+refusal, so you are the only check there is. Before you write one, make sure you
+actually retrieved the event you are describing; if you did not, retrieve it now
+rather than reporting what a neighbouring event happened to say. A refusal you
+would have to withdraw after one more call is worse than the verdict you were
+trying to avoid guessing at.
 
 ## What to answer with
 
@@ -773,15 +812,63 @@ def _from_feature(
             tags=_tags(scenario.tags, config, inherit=False),
             examples=scenario.examples,
         )
+        # `And` and `But` say nothing on their own: they continue whatever
+        # keyword opened the block. So a verdict written as `Then ... / And ...`
+        # is two verdicts, and only the first one says so in its keyword.
+        opener = ""
         for line in scenario.lines:
             raw = annotations[marker] if isinstance(annotations[marker], dict) else {}
             marker += 1
-            if _clean(raw.get("kind")).lower() == "verdict":
+            if line.keyword in _OPENERS:
+                opener = line.keyword
+
+            # The FILE decides whether a line is a verdict, and the annotation
+            # only decides whether it can be proved.
+            #
+            # It used to be the annotation that decided, and a line whose
+            # annotation went missing became a step in silence: `_align`
+            # appends a bare `{}` for a line it cannot match, `_role` defaults
+            # to `test_step`, and the renderer then wrote `And`. On
+            # `rec_MTEU954A8F5X` that shipped a `Scenario Outline` whose only
+            # verdict had been turned into an action -- with no `whyNot`, no
+            # entry in `document.refused`, and therefore nothing for
+            # `_revision_feedback` to tell the author. `event_coverage` cannot
+            # catch it either, because a verdict accounts for no events of its
+            # own, so every event was still covered by the steps around it.
+            #
+            # Reading it as a verdict costs nothing when the author was right
+            # and says so out loud when it was not: `_attach_claim` refuses a
+            # claim with no evidence, which is exactly what a `Then` nobody
+            # annotated is.
+            #
+            # **An explicit `Then` wins outright; a continuing `And` does not.**
+            # `And` is genuinely ambiguous -- it continues the block above it,
+            # and a model that writes an action there has made a Gherkin
+            # mistake rather than a claim. Read every such line as a verdict
+            # and a real recorded step disappears into a refusal that is not
+            # even a proposition: on `rec_MTFFU45SYTV5` this turned *"And the
+            # tester opens the shopping bag"* into *"Could not check that the
+            # tester opens the shopping bag"*, dropped the step, and left the
+            # judge to flag the nonsense refusal it had just created. So where
+            # the author annotated a continuing line as a STEP -- an explicit
+            # statement of intent, with events attached -- that wins.
+            kind = _clean(raw.get("kind")).lower()
+            explicit_then = line.keyword == THEN
+            continues_then = opener == THEN and kind != "step"
+            if kind == "verdict" or explicit_then or continues_then:
                 # A verdict is not a step. It attaches to the step above it, and
                 # a scenario that opens with one has nothing to attach to --
                 # which is `Then` with no `When`, and not a document.
                 if not built.steps:
                     return None
+                # An annotation written for a STEP names events; a verdict has
+                # none of its own. They belong to the step this verdict attaches
+                # to, or `event_coverage` reports them as unaccounted for.
+                built.steps[-1].event_ids.extend(
+                    event
+                    for event in _strings(raw.get("events"))
+                    if store.has_event(event) and event not in built.steps[-1].event_ids
+                )
                 _attach_verdict(
                     built.steps[-1],
                     line.text,
@@ -1076,6 +1163,32 @@ def _attach_claim(
     if call_id is None and not negative:
         call_id = resolve_call(runner, tool_call_ids, literal)
     if call_id is None:
+        # Before blaming the recording, check the evidence is still intact.
+        #
+        # `resolve_call` re-reads the stored FILE, so a file that no longer
+        # matches the hash recorded for it makes a true claim unresolvable --
+        # and the refusal then states something false about the tester's
+        # session. That shipped: on `rec_MTFTJE9BK2PO` the author retrieved the
+        # basket page and the trace still carries the hash proving the total was
+        # in it, while the file at that path had been overwritten by a second
+        # job running against the same run directory. The tester, who had
+        # pointed at the total by hand, was told the run never retrieved it.
+        #
+        # A refusal is the one output nothing else checks, so it must never
+        # report a broken artifact as a fact about the page.
+        broken = corrupted(runner, tool_call_ids)
+        if broken:
+            _refuse(
+                step,
+                document,
+                expected,
+                (
+                    f"the stored evidence for {', '.join(broken[:3])} no longer matches "
+                    "what was retrieved, so this claim could not be re-checked. This is a "
+                    "fault in the run, not in the recording -- re-run it"
+                ),
+            )
+            return
         # It may still be true. It is simply not something this run went and
         # looked at, and the whole architecture exists to keep those apart.
         _refuse(
@@ -1126,6 +1239,11 @@ def _attach_claim(
             _refuse(step, document, expected, verdict.why)
             return
 
+    # How precisely the literal resolves, and how many places satisfied the
+    # containment check. Read AFTER every decision above: this grades a claim
+    # that has already been accepted and never overturns one, which is what
+    # keeps it out of `evidence_discriminates`' company. See evidence/strength.
+    stored = _stored(runner, call_id)
     step.assertions.append(
         Assertion(
             id=f"assert_{step.step_id.split('_')[-1]}_001",
@@ -1137,6 +1255,8 @@ def _attach_claim(
                 eventId=event_id,
                 kind=_clean(evidence.get("kind")) or "semantic_node",
                 predicate=predicate,
+                strength=grade(stored, literal),
+                occurrences=occurrences(stored, literal),
             ),
             accepted=True,
         )
@@ -1343,6 +1463,13 @@ def _stored(runner: ToolRunner, call_id: str) -> Any:
 
 
 _KEYWORDS = {"given": "Given", "when": "When", "then": "Then", "and": "And", "but": "But"}
+
+THEN = "Then"
+
+#: Keywords that OPEN a block. `And` and `But` continue the one before them, so
+#: they carry no meaning on their own -- which is why `_from_feature` tracks the
+#: last opener rather than reading each line's keyword in isolation.
+_OPENERS = frozenset({"Given", "When", THEN})
 
 
 def _keyword(value: Any) -> str:

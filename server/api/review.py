@@ -28,7 +28,7 @@ from server.models import (
     Step,
     TestCaseIR,
 )
-from server.pipeline.narrative import build_narrative, sync_keywords
+from server.pipeline.narrative import Line, build_narrative, sync_keywords
 
 
 class ReviewError(ValueError):
@@ -325,6 +325,14 @@ def apply_feature_text(
     if case is None:
         raise ReviewError(f"no test case {case_id}")
 
+    # The file holds every scenario of the recording, so the lines being edited
+    # span every test case in it -- `case_id` addresses the DOCUMENT (it is the
+    # first rendered case's id, which is what `render_document` keys on) rather
+    # than the only case whose sentences are in front of the reviewer.
+    #
+    # Walked in render order, which is the order `_feature_lines` read them.
+    scenarios = [c for c in ir.testCases if c.kind != "bug_report"]
+
     was = _feature_lines(rendered)
     now = _feature_lines(text)
 
@@ -338,7 +346,8 @@ def apply_feature_text(
     # Refusing to edit them here is the honest answer, in the same way this
     # function refuses structure: the sentence belongs to the case that
     # performed it, and editing it there is what makes it follow.
-    shared = [p for p in case.preconditions if p.shared] or case.preconditions
+    first = scenarios[0] if scenarios else case
+    shared = [p for p in first.preconditions if p.shared] or first.preconditions
     prefix = len(shared) if _has_background(rendered) else 0
     if prefix and was[:prefix] != now[:prefix]:
         raise ReviewError(
@@ -356,10 +365,18 @@ def apply_feature_text(
         )
 
     # Steps and assertions in render order, which is the order `_feature_lines`
-    # walked. Built from the same narrative the renderer used, so the two
-    # cannot drift.
-    narrative = build_narrative(case.steps)
-    targets = [line for line in narrative.body if line.text.strip()]
+    # walked. Built from the same narratives the renderer used, so the two
+    # cannot drift -- including the `Background` it lifts out of the first
+    # scenario, whose lines carry their own steps and so are editable here
+    # rather than refused.
+    targets: list[Line] = []
+    for index, scenario in enumerate(scenarios):
+        narrative = build_narrative(
+            scenario.steps, lift_background=(index == 0 and len(scenarios) > 1)
+        )
+        if index == 0:
+            targets.extend(line for line in narrative.background if line.text.strip())
+        targets.extend(line for line in narrative.body if line.text.strip())
     if len(targets) != len(now):
         raise ReviewError(
             "this feature file does not line up with the test case it came from. "

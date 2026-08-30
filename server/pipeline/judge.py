@@ -157,6 +157,15 @@ Score each scenario `pass`, `weak` or `fail`.
    broke? A restatement of the scenario name asserts nothing. Neither does a
    claim bound to a heading, a label, or the value the tester themselves typed.
 
+   The commonest form is a literal too GENERIC to discriminate: a sentence
+   saying "the badge shows 1 item" resting on the bare literal `1`, which is
+   also in every price, id and timestamp on the page, so the check stays green
+   on a build where the badge never updated. Judge the literal against the
+   sentence, not the sentence alone. When you raise this, your `fix` must name
+   the route -- the phrase the page puts around the value ("Cart contains 1
+   items"), or `first_of`/`count` where the claim is really about position or
+   quantity. A finding with no route is one the author cannot act on.
+
 2. **sentence_covers_its_events** -- the step's sentence describes the events
    listed under it, all of them and no more. "adds an item to the cart and
    proceeds to checkout" over four events, two of which are a detour to a

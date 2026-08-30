@@ -72,7 +72,27 @@ def render_document(
     generated_on: str | None = None,
     config: ProjectConfig | None = None,
 ) -> dict[str, str]:
-    """Render every test case. Returns testCaseId -> feature text.
+    """Render the recording as ONE feature file. Returns {key: feature text}.
+
+    One file, every scenario -- which is what the author writes, what
+    `styles/automation.md` shows it, and what a QA lead expects to open.
+
+    It used to be one file PER TEST CASE, and that is what a reader actually
+    saw: `rec_MTEU954A8F5X/run_003` wrote two files with the same `Feature:`
+    line, the same description and the same `Background`, and
+    `rec_MTE6XZL14IY9/run_001` wrote three. A `Feature:` is a capability and a
+    `Scenario` is one way of exercising it, so splitting them made the output
+    announce the same capability N times and forced the review UI to swap the
+    document under the reader whenever they selected a step in another
+    scenario.
+
+    `TestCaseIR` stays one-per-scenario. This is a rendering change only, and
+    deliberately so: the replay runner drives `case.preconditions` and
+    `case.steps`, and the exporters number their rows per case.
+
+    The key is the FIRST rendered case's id, so every id-addressed path -- the
+    filename, `_write_output`'s stale-file sweep, `PATCH .../cases/{id}/feature`
+    -- keeps working unchanged.
 
     A bug report is skipped, and not as a formatting preference. SS14 makes it a
     different KIND of artifact -- historical and evidentiary, where a test case
@@ -80,11 +100,10 @@ def render_document(
     should happen. A `.feature` whose scenario is a defect would be run by a
     suite and would fail on purpose. `server/renderers/bug_md.py` writes those.
     """
-    return {
-        case.id: render_test_case(case, ir=ir, generated_on=generated_on, config=config)
-        for case in ir.testCases
-        if case.kind != "bug_report"
-    }
+    cases = test_cases(ir)
+    if not cases:
+        return {}
+    return {cases[0].id: _render(cases, ir=ir, generated_on=generated_on, config=config)}
 
 
 def render_test_case(
@@ -94,33 +113,52 @@ def render_test_case(
     generated_on: str | None = None,
     config: ProjectConfig | None = None,
 ) -> str:
+    """One case as a whole file. The single-scenario case of `_render`."""
+    return _render([case], ir=ir, generated_on=generated_on, config=config)
+
+
+def _render(
+    cases: list[TestCaseIR],
+    *,
+    ir: IRDocument | None = None,
+    generated_on: str | None = None,
+    config: ProjectConfig | None = None,
+) -> str:
     config = config or ProjectConfig()
     date = generated_on or (ir.createdAt.date().isoformat() if ir else "")
+    first = cases[0]
 
     # SS9.3 -- `Background` is indirection with a single scenario: the whole test
     # reads better top to bottom and a reader has one place to look. It earns
-    # its keep only when a recording produced several cases that share setup,
-    # which is exactly when repeating the sign-in three times would be worse.
+    # its keep only when a recording produced several scenarios that share
+    # setup, which is exactly when repeating the sign-in three times would be
+    # worse.
     #
-    # Counted over the cases that are actually RENDERED. A bug report shares the
-    # document and is not a scenario, so counting it here would lift a Background
-    # out of a single-scenario feature -- which is both wrong and, until
-    # `_background` was fixed below, silently lossy.
-    siblings = len(test_cases(ir)) if ir else 1
-    narrative = build_narrative(case.steps, lift_background=siblings > 1)
-    outline = _outline_names(case, narrative, config)
-    # `Scenario Outline` is the keyword whenever there is a table to go under
-    # it, from either source.
+    # Lifted from the FIRST scenario only, and this is what removes the
+    # duplication rather than merely relocating it. Every later case's
+    # `preconditions` ARE the earlier cases' setup steps (`run._build_case`), so
+    # rendering both a `Background` of preconditions and the scenario that
+    # performed them printed the same two sentences twice in one file --
+    # visible on `rec_MTE5BVCZO8QU/run_008`. Here the shared opening is stated
+    # once, at the top, and the scenarios below it are what differs.
+    narratives = [
+        build_narrative(case.steps, lift_background=(index == 0 and len(cases) > 1))
+        for index, case in enumerate(cases)
+    ]
+    outlines = [_outline_names(case, nar, config) for case, nar in zip(cases, narratives, strict=True)]
 
     lines: list[str] = []
-    lines.extend(_header(case, date, config))
-    lines.extend(_tags(case, narrative, config))
-    lines.append(f"Feature: {_one_line(_feature_title(case))}")
-    lines.extend(_description(case))
-    lines.extend(_background(case, narrative, outline))
-    lines.extend(_scenario(case, narrative, outline))
-    lines.extend(_omissions(case))
-    lines.extend(_examples(case, outline))
+    lines.extend(_header(cases, date, config))
+    lines.extend(_tags(cases, config))
+    lines.append(f"Feature: {_one_line(_feature_title(first))}")
+    lines.extend(_description(first))
+    lines.extend(_background(first, narratives[0], outlines[0]))
+
+    for case, narrative, outline in zip(cases, narratives, outlines, strict=True):
+        lines.extend(_scenario(case, narrative, outline))
+        lines.extend(_unproved(case))
+        lines.extend(_omissions(case))
+        lines.extend(_examples(case, outline))
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -130,36 +168,55 @@ def render_test_case(
 # --------------------------------------------------------------------------
 
 
-def _header(case: TestCaseIR, date: str, config: ProjectConfig) -> list[str]:
+def _header(cases: list[TestCaseIR], date: str, config: ProjectConfig) -> list[str]:
     """One line, or none. Where the file came from and where its evidence is.
 
     Kept because a generated artifact that hides its provenance is worse than
     one that states it, and because a reader who wants the audit trail should
     not have to be told twice where to look.
+
+    The sidecar is still one per test case while the feature file is one per
+    document, so every sidecar is named. Naming only the first would point a
+    reader at `tc_..._01.trace.md` for evidence that lives in `_02`, which is a
+    provenance line that misleads -- worse than none at all.
     """
     if not config.header:
         return []
 
-    parts = [GENERATOR, case.recordingId]
+    parts = [GENERATOR, cases[0].recordingId]
     if date:
         parts.append(date)
     if config.trace == "sidecar":
-        parts.append(f"evidence: {trace_filename(case, config)}")
+        sidecars = ", ".join(trace_filename(case, config) for case in cases)
+        parts.append(f"evidence: {sidecars}")
     return [f"# {' - '.join(parts)}", ""]
 
 
-def _tags(case: TestCaseIR, narrative: Narrative, config: ProjectConfig) -> list[str]:
-    tags: list[str] = []
-    for tag in [*case.tags, *config.tags]:
-        cleaned = tag.strip().lstrip("@")
-        if cleaned and cleaned not in tags:
-            tags.append(cleaned)
+def document_feature_filename(ir: IRDocument, config: ProjectConfig | None = None) -> str:
+    """The one file every scenario of this recording is written to.
 
-    # A scenario carrying a question for the human says so where CI and a
-    # `--tags` filter can both see it, instead of with punctuation glued to a
-    # sentence that a step definition has to match.
-    if any(needs_review(step) for step in case.steps) and REVIEW_TAG not in tags:
-        tags.append(REVIEW_TAG)
+    A sidecar points back at its feature file, and with one file per document
+    the per-case name it used to compute is wrong for every case but the first.
+    """
+    config = config or ProjectConfig()
+    cases = test_cases(ir)
+    return feature_filename(cases[0], config) if cases else ""
+
+
+def _tags(cases: list[TestCaseIR], config: ProjectConfig) -> list[str]:
+    """Feature-level tags: what is true of the whole document.
+
+    `@needs-review` is NOT here. It belongs to the scenario that earned it
+    (`_scenario`): a document of four scenarios where one could not be proved
+    should send a reader to that one, and a feature-level tag sends them to all
+    four. Xray reads a scenario tag onto the Test it creates, so the marker
+    also lands on the right issue rather than on every issue.
+    """
+    tags: list[str] = []
+    for tag in [t for case in cases for t in case.tags] + list(config.tags):
+        cleaned = tag.strip().lstrip("@")
+        if cleaned and cleaned != REVIEW_TAG and cleaned not in tags:
+            tags.append(cleaned)
 
     # Xray's feature-file import reads `@TEST_<KEY>` as "update this existing
     # Test rather than creating another one", which is how a re-import stops
@@ -231,7 +288,17 @@ def _background(case: TestCaseIR, narrative: Narrative, outline: list[str]) -> l
 def _scenario(case: TestCaseIR, narrative: Narrative, outline: list[str]) -> list[str]:
     has_table = bool(outline) or bool(case.examples and case.examples.columns)
     keyword = "Scenario Outline" if has_table else "Scenario"
-    lines = ["", f"{INDENT}{keyword}: {_one_line(_scenario_name(case))}"]
+    lines = [""]
+
+    # A scenario carrying a question for the human says so where CI and a
+    # `--tags` filter can both see it, instead of with punctuation glued to a
+    # sentence that a step definition has to match. On the scenario rather than
+    # the feature, so a document of four scenarios points at the one that needs
+    # looking at -- see `_tags`.
+    if any(needs_review(step) for step in case.steps):
+        lines.append(f"{INDENT}@{REVIEW_TAG}")
+
+    lines.append(f"{INDENT}{keyword}: {_one_line(_scenario_name(case))}")
 
     # Blank lines between beats help a long scenario and make a short one look
     # sparse, so they are spent only where there is something to separate.
@@ -244,6 +311,40 @@ def _scenario(case: TestCaseIR, narrative: Narrative, outline: list[str]) -> lis
         previous_beat = line.beat
         lines.append(f"{INDENT * 2}{line.keyword} {_step_text(line.text, outline)}")
 
+    return lines
+
+
+def _unproved(case: TestCaseIR) -> list[str]:
+    """Verdicts the author wanted and could not prove, named in the file itself.
+
+    A scenario that checks nothing is the one output a reader cannot tell apart
+    from a scenario that had nothing worth checking, and `@needs-review` says
+    only that something is wrong. This says which sentence and why, in the
+    author's own words -- *"the product list was never captured before or after
+    this click"* -- so the file that gets imported into Xray and mailed around
+    carries the doubt with it. Until now `whyNot` reached `ir.json` (`run._assemble`)
+    and was rendered nowhere at all.
+
+    Placed AFTER the scenario body, beside `_omissions` and for the same reason:
+    the body is prose and nothing else -- no ids, no markers, no fidelity flags
+    interleaved with the steps. A trailing note is not that; it is the same
+    completeness contract omissions already have, and it keeps the steps
+    themselves readable as a hand-written feature file.
+
+    Keyed on `whyNot` alone, exactly as `needs_review` is, and the two must not
+    drift: a marker on a scenario whose file says nothing about why is the
+    unclickable red badge this project already removed once. `_attach_claim`
+    clears `why_not` when a claim lands, so a step carrying BOTH an accepted
+    assertion and a `whyNot` means a second claim was refused -- still a gap,
+    still worth naming.
+    """
+    lines: list[str] = []
+    for step in case.steps:
+        if not step.whyNot:
+            continue
+        lines.append("")
+        lines.append(f'{INDENT * 2}# unchecked - {_one_line(step.text)}')
+        lines.append(f"{INDENT * 2}#   {_one_line(step.whyNot)}")
     return lines
 
 
@@ -356,12 +457,25 @@ def needs_review(step: Step) -> bool:
     """
     if step.escalation or step.confidence.value == "low":
         return True
-    # A finding nothing resolved. `_annotate` writes every unrepaired critic
-    # finding and every claim the gate rejected onto the step as a note, and
-    # this did not look at them -- so a step the run itself had said was wrong
-    # went out with no marker on it at all. A wrong number shipped that way,
-    # confident and untagged, while the same run's `ir.json` recorded that its
-    # literal did not appear where it claimed.
+    # A verdict the author wanted and could not prove.
+    #
+    # This is the condition that actually fires. `criticNotes` below is the one
+    # that was SUPPOSED to, and nothing has written it since the critic was
+    # deleted -- `narrative._absorb` merges notes that already exist and no
+    # other site sets the field -- so the tag has been unreachable for every run
+    # since. `rec_MTEU954A8F5X/run_003` shipped three judge `fail`s and no
+    # `@needs-review` on either scenario.
+    #
+    # `whyNot` is what a refusal leaves behind (`author._refuse`), and reading
+    # it here matters for a second reason: `api._save` re-renders this file on
+    # every review edit with no access to the run, the report or the author's
+    # document, so anything the tag depends on has to survive in `ir.json`.
+    if step.whyNot:
+        return True
+    # A finding nothing resolved. Kept for the artifacts already on disk that
+    # carry notes from when the critic existed: every model is
+    # `additionalProperties: false`, so a field cannot be deleted, only left
+    # unwritten.
     if step.criticNotes:
         return True
     return any(flag not in NOTICE_FLAGS for flag in step.fidelity)

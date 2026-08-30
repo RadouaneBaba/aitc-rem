@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from server.models import CapturedEvent
+from server.pipeline.objective import usable as usable_objective
 from server.pipeline.segment import break_openers
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -133,8 +134,18 @@ def _header(store: EvidenceStore, events: list[CapturedEvent]) -> list[str]:
     # The tester's own words about what they were doing. SS9.5 ranks this above
     # everything the pipeline can infer, so it goes at the top where it frames
     # the rest of the index rather than into an event block halfway down.
-    if store.objective:
-        out.append(f"  objective   {store.objective}")
+    #
+    # Unless it is VAGUE, in which case it frames the rest of the index around
+    # the wrong thing. `docs/RECORDING.md`'s ablation is unambiguous -- four of
+    # four vague objectives produced output the judge called bad, and blank
+    # beats vague -- because a mechanism named here ("check the filters work
+    # correctly") is what the test gets written ABOUT, in place of the outcome
+    # the tester was checking. The recording keeps the sentence exactly as it
+    # was typed; this decides only whether the model is shown it. See
+    # `pipeline/objective.py`.
+    objective = usable_objective(store.objective)
+    if objective:
+        out.append(f"  objective   {objective}")
 
     parameters = typed_parameters(recording)
     if parameters:

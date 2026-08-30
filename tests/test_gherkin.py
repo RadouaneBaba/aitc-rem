@@ -197,6 +197,80 @@ def test_a_step_needing_review_is_tagged_rather_than_punctuated():
     assert "!!" not in text
 
 
+def test_a_verdict_the_author_could_not_prove_tags_the_scenario():
+    """The condition that actually fires, replacing one that never could.
+
+    `needs_review` tested `criticNotes`, and nothing has written that field
+    since the critic was deleted -- so the tag has been unreachable for every
+    run since. `rec_MTEU954A8F5X/run_003` shipped three judge `fail`s and no
+    `@needs-review` on either scenario, which is the marker being absent
+    exactly where it was designed to appear.
+
+    `whyNot` is what a refusal leaves behind, and it lives in `ir.json`, which
+    is what `api._save` re-renders from on every review edit.
+    """
+    case = build_case()
+    case.steps[1].whyNot = "the product list was never captured before or after this click"
+
+    text = render_test_case(case)
+    parse(text)
+
+    assert "@needs-review" in text
+
+
+def test_the_tag_and_the_reason_never_disagree():
+    """One condition, two renderings, and they must not drift apart.
+
+    A scenario tagged `@needs-review` whose file says nothing about why is the
+    unclickable red badge this project already removed once. `_attach_claim`
+    clears `why_not` when a claim lands, so a step carrying both an accepted
+    assertion and a `why_not` means a SECOND claim was refused -- still a gap,
+    and both the tag and the reason have to agree that it is one.
+    """
+    case = build_case()
+    case.steps[2].whyNot = "a second claim nobody could prove"
+
+    text = render_test_case(case)
+    parse(text)
+
+    assert "@needs-review" in text
+    assert "a second claim nobody could prove" in text
+
+
+def test_a_verdict_that_could_not_be_proved_is_named_in_the_file():
+    """`@needs-review` says something is wrong; this says which sentence and why.
+
+    Until now `whyNot` reached `ir.json` and was rendered nowhere at all, so the
+    file that gets imported into Xray and mailed around carried no trace of a
+    scenario that checks nothing. The reason is the author's own, in language a
+    tester can act on.
+    """
+    case = build_case()
+    case.steps[1].whyNot = "the product list was never captured before or after this click"
+
+    text = render_test_case(case)
+    parse(text)
+
+    assert 'the tester adds "Blue Widget" to the cart' in text
+    assert "the product list was never captured" in text
+
+
+def test_the_reason_sits_after_the_body_and_not_inside_it():
+    # The body is prose and nothing else -- no ids, no markers, no fidelity
+    # flags interleaved with the steps. A trailing note is the completeness
+    # contract `_omissions` already has, and it keeps the steps readable as a
+    # hand-written feature file.
+    case = build_case()
+    case.steps[1].whyNot = "nothing was captured here"
+
+    text = render_test_case(case)
+    lines = text.splitlines()
+    last_step = max(i for i, line in enumerate(lines) if line.strip().startswith(("Given", "When", "Then", "And")))
+    comment = min(i for i, line in enumerate(lines) if "nothing was captured here" in line)
+
+    assert comment > last_step
+
+
 def test_a_notice_level_fidelity_flag_does_not_demand_review():
     # SS6.8 splits its flags into warnings and notices. `network_incomplete` on
     # a step whose description is perfectly sound is a notice; marking it for
@@ -360,13 +434,39 @@ def test_rejected_assertions_are_not_rendered():
     parse(text)
 
 
-def test_a_document_renders_every_test_case():
-    document = f.ir_document(test_cases=[build_case(), build_case(ident="tc_case_002")])
+def test_a_recording_produces_one_feature_file_with_every_scenario_in_it():
+    """One capability, one file, N scenarios -- which is what Gherkin means.
+
+    It used to be one file per test case, and a reader saw the consequence:
+    `rec_MTEU954A8F5X/run_003` wrote two files with the same `Feature:` line,
+    the same description and the same `Background`, and
+    `rec_MTE6XZL14IY9/run_001` wrote three. The tool announced the same
+    capability once per scenario.
+    """
+    document = f.ir_document(
+        test_cases=[
+            build_case(scenarioName="Submitting a valid order shows the confirmation"),
+            build_case(ident="tc_case_002", prefix="b", scenarioName="An empty cart is refused"),
+        ]
+    )
     rendered = render_document(document)
 
-    assert set(rendered) == {"tc_case_001", "tc_case_002"}
-    for text in rendered.values():
-        parse(text)
+    assert len(rendered) == 1
+    text = next(iter(rendered.values()))
+    parse(text)
+
+    # One Feature line, both scenarios under it.
+    assert text.count("Feature:") == 1
+    assert "Submitting a valid order shows the confirmation" in text
+    assert "An empty cart is refused" in text
+
+
+def test_a_bug_report_is_not_a_scenario_and_does_not_claim_the_file():
+    # SS14: a bug report is a different KIND of artifact and `bug_md` writes it.
+    # It shares the IR, so a document that is nothing but one renders no
+    # feature file at all rather than an empty one.
+    document = f.ir_document(test_cases=[build_case(ident="tc_bug", kind="bug_report")])
+    assert render_document(document) == {}
 
 
 # --------------------------------------------------------------------------
@@ -397,54 +497,87 @@ def test_inline_is_the_default_because_a_tester_reads_top_to_bottom():
     assert 'the tester signs in as "<<user_email_1>>"' in text
 
 
-def test_a_lifted_feature_file_still_round_trips_through_review():
-    # `apply_feature_text` compares the file's step lines against
-    # `build_narrative(case.steps).body`, and a Background carrying INHERITED
-    # preconditions has lines that exist in no narrative of this case -- so
-    # every human edit of a two-scenario feature file was refused with "this
-    # does not line up with the test case it came from". Latent until a
-    # recording produced two scenarios, which none ever had.
-    from server.api.review import apply_feature_text, new_review
+def two_scenario_ir():
+    """Two scenarios, the second opening on setup the first performed.
 
+    The shape `run._build_case` produces: case 1 inherits nothing, case 2's
+    `preconditions` are copies of case 1's setup steps.
+    """
     first = build_case(ident="tc_rec_test01_01", prefix="1")
     second = build_case(
         ident="tc_rec_test01_02",
         prefix="2",
+        scenarioName="An order without approval is refused",
         preconditions=[f.precondition("pre_001", "the tester is signed in", ["evt_1003"])],
     )
-    ir = f.ir_document(test_cases=[first, second])
-    rendered = render_test_case(second, ir=ir)
+    return f.ir_document(test_cases=[first, second])
+
+
+def test_a_two_scenario_feature_file_round_trips_through_review():
+    """Every sentence in the file maps back to the step that produced it.
+
+    `apply_feature_text` used to compare the file against ONE case's narrative,
+    which was right while a file held one scenario. Now that the document holds
+    them all, the targets are built across every scenario in render order --
+    and the `Background` lifted out of the first scenario is part of that walk
+    rather than a prefix to be skipped.
+    """
+    from server.api.review import apply_feature_text, new_review
+
+    ir = two_scenario_ir()
+    document_key, rendered = next(iter(render_document(ir).items()))
     review = new_review(ir)
 
     edited = rendered.replace(
         "the tester submits the order form", "the tester confirms the order", 1
     )
-    case = apply_feature_text(
-        ir, review, case_id=second.id, text=edited, rendered=rendered
-    )
+    apply_feature_text(ir, review, case_id=document_key, text=edited, rendered=rendered)
 
-    assert [s.text for s in case.steps][-1] == "the tester confirms the order"
+    assert ir.testCases[0].steps[-1].text == "the tester confirms the order"
     assert [e.kind for e in review.edits] == ["step_text"]
 
 
-def test_editing_an_inherited_precondition_is_refused_by_name():
-    # Refusing is the honest answer, in the same way this function refuses
-    # structure: the sentence belongs to the case that performed it.
-    from server.api.review import ReviewError, apply_feature_text, new_review
+def test_a_sentence_in_the_background_is_edited_where_it_was_performed():
+    """The Background is real steps now, so editing one is editing the step.
 
-    first = build_case(ident="tc_rec_test01_01", prefix="1")
-    second = build_case(
-        ident="tc_rec_test01_02",
-        prefix="2",
-        preconditions=[f.precondition("pre_001", "the tester is signed in", ["evt_1003"])],
-    )
-    ir = f.ir_document(test_cases=[first, second])
-    rendered = render_test_case(second, ir=ir)
+    It used to be a copy: the second case's `preconditions` repeated the first
+    case's setup as text with no step behind it, so an edit there was refused
+    with "edit it there and it will follow here" -- correct, and a dead end for
+    a reviewer looking at the sentence. With one document the block is lifted
+    out of the first scenario's own steps, so the edit lands on the step that
+    performed it and follows everywhere by construction.
+    """
+    from server.api.review import apply_feature_text, new_review
+
+    ir = two_scenario_ir()
+    document_key, rendered = next(iter(render_document(ir).items()))
     review = new_review(ir)
 
-    edited = rendered.replace("the tester is signed in", "the tester is logged in", 1)
+    assert "Background:" in rendered
+
+    edited = rendered.replace('the tester signs in as "<<user_email_1>>"', "the tester signs in", 1)
+    apply_feature_text(ir, review, case_id=document_key, text=edited, rendered=rendered)
+
+    assert ir.testCases[0].steps[0].text == "the tester signs in"
+    assert [e.kind for e in review.edits] == ["step_text"]
+
+
+def test_an_edit_that_changes_the_step_count_is_still_refused():
+    # A step typed into the box has no `eventIds`, so it is a sentence about
+    # something nobody recorded and `event_coverage` would reject the run.
+    from server.api.review import ReviewError, apply_feature_text, new_review
+
+    ir = two_scenario_ir()
+    document_key, rendered = next(iter(render_document(ir).items()))
+    review = new_review(ir)
+
+    edited = rendered.replace(
+        "    And the tester submits the order form",
+        "    And the tester submits the order form\n    And the tester waits",
+        1,
+    )
 
     with pytest.raises(ReviewError) as excinfo:
-        apply_feature_text(ir, review, case_id=second.id, text=edited, rendered=rendered)
+        apply_feature_text(ir, review, case_id=document_key, text=edited, rendered=rendered)
 
-    assert "earlier test case" in str(excinfo.value)
+    assert "number of steps" in str(excinfo.value)

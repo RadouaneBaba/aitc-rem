@@ -401,6 +401,43 @@ def push(
     return result
 
 
+def auto_push_run(run_dir: Path, config: ProjectConfig) -> list[str]:
+    """Post a run's Jira payloads right after export, when the project asks for it.
+
+    `jira.auto_push: true` in `project.yaml` opts in. It exists for a private or
+    throwaway Jira where the separate `server.cli jira-push` step is pure
+    friction; the default stays off because posting creates issues in a shared
+    system with no dedup, so a re-export files duplicates.
+
+    Never raises. A missing credential or a network failure is reported as a
+    line and the run still succeeds -- the payloads are on disk and
+    `jira-push` can send them by hand.
+    """
+    if not getattr(config, "jira_auto_push", False):
+        return []
+
+    payloads = sorted(run_dir.glob("*.jira.json"))
+    if not payloads:
+        return []
+
+    credentials = JiraCredentials.from_env()
+    if credentials is None:
+        return [
+            "jira auto-push skipped: set JIRA_SITE, JIRA_EMAIL and JIRA_API_TOKEN "
+            "(in .env or the environment). The payloads are on disk for `jira-push`."
+        ]
+
+    issues = [json.loads(path.read_text(encoding="utf-8")) for path in payloads]
+    result = push(issues, credentials=credentials, attachments_dir=run_dir)
+
+    lines = [f"jira: created {c['key']}  ({c['testCaseId']})" for c in result.created]
+    lines += [f"jira: attached {name}" for name in result.attached]
+    lines += [f"jira: FAILED  {failure}" for failure in result.failures]
+    if not lines:
+        lines.append("jira auto-push: nothing to send")
+    return lines
+
+
 def _find_attachment(run_dir: Path, name: str, meta: Mapping[str, Any]) -> Path | None:
     """Where an artifact actually is.
 

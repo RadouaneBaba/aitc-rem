@@ -1,13 +1,13 @@
 {
   "schemaVersion": "1.0",
-  "id": "rec_MTENMXYWZTD8",
+  "id": "rec_MTF6B88B46SL",
   "projectId": "local",
   "ownerId": "local",
-  "createdAt": "2026-08-29T17:28:45.944Z",
+  "createdAt": "2026-08-30T02:11:32.075Z",
   "objective": "Check that filtering to in-stock items cuts the list from 24 products to 9",
   "metadata": {
-    "capturedAt": "2026-08-29T17:28:45.944Z",
-    "durationMs": 613,
+    "capturedAt": "2026-08-30T02:11:32.075Z",
+    "durationMs": 586,
     "browser": "Chrome/151.0.0.0",
     "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
     "viewport": {
@@ -19,13 +19,13 @@
       "http://localhost:5173"
     ],
     "recorderVersion": "0.1.0",
-    "audioOffsetMs": 41
+    "audioOffsetMs": 33
   },
   "events": [
     {
       "id": "evt_001",
       "seq": 0,
-      "timestamp": 117,
+      "timestamp": 103,
       "type": "click",
       "url": "http://localhost:5173/storefront",
       "target": {
@@ -40,7 +40,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 117,
+        "capturedAt": 103,
         "url": "http://localhost:5173/storefront",
         "title": "Northwind Orders",
         "scope": "full",
@@ -827,7 +827,7 @@
         "nodeCount": 139
       },
       "after": {
-        "capturedAt": 439,
+        "capturedAt": 417,
         "url": "http://localhost:5173/storefront",
         "title": "Northwind Orders",
         "scope": "full",
@@ -1697,20 +1697,20 @@
       },
       "settle": {
         "reason": "quiet",
-        "waitedMs": 314,
+        "waitedMs": 308,
         "mutationCount": 16,
         "inFlightAtEnd": 0
       },
       "network": [],
       "console": [],
       "fidelity": [],
-      "tabId": 1984964384,
+      "tabId": 76318472,
       "screenshot": "screens/evt_001.png"
     },
     {
       "id": "evt_002",
       "seq": 1,
-      "timestamp": 613,
+      "timestamp": 586,
       "type": "click",
       "url": "http://localhost:5173/storefront",
       "target": {
@@ -1725,7 +1725,7 @@
         "frame": []
       },
       "before": {
-        "capturedAt": 613,
+        "capturedAt": 586,
         "url": "http://localhost:5173/storefront",
         "title": "Northwind Orders",
         "scope": "full",
@@ -2107,7 +2107,7 @@
         "nodeCount": 64
       },
       "after": {
-        "capturedAt": 926,
+        "capturedAt": 900,
         "url": "http://localhost:5173/storefront",
         "title": "Northwind Orders",
         "scope": "full",
@@ -2534,7 +2534,7 @@
       "network": [],
       "console": [],
       "fidelity": [],
-      "tabId": 1984964384
+      "tabId": 76318472
     }
   ],
   "narration": [],

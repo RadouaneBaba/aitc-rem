@@ -367,6 +367,18 @@ class RunMetrics(StrictModel):
     completionTokensTotal: int | None = None
     uncachedModelCalls: int | None = None
     durationMs: float | None = None
+    assertionsWeaklyResolved: int | None = None
+    """
+    Accepted assertions whose literal names NO element in the response it cites -- found only in loose text. Structural and threshold-free: see Evidence.strength. Grading only; none of these was rejected, and this number is not a gate.
+
+    It is here because every rate in this table is vacuously 1.0 when a configuration abstains, and none of them can distinguish a document of real verdicts from a document of decoration. This one can.
+    """
+    evidenceOccurrencesMax: int | None = None
+    """
+    Across accepted assertions, the largest number of strings in a cited response that contain that assertion's literal -- so, how many ways the weakest verdict in this document had to pass its containment check.
+
+    1 means every claim had exactly one thing it could have been about. On `rec_MTCUX3Y0XJ9S` it reads 198, from `Then the cart badge shows 1` bound to the literal `1`, which is what a vacuous verdict looks like as a number. Reported rather than acted on -- a cutoff here would reject true claims, which is why `evidence_discriminates` was deleted.
+    """
 
 
 class RunConfig(StrictModel):

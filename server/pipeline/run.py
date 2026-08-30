@@ -40,6 +40,7 @@ from server.models import (
     BugDetail,
     BugEnvironment,
     Confidence,
+    EvidenceStrength,
     ExpectationSet,
     IRDocument,
     PipelineStage,
@@ -78,6 +79,7 @@ from server.pipeline.segment import break_openers, segment_recording
 from server.pipeline.validators import (
     ValidationContext,
     ValidationReport,
+    bug_claim,
     claim_total,
     grounding_rate,
     validate,
@@ -1177,9 +1179,16 @@ def _write_output(
     # Scoped to this run's own directory and to the three suffixes this
     # function writes -- never a glob wide enough to reach `ir.json` or a tool
     # response, which are what the gate re-reads.
+    # Derived from what is about to be WRITTEN, not from what the IR could
+    # produce a name for. The feature file is now one per document rather than
+    # one per test case, so a set built over `ir.testCases` would keep the very
+    # per-case names this change stops writing -- and a run directory that had
+    # rendered `tc_..._01.feature` and `tc_..._02.feature` would keep serving
+    # both beside the new single file, which is the defect the comment above
+    # describes wearing a new costume.
     keep = (
-        {run.root / feature_filename(case, config) for case in ir.testCases}
-        | {run.root / trace_filename(case, config) for case in ir.testCases}
+        {run.root / feature_filename(by_id[case_id], config) for case_id in rendered}
+        | {run.root / trace_filename(by_id[case_id], config) for case_id in sidecars}
         | {run.root / bug_md.bug_filename(case, config) for case in ir.testCases}
     )
     for suffix in ("*.feature", "*.trace.md", "*.bug.md"):
@@ -1342,6 +1351,43 @@ def _calls_per_step(ir: IRDocument, trace_calls: list) -> dict[str, int]:
     return per_step
 
 
+def _graded_evidence(ir) -> list:
+    """Every accepted claim's evidence, bug reports included.
+
+    Kept in step with `validators.grounding.claim_total` and `_assertions` for
+    the same reason those are kept in step with each other: a bug report's
+    `actual` is bound exactly as tightly as any assertion, so a second walk that
+    quietly skipped it would report a document as cleaner than it is.
+    """
+    out = [a.evidence for c in ir.testCases for s in c.steps for a in s.assertions]
+    for case in ir.testCases:
+        claim = bug_claim(case)
+        if claim is not None:
+            out.append(claim[2].evidence)
+    return out
+
+
+def _weakly_resolved(ir) -> int:
+    """Claims whose literal names no element in the retrieval it cites.
+
+    Graded, never enforced -- `evidence/strength.py` says why at length. A
+    non-zero here is not a failure and nothing was rejected for it; it is the
+    count of verdicts whose evidence cannot be told apart from a coincidence.
+    """
+    return sum(1 for e in _graded_evidence(ir) if e.strength is EvidenceStrength.weak)
+
+
+def _occurrences_max(ir) -> int:
+    """How many ways the weakest verdict here had to pass its containment check.
+
+    The number that moves when a document fills up with decoration: 1 when every
+    claim had exactly one thing it could be about, 198 on the recording whose
+    cart-badge verdict was bound to the literal `1`.
+    """
+    counts = [e.occurrences for e in _graded_evidence(ir) if e.occurrences is not None]
+    return max(counts) if counts else 0
+
+
 def _pass_rate(report: ValidationReport, restrict_to: set | None = None) -> float:
     """Share of validators that passed, over the ones that had a subject.
 
@@ -1414,6 +1460,12 @@ def _metrics(
         # docstring: what was "resolved" between two rounds is not knowable.
         judgeFindings=len(judgement.findings) if judgement else 0,
         judgeFails=len(judgement.fails) if judgement else 0,
+        # How much the verdicts that shipped are actually worth. Every rate
+        # above is vacuously 1.0 when a configuration abstains and none of them
+        # can tell a document of real verdicts from a document of decoration;
+        # these two can. Graded at bind time, never acted on.
+        assertionsWeaklyResolved=_weakly_resolved(ir),
+        evidenceOccurrencesMax=_occurrences_max(ir),
         revisionRounds=rounds,
         repairAttempts=len(trace.repairAttempts),
         promptTokensTotal=sum(m.promptTokens or 0 for m in model_calls),

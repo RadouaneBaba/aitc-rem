@@ -54,15 +54,6 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
 
           <dt>
             <kbd>⌘</kbd>
-            <kbd>K</kbd>
-          </dt>
-          <dd>
-            Everything else: jump to any step, switch run, approve, change the theme, open the
-            how-to.
-          </dd>
-
-          <dt>
-            <kbd>⌘</kbd>
             <kbd>↵</kbd>
           </dt>
           <dd>Approve the run. Asks first — it cannot be undone.</dd>

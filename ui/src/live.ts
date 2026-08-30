@@ -80,16 +80,35 @@ export function usePending(): [PendingConfirmation[], (recordingId: string) => v
   const [pending, setPending] = useState<PendingConfirmation[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
+  // Polled, on the same clock as the jobs.
+  //
+  // This used to fetch once at mount, which meant the invitation only ever
+  // appeared for recordings that were already pending when the tab was opened.
+  // The common path is the opposite: the tester presses Stop, the run lands
+  // while they are watching this screen, and the guesses it just made were
+  // exactly the thing to ask them about -- and nothing appeared until they
+  // reloaded. It also went stale in the other direction, staying on screen
+  // after the confirmation screen had been answered.
   useEffect(() => {
     let live = true;
-    api
-      .pendingExpectations()
-      .then(({ pending: next }) => live && setPending(next))
-      // Silent: an unanswered guess is not an error, and a red bar about a
-      // failed poll on top of the review screen helps nobody.
-      .catch(() => undefined);
+    let timer = 0;
+
+    const tick = () => {
+      api
+        .pendingExpectations()
+        .then(({ pending: next }) => live && setPending(next))
+        // Silent: an unanswered guess is not an error, and a red bar about a
+        // failed poll on top of the review screen helps nobody.
+        .catch(() => undefined)
+        .finally(() => {
+          if (live) timer = window.setTimeout(tick, POLL_MS);
+        });
+    };
+    tick();
+
     return () => {
       live = false;
+      window.clearTimeout(timer);
     };
   }, []);
 

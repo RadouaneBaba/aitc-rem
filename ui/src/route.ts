@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 
 export type Route =
   | { name: 'review' }
+  | { name: 'run'; recordingId: string; runId: string }
   | { name: 'confirm'; recordingId: string }
   | { name: 'help' };
 
@@ -39,10 +40,29 @@ export function parseRoute(url: URL = new URL(window.location.href)): Route {
   const confirm = /\/confirm\/([^/]+)$/.exec(path);
   if (confirm?.[1]) return { name: 'confirm', recordingId: decodeURIComponent(confirm[1]) };
 
+  // `/runs/<recording>/<run>` -- one run, addressable.
+  //
+  // Without it the only way to reach a run was the picker, which selects
+  // whichever run happens to sort first and then never changes it. Somebody who
+  // pressed Send landed on an unrelated older draft while the banner at the top
+  // described the job they had just started: two different runs on one screen,
+  // and nothing saying so.
+  const run = /\/runs\/([^/]+)\/([^/]+)$/.exec(path);
+  if (run?.[1] && run[2]) {
+    return {
+      name: 'run',
+      recordingId: decodeURIComponent(run[1]),
+      runId: decodeURIComponent(run[2]),
+    };
+  }
+
   return { name: 'review' };
 }
 
 export function href(route: Route): string {
+  if (route.name === 'run') {
+    return `/runs/${encodeURIComponent(route.recordingId)}/${encodeURIComponent(route.runId)}`;
+  }
   if (route.name === 'confirm') return `/confirm/${encodeURIComponent(route.recordingId)}`;
   if (route.name === 'help') return '/help';
   return '/';

@@ -25,6 +25,16 @@ import type { AnnotationTarget } from '../types/recording';
 /** Big enough to sit above anything an application is likely to use. */
 const Z = 2147483000;
 
+/**
+ * The longest visible text a mark may fall back to.
+ *
+ * A mark becomes an expected result WORD FOR WORD, so it has to be a phrase
+ * somebody could check. Point at a whole panel and the fallback would be its
+ * entire contents -- every product, price and button in the bag -- which is not
+ * a verdict, it is a screenshot in prose.
+ */
+const MAX_FALLBACK_NAME = 120;
+
 export interface PickResult {
   target: AnnotationTarget;
 }
@@ -82,7 +92,28 @@ export class ElementPicker {
     event.stopImmediatePropagation();
 
     const element = this.elementUnder(event);
-    this.finish(element ? { target: this.describe(element) } : null);
+    if (!element) return this.finish(null);
+
+    const target = this.describe(element);
+
+    // A mark with no words in it is not a mark.
+    //
+    // The popup promises this becomes the expected result WORD FOR WORD, and a
+    // container has no words: `nameOf` returns "" for an unnamed `<div>`, which
+    // is exactly what a commercial site's mini-cart panel is. Both real marks
+    // made with this tool were `{role: "div", name: ""}` on `#ui-id-17` -- the
+    // tester pointed at the bag twice, believed they had marked it twice, and
+    // the pipeline received nothing twice, with no feedback either time.
+    //
+    // So the click is refused and the picker stays open. Refusing is the honest
+    // answer: silently recording an empty target is what taught the tester the
+    // feature works.
+    if (!target.name && !target.value) {
+      this.say('That has no text in it. Point at the words you want to check — a total, a name, a badge.');
+      return;
+    }
+
+    this.finish({ target });
   };
 
   private onKey = (event: KeyboardEvent): void => {
@@ -111,13 +142,41 @@ export class ElementPicker {
     const raw = rawValueOf(element);
     return {
       role: roleOf(element) || element.tagName.toLowerCase(),
-      name: nameOf(element),
+      name: nameOf(element) || this.visibleText(element),
       // SS7.1 is absolute: redaction happens in the page, before anything is
       // persisted. A tester may well point at the field they just typed a
       // password into.
       ...(raw ? { value: this.redactor().redactFieldValue(element, raw) } : {}),
       selectors: selectorsFor(element),
     };
+  }
+
+  /**
+   * The words inside an element that has no accessible name of its own.
+   *
+   * A tester points at what they can SEE. An accessible name is a property of
+   * controls and landmarks, and the thing worth checking is very often a bare
+   * `<span>` of text inside an unnamed wrapper -- a price, a count, a product
+   * name. Falling back to the visible text is what makes pointing at it work.
+   *
+   * Capped, because a whole panel's text is not a verdict. Over the cap this
+   * returns "" and the click is refused with a hint, which is better than
+   * recording a paragraph as an expected result.
+   *
+   * Redacted through the same page-content path everything else uses
+   * (`redactKnownSecrets` -- exact values the tester typed, never a shape
+   * scan), because SS7.1 is absolute: nothing raw is persisted, and a tester
+   * may well point at a field they just typed into.
+   */
+  private visibleText(element: Element): string {
+    const text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text || text.length > MAX_FALLBACK_NAME) return '';
+    return this.redactor().redactKnownSecrets(text);
+  }
+
+  /** Replace the hint, for a click the picker is refusing. */
+  private say(message: string): void {
+    if (this.hint) this.hint.textContent = message;
   }
 
   private mount(): void {

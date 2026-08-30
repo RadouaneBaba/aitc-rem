@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from server.models import ValidatorAction, ValidatorName, ValidatorResult, ValidatorStatus
 from server.pipeline.validators.base import ValidationContext
 from server.pipeline.validators.consistency import event_coverage
-from server.pipeline.validators.grounding import claim_total, evidence_retrieved
+from server.pipeline.validators.grounding import bug_claim, claim_total, evidence_retrieved
 from server.pipeline.validators.output import (
     gherkin_parses,
     no_placeholder_leak,
@@ -152,6 +152,7 @@ __all__ = [
     "VALIDATORS",
     "ValidationContext",
     "ValidationReport",
+    "bug_claim",
     "claim_total",
     "grounding_rate",
     "validate",

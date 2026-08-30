@@ -97,6 +97,18 @@
       .objective { margin: var(--s-3) 0 0; font-size: var(--fs-lg); }
       .objective q { quotes: '\201C' '\201D'; }
 
+      /* Said once, in the flow, and never as a blocker: a recording with no
+         mark is a normal recording. Warn rather than danger for the same
+         reason -- nothing is wrong, something is just weaker than it could be. */
+      .unmarked {
+        margin: var(--s-3) 0 0;
+        padding: var(--s-3);
+        border-left: 3px solid var(--warn);
+        background: var(--subtle-bg);
+        font-size: var(--fs-md);
+        line-height: var(--lh-snug);
+      }
+
       table { width: 100%; border-collapse: collapse; }
       td { padding: var(--s-2); border-bottom: 1px solid var(--line-soft); }
       td:first-child { width: 40%; }

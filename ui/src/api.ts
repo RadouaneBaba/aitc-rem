@@ -33,6 +33,13 @@ export interface Evidence {
   eventId: string;
   kind: string;
   predicate?: Predicate;
+  /**
+   * How precisely the literal resolves in the response it cites, and how many
+   * strings in that response contain it. Descriptive: nothing is rejected for
+   * either. Optional because every run made before they existed has neither.
+   */
+  strength?: 'strong' | 'medium' | 'weak';
+  occurrences?: number;
 }
 
 export interface Assertion {
@@ -200,6 +207,14 @@ export interface RunBody {
   ir: IRDocument;
   trace: Trace | null;
   review: ReviewDoc;
+  /** The one feature file, as a single-entry map keyed by the document.
+   *
+   *  It held one entry per test case until the renderer stopped writing a file
+   *  per scenario -- a recording with three scenarios produced three files with
+   *  the same `Feature:` line and the same `Background`. The map shape is kept
+   *  because the key is what `PATCH .../cases/{id}/feature` is addressed by,
+   *  and because a run that is only a bug report renders no Gherkin at all and
+   *  answers with `{}`. */
   feature: Record<string, string>;
   /** Event ids that actually have a screenshot on disk. Sent with the run so
    *  the step pane can decide whether to render an `<img>` at all -- asking per
@@ -359,7 +374,11 @@ export const api = {
 
   /** SS13.2 -- edit the prose where a reader actually reads it. The changes are
    *  replayed through the same review functions the step forms call, so the
-   *  SS13.5 record is identical either way. */
+   *  SS13.5 record is identical either way.
+   *
+   *  `caseId` addresses the DOCUMENT -- the key `RunBody.feature` came back
+   *  with, which is the first rendered case. The text spans every scenario, and
+   *  the server maps each line back to whichever case produced it. */
   editFeature: (rec: string, run: string, caseId: string, text: string) =>
     call<RunBody>(`/api/runs/${rec}/${run}/cases/${caseId}/feature`, {
       method: 'PATCH',

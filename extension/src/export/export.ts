@@ -313,11 +313,31 @@ function renderSummary(
   const flags = recording.metadata.fidelitySummary ?? {};
   const flagged = Object.entries(flags);
 
+  // Did the tester ever point at the thing they came to check?
+  //
+  // "Mark what I'm verifying" turns an element on the page into an expected
+  // result WORD FOR WORD, which is the one input that outranks everything the
+  // pipeline can infer. It is also a button in a popup with a caption nobody
+  // reads: the coffee session that prompted this said so plainly -- six events,
+  // `annotations: []`, and every verdict in the output inferred.
+  //
+  // Said here rather than during recording because this is the screen the
+  // tester is already looking at, and because the answer is still available:
+  // the confirmation screen asks the same question about the guesses the tool
+  // has just made. Not a block -- a recording with no mark is a normal
+  // recording, and the run happens either way.
+  const marked = (recording.annotations ?? []).some((a) => a.kind === 'assertion');
+
   $('recorded').innerHTML =
     film +
     (recording.objective
       ? `<p class="objective">You were checking: <q>${escape(recording.objective)}</q></p>`
       : '<p class="objective muted">No objective was stated for this session.</p>') +
+    (marked
+      ? ''
+      : '<p class="unmarked"><b>You never marked what you were checking.</b> ' +
+        'The tool will guess what should have happened. You can correct its ' +
+        'guesses on the next screen.</p>') +
     (flagged.length
       ? `<p class="small muted">The recorder was unsure about ${flagged
           .map(([k, v]) => `${v}&times; ${escape(k.replace(/_/g, ' '))}`)
@@ -539,20 +559,27 @@ async function main(): Promise<void> {
           : '';
       }
 
-      // Straight to the confirmation screen, not to the review UI.
+      // Open the run that was just started, not the review UI's front door.
       //
-      // The pipeline can only ever restate what the application DID; the one
-      // thing it cannot know is what it SHOULD have done, and the only person
-      // who knows that is about to close this tab. Two minutes from now they
-      // are on the next test and the answer is gone. So the link that gets the
-      // prominence is the one that asks while they still remember -- the draft
-      // is being written either way and will be waiting behind it.
-      const confirm = `${base}/?confirm=${encodeURIComponent(recording.id)}`;
+      // `/runs/<rec>/<run>` is the page for THIS run: it shows the pipeline
+      // working, names the stage it is in, and turns into the draft the moment
+      // it is ready. The front door instead selects whichever run sorts first,
+      // which after a second session is somebody else's older draft -- with a
+      // banner above it describing the job just started. Two different runs on
+      // one screen, and nothing saying which was which.
+      //
+      // The confirmation screen is still the loudest thing on that page, and
+      // for the original reason: the pipeline can only restate what the
+      // application DID, the one thing it cannot know is what it SHOULD have
+      // done, and the only person who knows is about to close this tab.
+      const run = job.runId
+        ? `${base}/runs/${encodeURIComponent(recording.id)}/${encodeURIComponent(job.runId)}`
+        : `${base}/?confirm=${encodeURIComponent(recording.id)}`;
       $('sent').innerHTML =
-        `Sent. <a href="${confirm}" target="_blank"><strong>Tell us what should have ` +
-        `happened</strong></a> — it takes about a minute of clicking and it is the one ` +
-        `thing the recording cannot show us. ` +
-        `Job <code>${job.id}</code> is writing a draft meanwhile.` +
+        `Sent. <a href="${run}" target="_blank"><strong>Watch it being written</strong></a> ` +
+        `— the page asks what should have happened while it works, which takes about a ` +
+        `minute of clicking and is the one thing the recording cannot show us. ` +
+        `Job <code>${job.id}</code> is writing the draft.` +
         narrationNote(narration) +
         shotNote +
         (unknownOrigins?.length

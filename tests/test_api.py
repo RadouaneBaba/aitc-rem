@@ -894,6 +894,42 @@ def test_a_recording_whose_guesses_were_answered_stops_being_reported(guessing_c
     assert guessing_client.get("/api/expectations/pending").json()["pending"] == []
 
 
+def test_answering_the_screen_replaces_the_draft_rather_than_adding_a_run(guessing_client):
+    """One recording, one run -- however many times the screen is answered.
+
+    Answering used to enqueue a run BESIDE the first, so `rec_MTEU954A8F5X`
+    finished with three: one from pressing Stop, one for each submission of the
+    confirmation screen. Three rows in the picker for one session, differing
+    only in what the author happened to decide that time, and nothing on screen
+    saying which had been answered or which to trust.
+
+    The guarantee that mattered is untouched and is checked here too: the first
+    run exists before anybody answers, so a run never waits on a screen that
+    might never be opened.
+    """
+    recording_id, first_run = a_run(guessing_client)
+    stored = guessing_client.get(f"/api/recordings/{recording_id}/expectations").json()
+
+    def runs_for(rec: str) -> list[str]:
+        return [r["runId"] for r in guessing_client.get("/api/runs").json()["runs"] if r["recordingId"] == rec]
+
+    assert runs_for(recording_id) == [first_run]
+
+    for _ in range(2):
+        answered = guessing_client.post(
+            f"/api/recordings/{recording_id}/expectations",
+            json={
+                "answers": [
+                    {"id": item["id"], "source": "confirmed"} for item in stored["expectations"]
+                ]
+            },
+        )
+        assert answered.status_code == 200, answered.text
+        guessing_client.app.state.jobs.wait(30)
+
+    assert runs_for(recording_id) == [first_run]
+
+
 def test_answering_none_of_them_still_clears_the_prompt(guessing_client):
     # `confirmedAt` is set by the act of answering the screen, not by agreeing
     # with any particular guess. Someone who read them and had nothing to change

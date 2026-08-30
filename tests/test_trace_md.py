@@ -204,3 +204,70 @@ def test_the_sidecar_stays_ascii():
     # mangles them.
     text = render_trace(build_case())
     assert all(ord(ch) < 128 for ch in text)
+
+
+def test_a_verdict_with_many_ways_to_pass_says_so_in_the_sidecar():
+    """The sidecar is where a reviewer finds out a verdict is decoration.
+
+    `the cart badge shows 1` bound to the literal `1` passes every validator in
+    the system, and `1` occurs 198 times in the snapshot it cites -- so the
+    containment check had 198 ways to pass and the test would stay green on a
+    build where the badge never updated. Nothing anywhere used to say that.
+    """
+    case = f.test_case(
+        steps=[
+            f.step(
+                "step_001",
+                "the tester adds the first product to the cart",
+                assertions=[
+                    f.assertion(
+                        "a1",
+                        'the cart badge shows "1"',
+                        ev=f.evidence("1", strength="strong", occurrences=198),
+                    )
+                ],
+            )
+        ]
+    )
+    text = render_trace(case)
+
+    assert "strong, 198x" in text
+    assert "198 times" in text
+    # And it says what to do about it, not merely that something is wrong.
+    assert "Quote the phrase around it" in text
+
+
+def test_a_literal_naming_no_element_is_called_out_separately():
+    """A different fault from a loose one, and it needs a different sentence:
+    the string is in the response and names nothing a tester could read."""
+    case = f.test_case(
+        steps=[
+            f.step(
+                "step_001",
+                "the tester submits the order",
+                assertions=[
+                    f.assertion(
+                        "a1",
+                        "the order reference is recorded",
+                        ev=f.evidence("0.0.1.4", strength="weak", occurrences=1),
+                    )
+                ],
+            )
+        ]
+    )
+    text = render_trace(case)
+
+    assert "weak, 1x" in text
+    assert "names no element" in text
+
+
+def test_a_run_made_before_grading_existed_renders_unchanged():
+    """Every assertion on disk has neither field, and the sidecar for one must
+    not sprout an empty column or a paragraph about nothing."""
+    case = f.test_case(
+        steps=[f.step("step_001", "the tester submits the order", assertions=[f.assertion()])]
+    )
+    text = render_trace(case)
+
+    assert "| - |" in text, "an ungraded row shows a dash rather than a blank"
+    assert "**Resolves** says" not in text, "nothing to explain when nothing was graded"

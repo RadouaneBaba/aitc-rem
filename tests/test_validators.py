@@ -627,6 +627,30 @@ def test_an_unredacted_recording_is_refused_unless_the_endpoint_is_paid():
     check_origins(recording, allow=False, policy="off")
 
 
+def test_passwords_only_is_not_refused_because_it_is_the_default():
+    """`secrets_only` warns like anything else. It used to refuse.
+
+    The gate read "anything below `full`", which caught this too -- and this is
+    now the recorder's DEFAULT, so the default recorder setting and the default
+    `origin_policy` refused every recording between them. A guard that fires on
+    the normal path is not a guard; it is a thing people learn to switch off,
+    and the one it protects (`redaction: off`) goes with it.
+
+    The line is drawn where the guarantee changes rather than where the label
+    does. `secrets_only` turns off only the scan that decides by SHAPE; a
+    password field is still redacted by CONTEXT, whatever its value looks like,
+    and a string the tester typed is still redacted wherever the page shows it.
+    `off` keeps nothing, which is different in kind and still refuses.
+    """
+    from server.cli import check_origins
+
+    recording = f.recording()
+    recording.metadata.redaction = RedactionLevel.secrets_only
+
+    for policy in ("warn", "allowlist", "off"):
+        check_origins(recording, allow=True, policy=policy)
+
+
 def test_a_fully_redacted_recording_still_only_warns():
     from server.cli import check_origins
 

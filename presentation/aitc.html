@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AITC — Evidence-bound test cases</title>
+
+<!-- Fonts: Fraunces (display serif) · Switzer (body) · Space Mono (metadata) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500;1,9..144,600;1,9..144,700&family=Space+Mono:wght@400;700&display=swap">
+
+<style>
+/* ============================================================
+   THEME TOKENS — dark is the default; [data-theme="light"] swaps
+   the same roles. Press T to toggle.
+   ============================================================ */
+:root{
+    --bg:        #181616;   /* Obsidian — dominant ground */
+    --bg-2:      #211E1E;
+    --panel:     #242020;
+    --panel-2:   #1C1A1A;
+    --cream:     #FBF8DE;   /* body + titles on dark */
+    --cream-2:   #FFFDF0;   /* maximum brightness */
+    --muted:     #81878A;   /* subtitles, captions, rules */
+    --red:       #F24A3D;   /* Vermillion — accent, key stats, failure */
+    --red-2:     #D8392D;
+    --red-soft:  rgba(242,74,61,.13);
+    --red-line:  rgba(242,74,61,.42);
+    --grn:       #06B864;   /* Emerald — proved / admissible */
+    --grn-soft:  rgba(6,184,100,.14);
+    --grn-line:  rgba(6,184,100,.5);
+    --lime:      #C2EE28;   /* single data pop, rare */
+    --lime-soft: rgba(194,238,40,.14);
+    --line:      rgba(251,248,222,.13);
+    --line-soft: rgba(251,248,222,.06);
+    --tint:      rgba(251,248,222,.03);
+
+    --stage-bg:  #0E0D0D;
+    --slide-bg:  var(--bg);
+
+    --font-display:'Fraunces', serif;
+    --font-body:   'Switzer', sans-serif;
+    --font-mono:   'Space Mono', monospace;
+
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur: 0.75s;
+    --grain-blend: overlay;
+}
+[data-theme="light"]{
+    --bg:        #F3EFE0;
+    --bg-2:      #ECE7D5;
+    --panel:     #FCFAEF;
+    --panel-2:   #F5F1E2;
+    --cream:     #2B2622;
+    --cream-2:   #15120F;
+    --muted:     #5F6366;
+    --red:       #D23A2D;
+    --red-2:     #B62E22;
+    --red-soft:  rgba(210,58,45,.10);
+    --red-line:  rgba(210,58,45,.40);
+    --grn:       #07984F;
+    --grn-soft:  rgba(7,152,79,.12);
+    --grn-line:  rgba(7,152,79,.42);
+    --lime:      #5F8A0B;
+    --lime-soft: rgba(95,138,11,.14);
+    --line:      rgba(20,18,16,.13);
+    --line-soft: rgba(20,18,16,.06);
+    --tint:      rgba(20,18,16,.02);
+    --stage-bg:  #E4DFCD;
+    --grain-blend: multiply;
+}
+*{ margin:0; padding:0; box-sizing:border-box; }
+
+/* ============================================================
+   FIXED 16:9 STAGE — viewport-base.css, included in full
+   ============================================================ */
+html,body{ width:100%; height:100%; margin:0; overflow:hidden; background:var(--stage-bg,#000); }
+.deck-viewport{ position:fixed; inset:0; overflow:hidden; background:var(--stage-bg,#000); }
+.deck-stage{ position:absolute; left:0; top:0; width:1920px; height:1080px; overflow:hidden; transform-origin:0 0; background:var(--slide-bg,#fff); }
+.slide{ position:absolute; inset:0; width:1920px; height:1080px; overflow:hidden; display:block; visibility:hidden; opacity:0; pointer-events:none; background:var(--slide-bg,#fff); }
+.slide.active,.slide.visible{ visibility:visible; opacity:1; pointer-events:auto; z-index:1; }
+img,video,canvas,svg{ max-width:100%; max-height:100%; }
+.deck-controls{ position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:1000; }
+@media print{
+  @page{ size:1920px 1080px; margin:0; }
+  html,body,.deck-viewport,.deck-stage,.slide{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  html,body{ width:1920px; height:auto; overflow:visible; background:#fff; }
+  .deck-viewport{ position:static; overflow:visible; background:#fff; }
+  .deck-stage{ position:static; width:auto; height:auto; transform:none !important; background:none; }
+  .slide{ position:relative; display:block !important; visibility:visible !important; opacity:1 !important; pointer-events:auto !important; width:1920px; height:1080px; break-after:page; page-break-after:always; }
+  .slide:last-child{ break-after:auto; page-break-after:auto; }
+  .reveal,.reveal-scale{ opacity:1 !important; transform:none !important; }
+  .deck-controls{ display:none !important; }
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{ animation-duration:.01ms !important; transition-duration:.2s !important; }
+  .flow-dot{ animation:none !important; }
+}
+
+/* ============================================================
+   ATMOSPHERE — warm charcoal, flat, editorial
+   ============================================================ */
+.slide{
+    font-family:var(--font-body);
+    color:var(--cream);
+    background:
+        radial-gradient(1200px 740px at 50% -12%, rgba(242,74,61,.06) 0%, transparent 56%),
+        var(--bg);
+}
+.slide.hot{  /* used where the subject is a failure or a limit */
+    background:
+        radial-gradient(1100px 720px at 50% -10%, rgba(242,74,61,.11) 0%, transparent 55%),
+        var(--bg);
+}
+.slide.cool{ /* used where the subject is the proof */
+    background:
+        radial-gradient(1100px 720px at 50% -10%, rgba(6,184,100,.07) 0%, transparent 55%),
+        var(--bg);
+}
+.grain{ position:absolute; inset:0; pointer-events:none; opacity:.045; mix-blend-mode:var(--grain-blend);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+/* ============================================================
+   SHARED CHROME — footer, eyebrow, squiggle, speaker tag
+   ============================================================ */
+.footer{
+    position:absolute; left:120px; right:120px; bottom:46px; display:flex; align-items:center;
+    justify-content:space-between; font-family:var(--font-mono); font-size:15px; color:var(--muted);
+    letter-spacing:.04em; z-index:4;
+}
+.footer .proj{ display:flex; align-items:center; gap:13px; }
+.footer .dot{ width:9px; height:9px; border-radius:50%; background:var(--red); box-shadow:0 0 14px rgba(242,74,61,.5); }
+.footer .pageno b{ color:var(--cream); }
+.speaker-tag{
+    font-family:var(--font-mono); font-size:13px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); padding:8px 16px; border:1px solid var(--line); border-radius:999px; background:var(--tint);
+    display:inline-flex; align-items:center; gap:9px;
+}
+.speaker-tag::before{ content:""; display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--red); }
+.speaker-tag.b::before{ background:var(--grn); }
+
+.eyebrow{ font-family:var(--font-mono); font-size:17px; letter-spacing:.26em; text-transform:uppercase; color:var(--red); display:block; }
+.eyebrow.g{ color:var(--grn); }
+.squig{ display:inline-block; width:46px; height:18px; color:var(--red); }
+.squig svg{ width:100%; height:100%; display:block; }
+
+/* ============================================================
+   REVEAL ANIMATION — staggered by data-d on the active slide
+   ============================================================ */
+.reveal{ opacity:0; transform:translateY(34px); transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.slide.visible .reveal{ opacity:1; transform:translateY(0); }
+.reveal-scale{ opacity:0; transform:scale(.94); transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.slide.visible .reveal-scale{ opacity:1; transform:scale(1); }
+.slide.visible [data-d="1"]{ transition-delay:.08s; }
+.slide.visible [data-d="2"]{ transition-delay:.18s; }
+.slide.visible [data-d="3"]{ transition-delay:.28s; }
+.slide.visible [data-d="4"]{ transition-delay:.38s; }
+.slide.visible [data-d="5"]{ transition-delay:.48s; }
+.slide.visible [data-d="6"]{ transition-delay:.58s; }
+.slide.visible [data-d="7"]{ transition-delay:.68s; }
+.slide.visible [data-d="8"]{ transition-delay:.78s; }
+
+/* ============================================================
+   S1 — TITLE
+   ============================================================ */
+.topbar{ position:absolute; top:54px; left:120px; right:120px; display:flex; align-items:flex-start; justify-content:space-between; z-index:6; }
+.topbar .navcol{ font-family:var(--font-mono); font-size:16px; line-height:1.7; color:var(--muted); letter-spacing:.02em; }
+.topbar .navcol b{ color:var(--cream); font-weight:400; }
+.topbar .insts{ font-family:var(--font-mono); font-size:16px; line-height:1.7; letter-spacing:.04em; color:var(--muted); text-align:right; }
+.topbar .insts b{ color:var(--cream); font-weight:400; }
+
+.s-title{ display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; height:100%; padding:0 140px; }
+.s-title .kicker{ margin-bottom:28px; }
+.s-title h1{ font-family:var(--font-display); font-weight:600; color:var(--cream-2); font-size:224px; line-height:.9; letter-spacing:-.035em; }
+.s-title h1 em{ font-style:italic; font-weight:600; color:var(--red); margin-left:.05em; }
+.s-title .sub{ margin-top:30px; font-size:31px; color:var(--cream); font-weight:500; display:inline-flex; align-items:center; gap:22px; }
+.s-title .sub b{ font-style:italic; font-family:var(--font-display); font-weight:600; }
+.s-title .meta-wrap{ margin-top:54px; display:flex; flex-direction:column; align-items:center; gap:13px; }
+.s-title .names{ font-size:26px; font-weight:600; color:var(--cream-2); }
+.s-title .names span{ color:var(--red); margin:0 12px; }
+.s-title .meta{ font-family:var(--font-mono); font-size:16px; color:var(--muted); letter-spacing:.02em; }
+
+/* ============================================================
+   SHARED LAYOUTS
+   ============================================================ */
+.s-split{ display:grid; grid-template-columns:1fr 1fr; align-items:center; height:100%; padding:0 120px; gap:86px; }
+.s-split.wide-l{ grid-template-columns:1.15fr 1fr; }
+.s-split .lead h2{ font-family:var(--font-display); font-weight:600; color:var(--cream-2); font-size:88px; line-height:1.0; letter-spacing:-.022em; margin-top:22px; }
+.s-split .lead h2 em{ font-style:italic; color:var(--red); }
+.s-split .lead p{ margin-top:28px; font-size:25px; color:var(--muted); max-width:600px; line-height:1.52; }
+.s-split .lead p b{ color:var(--cream); font-weight:500; }
+
+.std-head{ position:absolute; top:132px; left:0; right:0; text-align:center; padding:0 180px; z-index:3; }
+.std-head .eyebrow{ margin-bottom:22px; }
+.std-head h2{ font-family:var(--font-display); font-weight:600; color:var(--cream-2); font-size:66px; line-height:1.1; letter-spacing:-.018em; }
+.std-head h2 em{ font-style:italic; color:var(--red); }
+.std-head .dek{ margin-top:20px; font-size:24px; color:var(--muted); line-height:1.5; }
+.std-head .dek b{ color:var(--cream); font-weight:500; }
+
+/* card vocabulary */
+.card{ border:1px solid var(--line); border-radius:18px; padding:34px 34px; background:linear-gradient(180deg,var(--panel),var(--panel-2)); }
+.card .tag{ font-family:var(--font-mono); font-size:14px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+.card h3{ font-family:var(--font-display); font-weight:600; font-size:33px; color:var(--cream-2); margin:14px 0 12px; line-height:1.14; }
+.card p{ font-size:20px; color:var(--muted); line-height:1.5; }
+.card p b{ color:var(--cream); font-weight:500; }
+.card.bad{ border-color:var(--red-line); background:linear-gradient(180deg,rgba(242,74,61,.07),var(--panel-2)); }
+.card.bad .tag{ color:var(--red); }
+.card.good{ border-color:var(--grn-line); background:linear-gradient(180deg,rgba(6,184,100,.06),var(--panel-2)); }
+.card.good .tag{ color:var(--grn); }
+
+.chip{ font-family:var(--font-mono); font-size:17px; color:var(--cream); padding:13px 17px; border:1px solid var(--line); border-radius:10px; background:var(--tint); display:inline-block; }
+.badge{ font-family:var(--font-mono); font-size:12px; padding:5px 11px; border-radius:999px; border:1px solid var(--grn-line); color:var(--grn); background:var(--grn-soft); letter-spacing:.08em; text-transform:uppercase; }
+.badge.r{ border-color:var(--red-line); color:var(--red); background:var(--red-soft); }
+
+/* the big statement slide */
+.s-statement{ display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; padding:0 180px; text-align:center; }
+.s-statement .quote{ font-family:var(--font-display); font-weight:600; font-size:82px; line-height:1.16; letter-spacing:-.02em; color:var(--cream-2); max-width:1480px; }
+.s-statement .quote em{ font-style:italic; color:var(--red); }
+.s-statement .cap{ margin-top:44px; font-size:25px; color:var(--muted); max-width:1080px; line-height:1.55; }
+.s-statement .cap b{ color:var(--cream); font-weight:500; }
+.rule-line{ width:120px; height:2px; background:var(--red); margin:0 auto 40px; }
+
+/* ============================================================
+   S2 — the problem: a gherkin card with the Then highlighted
+   ============================================================ */
+.gher{ font-family:var(--font-mono); font-size:24px; line-height:1.85; color:var(--muted); }
+.gher .kw{ color:var(--cream); }
+.gher .then{ color:var(--cream-2); }
+.gher .then .kw{ color:var(--red); }
+.gher .lit{ color:var(--cream-2); background:var(--red-soft); box-shadow:inset 0 -2px 0 var(--red-line); padding:1px 5px; }
+.gher .lit.ok{ background:var(--grn-soft); box-shadow:inset 0 -2px 0 var(--grn-line); }
+.gher .redact{ display:inline-block; width:126px; height:18px; background:var(--cream); opacity:.85; vertical-align:-2px; border-radius:2px; }
+[data-theme="light"] .gher .redact{ background:#15120F; opacity:.9; }
+.filebar{ display:flex; align-items:center; justify-content:space-between; padding:15px 22px; border-bottom:1px solid var(--line);
+    font-family:var(--font-mono); font-size:14px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+.filewrap{ border:1px solid var(--line); border-radius:16px; background:linear-gradient(180deg,var(--panel),var(--panel-2)); overflow:hidden; }
+.filewrap .in{ padding:30px 30px 28px; }
+.bindline{ margin-top:22px; display:flex; align-items:center; gap:14px; font-family:var(--font-mono); font-size:16px; color:var(--muted); }
+.bindline .stem{ flex:0 0 44px; height:1px; background:linear-gradient(90deg,var(--grn),transparent); }
+.bindline b{ color:var(--grn); font-weight:400; }
+
+/* ============================================================
+   STAT — one big number
+   ============================================================ */
+.stat{ font-family:var(--font-display); font-weight:700; color:var(--red); font-size:186px; line-height:.9; letter-spacing:-.04em; }
+.stat.sm{ font-size:120px; }
+.stat-cap{ margin-top:22px; font-size:27px; color:var(--cream); line-height:1.45; max-width:620px; }
+.stat-cap b{ color:var(--red); font-weight:600; }
+
+/* keyhole diagram */
+.pagebox{ position:relative; border:1px solid var(--line); border-radius:14px; height:250px; background:var(--panel-2); overflow:hidden; }
+.pagebox .lbl{ position:absolute; top:12px; left:16px; font-family:var(--font-mono); font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+.pagebox .blk{ position:absolute; border-radius:6px; background:var(--line-soft); border:1px solid var(--line); }
+.pagebox .blk.grid{ left:230px; top:64px; right:22px; bottom:22px; }
+.pagebox .blk.side{ left:22px; top:64px; width:186px; bottom:22px; }
+.pagebox .cap-shade{ position:absolute; inset:0; background:rgba(0,0,0,.42); }
+[data-theme="light"] .pagebox .cap-shade{ background:rgba(243,239,224,.62); }
+.pagebox.old .blk.side{ border-color:var(--red-line); background:var(--red-soft); z-index:2; }
+.pagebox.old .blk.grid{ opacity:.35; }
+.pagebox.new .blk.side,.pagebox.new .blk.grid{ border-color:var(--grn-line); background:var(--grn-soft); }
+.diag-note{ margin-top:14px; font-family:var(--font-mono); font-size:15px; color:var(--muted); }
+.diag-note b{ color:var(--red); font-weight:400; }
+.diag-note.g b{ color:var(--grn); }
+
+/* ============================================================
+   PIPELINE MAP
+   ============================================================ */
+.pipe{ display:flex; align-items:stretch; justify-content:center; gap:0; }
+.pnode{ position:relative; width:224px; text-align:center; }
+.pnode .box{ height:100%; border:1px solid var(--line); border-radius:14px; padding:24px 16px; background:linear-gradient(180deg,var(--panel),var(--panel-2)); }
+.pnode .nm{ font-family:var(--font-display); font-weight:600; font-size:27px; color:var(--cream-2); line-height:1.1; }
+.pnode .kind{ font-family:var(--font-mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin-top:12px; }
+.pnode.agent .box{ border-color:var(--red-line); background:linear-gradient(180deg,rgba(242,74,61,.08),var(--panel-2)); }
+.pnode.agent .kind{ color:var(--red); }
+.pnode.gate .box{ border-color:var(--grn-line); background:linear-gradient(180deg,rgba(6,184,100,.07),var(--panel-2)); }
+.pnode.gate .kind{ color:var(--grn); }
+.parr{ flex:0 0 54px; display:flex; align-items:center; justify-content:center; color:var(--muted); }
+.parr svg{ width:30px; height:18px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.legend{ display:flex; gap:36px; justify-content:center; margin-top:44px; font-family:var(--font-mono); font-size:16px; color:var(--muted); }
+.legend i{ width:11px; height:11px; border-radius:3px; display:inline-block; margin-right:9px; vertical-align:-1px; border:1px solid var(--line); background:var(--panel); }
+.legend .a i{ border-color:var(--red-line); background:var(--red-soft); }
+.legend .g i{ border-color:var(--grn-line); background:var(--grn-soft); }
+
+/* mini strip version, reused on slides 11–13 */
+.strip{ position:absolute; top:56px; left:120px; right:120px; display:flex; align-items:center; gap:0; opacity:.5; z-index:5; }
+.strip .sn{ font-family:var(--font-mono); font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted);
+    border:1px solid var(--line); border-radius:8px; padding:7px 13px; background:var(--tint); white-space:nowrap; }
+.strip .sarr{ flex:0 0 26px; height:1px; background:var(--line); }
+.strip .sn.on{ opacity:1; color:var(--cream-2); border-color:var(--red-line); background:var(--red-soft); }
+.slide.visible .strip{ transition:opacity .8s var(--ease) .1s; }
+
+/* ============================================================
+   THE LOOP + TOOL GRID (slide 11)
+   ============================================================ */
+.loop{ display:flex; align-items:center; gap:16px; margin-top:34px; }
+.loop .lp{ font-family:var(--font-mono); font-size:17px; color:var(--cream); border:1px solid var(--line); border-radius:999px; padding:12px 20px; background:var(--tint); }
+.loop .lp.on{ border-color:var(--red-line); color:var(--red); background:var(--red-soft); }
+.loop .larr{ color:var(--muted); font-size:19px; }
+.tools{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.tool{ border:1px solid var(--line); border-radius:13px; padding:19px 20px; background:linear-gradient(180deg,var(--panel),var(--panel-2)); }
+.tool .n{ font-family:var(--font-mono); font-size:19px; color:var(--red); }
+.tool .d{ margin-top:8px; font-size:18px; color:var(--muted); line-height:1.42; }
+
+/* ============================================================
+   NUMBERED STEPS (slide 12)
+   ============================================================ */
+.nsteps{ display:grid; grid-template-columns:repeat(3,1fr); gap:28px; }
+.nstep{ border:1px solid var(--line); border-radius:16px; padding:30px 28px; background:linear-gradient(180deg,var(--panel),var(--panel-2)); }
+.nstep .n{ font-family:var(--font-display); font-weight:700; font-size:52px; color:var(--red); line-height:1; }
+.nstep h4{ font-family:var(--font-display); font-weight:600; font-size:29px; color:var(--cream-2); margin:14px 0 12px; line-height:1.15; }
+.nstep p{ font-size:19px; color:var(--muted); line-height:1.5; }
+.nstep p b{ color:var(--cream); font-weight:500; }
+
+/* ============================================================
+   REVIEW-SCREEN MOCK (slide 14)
+   ============================================================ */
+.uimock{ border:1px solid var(--line); border-radius:16px; background:linear-gradient(180deg,var(--panel),var(--panel-2)); overflow:hidden; }
+.uimock .top{ display:flex; align-items:center; gap:9px; padding:14px 18px; border-bottom:1px solid var(--line); background:rgba(0,0,0,.16); }
+[data-theme="light"] .uimock .top{ background:rgba(20,18,16,.04); }
+.uimock .top i{ width:10px; height:10px; border-radius:50%; background:var(--line); display:block; }
+.uimock .top .t{ margin-left:10px; font-family:var(--font-mono); font-size:13px; color:var(--muted); letter-spacing:.06em; }
+.uimock .body{ padding:22px 24px; display:flex; flex-direction:column; gap:14px; }
+.urow{ border:1px solid var(--line); border-radius:11px; padding:16px 18px; background:var(--tint); }
+.urow .h{ display:flex; align-items:center; justify-content:space-between; font-family:var(--font-mono); font-size:14px; color:var(--muted); letter-spacing:.06em; }
+.urow .txt{ margin-top:9px; font-size:20px; color:var(--cream); line-height:1.4; }
+.urow.ev{ border-color:var(--grn-line); }
+.urow.rf{ border-color:var(--red-line); }
+.callouts{ display:flex; flex-direction:column; gap:26px; }
+.callout{ display:flex; gap:18px; align-items:flex-start; }
+.callout .k{ font-family:var(--font-mono); font-size:15px; color:var(--red); border:1px solid var(--red-line); border-radius:8px; padding:5px 11px; flex:none; }
+.callout .v{ font-size:23px; color:var(--cream); line-height:1.45; }
+.callout .v b{ color:var(--cream-2); font-weight:600; }
+
+/* ============================================================
+   DEMO SLIDES
+   ============================================================ */
+.s-demo{ display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; padding:0 160px; text-align:center; }
+.s-demo .big{ font-family:var(--font-display); font-weight:700; font-size:150px; line-height:.94; letter-spacing:-.035em; color:var(--cream-2); }
+.s-demo .big em{ font-style:italic; color:var(--red); }
+.demolist{ display:flex; gap:16px; margin-top:52px; flex-wrap:wrap; justify-content:center; }
+.demolist .d{ font-family:var(--font-mono); font-size:18px; color:var(--cream); border:1px solid var(--line); border-radius:999px; padding:13px 22px; background:var(--tint); }
+.demolist .d b{ color:var(--red); font-weight:400; margin-right:9px; }
+.demolist .d.fin{ border-color:var(--grn-line); background:var(--grn-soft); }
+.demolist .d.fin b{ color:var(--grn); }
+.handoff{ margin-top:52px; font-family:var(--font-display); font-style:italic; font-weight:600; font-size:34px; color:var(--muted); }
+.handoff b{ color:var(--cream-2); font-style:normal; font-weight:600; }
+
+/* ============================================================
+   LIMITS + MCP
+   ============================================================ */
+.lim{ display:grid; grid-template-columns:1.25fr 1fr 1fr; gap:30px; }
+.lim .card{ padding:30px 30px; }
+.lim .num{ font-family:var(--font-mono); font-size:19px; color:var(--red); }
+.lim ul{ list-style:none; margin-top:16px; display:flex; flex-direction:column; gap:15px; }
+.lim li{ font-size:19px; color:var(--muted); line-height:1.45; padding-left:20px; position:relative; }
+.lim li::before{ content:""; position:absolute; left:0; top:11px; width:7px; height:7px; border-radius:50%; background:var(--red); opacity:.6; }
+.lim li b{ color:var(--cream); font-weight:600; }
+.mcp{ display:grid; grid-template-columns:1fr 1.15fr 1fr; gap:30px; align-items:start; }
+
+/* ============================================================
+   DECK CONTROLS
+   ============================================================ */
+.deck-controls{ display:flex; align-items:center; gap:14px; font-family:var(--font-mono); font-size:13px; color:var(--muted); }
+.deck-controls .nav{ width:38px; height:38px; border-radius:999px; border:1px solid var(--line); background:var(--tint); color:var(--cream); cursor:pointer; display:grid; place-items:center; font-size:16px; transition:.25s; }
+.deck-controls .nav:hover{ border-color:var(--red); color:var(--red); }
+.deck-controls .count b{ color:var(--cream); }
+.deck-controls .theme{ width:38px; height:38px; border-radius:999px; border:1px solid var(--line); background:var(--tint); color:var(--cream); cursor:pointer; font-size:14px; }
+.deck-controls .theme:hover{ border-color:var(--red); color:var(--red); }
+.progress{ position:fixed; top:0; left:0; height:3px; background:var(--red); z-index:1001; transition:width .4s var(--ease); box-shadow:0 0 12px rgba(242,74,61,.5); }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="deck-viewport">
+  <main class="deck-stage" id="deckStage">
+
+  <!-- ══════════════ 01 — TITLE ══════════════ -->
+  <section class="slide active" data-no="01">
+    <div class="grain"></div>
+    <div class="topbar reveal" data-d="1">
+      <div class="navcol">Internship <b>2026</b><br>Second presentation<br>Month two</div>
+      <div class="insts"><b>AI Test Case Generator</b><br>Recorded session &rarr; signed test case</div>
+    </div>
+    <div class="s-title">
+      <div class="kicker eyebrow reveal" data-d="2">The rebuild</div>
+      <h1 class="reveal" data-d="3">AI<em>TC</em></h1>
+      <p class="sub reveal" data-d="4">
+        <span class="squig"><svg viewBox="0 0 46 18" fill="none"><path d="M3 9q5.5-7 11 0t11 0 11 0" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>
+        A tester records a session. The tool writes the test case &mdash; and <b>can prove every word of it</b>
+        <span class="squig"><svg viewBox="0 0 46 18" fill="none"><path d="M3 9q5.5-7 11 0t11 0 11 0" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>
+      </p>
+      <div class="meta-wrap reveal" data-d="5">
+        <div class="names">Radouane Baba <span>&middot;</span> [second presenter]</div>
+        <div class="meta">30 August 2026</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 02 — THE PROBLEM ══════════════ -->
+  <section class="slide" data-no="02">
+    <div class="grain"></div>
+    <div class="s-split wide-l">
+      <div class="lead">
+        <span class="eyebrow reveal" data-d="1">The problem</span>
+        <h2 class="reveal" data-d="2">The tester already<br>did the <em>work.</em></h2>
+        <p class="reveal" data-d="3">They clicked through the flow to check it. Writing it up afterwards costs
+           <b>10 to 20 minutes</b> &mdash; and it is the only part a machine could have done.</p>
+        <p class="reveal" data-d="4">But the steps are the easy half. Anyone can list clicks.
+           <b>The line you actually judge a test case by is the</b> <span style="color:var(--red)">Then</span>.</p>
+      </div>
+      <div class="filewrap reveal-scale" data-d="3">
+        <div class="filebar"><span>checkout.feature</span><span>Scenario</span></div>
+        <div class="in">
+          <div class="gher">
+            <span class="kw">Given</span> the tester is signed in<br>
+            <span class="kw">When</span> the coupon "AUTUMN20" is applied<br>
+            <span class="kw">And</span> the order is placed<br>
+            <span class="then"><span class="kw">Then</span> the message <span class="lit">"This coupon has expired"</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;is shown</span>
+          </div>
+          <div class="bindline" style="color:var(--red)">
+            <span class="stem" style="background:linear-gradient(90deg,var(--red),transparent)"></span>
+            <span>this line is the test &mdash; and the one that can be invented</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>02</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 03 — MONTH 1 ══════════════ -->
+  <section class="slide" data-no="03">
+    <div class="grain"></div>
+    <div class="std-head">
+      <span class="eyebrow reveal" data-d="1">Month one</span>
+      <h2 class="reveal" data-d="2">It worked, <em>end to end.</em></h2>
+      <p class="dek reveal" data-d="3">Recorded sessions in, Gherkin / Excel / Jira out &mdash; verified live against a real Jira and a real model.</p>
+    </div>
+    <div style="position:absolute; top:404px; left:120px; right:120px; display:grid; grid-template-columns:repeat(3,1fr); gap:26px;">
+      <div class="card reveal" data-d="4"><div class="tag">Capture</div><h3>Nothing is ever lost</h3><p>The session is stored raw before any model runs, so a bad prompt can never destroy a recording.</p></div>
+      <div class="card reveal" data-d="5"><div class="tag">Shape</div><h3>One canonical test case</h3><p>Structured JSON in the database, never a formatted string. Gherkin, Excel and Jira are all renderings of it.</p></div>
+      <div class="card reveal" data-d="6"><div class="tag">Review</div><h3>A dashboard, and versions</h3><p>Review, edit and export &mdash; every edit kept as a new version, so the model's original always survives.</p></div>
+    </div>
+    <div style="position:absolute; top:700px; left:120px; right:120px; display:grid; grid-template-columns:repeat(3,1fr); gap:26px;">
+      <div class="card reveal" data-d="6"><div class="tag">Checks</div><h3>A deterministic critic</h3><p>Plain Python, no second model call, surfacing advisory review questions with proposed answers.</p></div>
+      <div class="card reveal" data-d="7"><div class="tag">Pipeline</div><h3>Three passes, not one call</h3><p>Analyse the session, author each scenario, judge the result &mdash; because one call always chose transcription over judgement.</p></div>
+      <div class="card reveal" data-d="8"><div class="tag">Measure</div><h3>An evaluation set</h3><p>A fixed set of sessions, so every change was measured against it instead of judged by eye.</p></div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>03</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 04 — THE CEILING ══════════════ -->
+  <section class="slide hot" data-no="04">
+    <div class="grain"></div>
+    <div class="s-statement" style="justify-content:flex-start; padding-top:170px">
+      <span class="eyebrow reveal" data-d="1" style="margin-bottom:34px">The ceiling</span>
+      <p class="quote reveal" data-d="2" style="font-size:70px">The model was <em>told about</em> the session.<br>
+         Nothing could check whether what it wrote<br>was <em>true of the recording.</em></p>
+      <p class="cap reveal" data-d="4">We could check the <b>shape</b> of the output. We could not check the <b>truth</b> of it.</p>
+    </div>
+    <div style="position:absolute; bottom:132px; left:120px; right:120px; display:grid; grid-template-columns:repeat(3,1fr); gap:30px;">
+      <div class="card bad reveal" data-d="5"><div class="tag">Consequence</div><p style="font-size:21px;color:var(--cream)">The expected result had one thin source &mdash; the narration. Anywhere it was thin, the model <b>filled the gap by inventing.</b></p></div>
+      <div class="card bad reveal" data-d="6"><div class="tag">Defence 1</div><p style="font-size:21px;color:var(--cream)">A critic written as regexes. It could see a missing value. It <b>could not judge a sentence.</b></p></div>
+      <div class="card bad reveal" data-d="7"><div class="tag">Defence 2</div><p style="font-size:21px;color:var(--cream)">A second model's opinion, clamped to a warning. <b>Advisory. It blocked nothing.</b></p></div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>04</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 05 — THE RULE (launch) ══════════════ -->
+  <section class="slide cool" data-no="05">
+    <div class="grain"></div>
+    <div class="s-statement">
+      <div class="rule-line reveal" data-d="1"></div>
+      <span class="eyebrow g reveal" data-d="1" style="margin-bottom:38px">So we rebuilt it &mdash; this is AITC</span>
+      <p class="quote reveal" data-d="3" style="font-size:88px">A claim is admissible only if it can<br>point at the <em>retrieval that produced it.</em></p>
+      <p class="cap reveal" data-d="5">Not &ldquo;the text exists somewhere in the recording&rdquo; &mdash; that is a weaker, separate check.
+         It has to have come back from <b>a lookup the model actually performed, while writing this document.</b></p>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>05</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 06 — ACCESSIBILITY TREE ══════════════ -->
+  <section class="slide" data-no="06">
+    <div class="grain"></div>
+    <div class="std-head">
+      <span class="eyebrow reveal" data-d="1">What it sees</span>
+      <h2 class="reveal" data-d="2">The accessibility tree, <em>not the DOM.</em></h2>
+      <p class="dek reveal" data-d="3">Black-box &mdash; it reads the live tree and needs <b>no access to the source of the app under test.</b></p>
+    </div>
+    <div style="position:absolute; top:380px; left:120px; right:120px; display:grid; grid-template-columns:1fr 1fr; gap:44px;">
+      <div class="card bad reveal" data-d="3">
+        <div class="tag">Before &mdash; markup</div>
+        <div class="gher" style="font-size:19px; line-height:1.7; margin-top:20px; word-break:break-all">
+          &lt;div class="ProductCard__actions"&gt;<br>
+          &nbsp;&nbsp;&lt;button class="btn btn--primary<br>&nbsp;&nbsp;btn--lg" data-cy="pc-14-add"&gt;<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&lt;span class="icn icn--bag"/&gt;Add to basket<br>
+          &nbsp;&nbsp;&lt;/button&gt;&lt;/div&gt;
+        </div>
+        <p style="margin-top:20px">~1.5 KB of class names and CDN URLs. The meaning has to be <b>derived</b> &mdash; and can be derived wrong.</p>
+      </div>
+      <div class="card good reveal" data-d="4">
+        <div class="tag">Now &mdash; meaning</div>
+        <div class="gher" style="font-size:26px; line-height:1.8; margin-top:20px">
+          <span style="color:var(--grn)">button</span> <span class="lit ok">"Add to basket"</span><br>
+          <span style="color:var(--grn)">textbox</span> "Email address"<br>
+          <span style="color:var(--grn)">list</span> "Products" <span style="color:var(--muted)">(24 items)</span>
+        </div>
+        <p style="margin-top:20px">A <b>role</b> and an <b>accessible name</b> &mdash; the same structure a screen reader uses.</p>
+      </div>
+    </div>
+    <div style="position:absolute; bottom:140px; left:120px; right:120px; display:grid; grid-template-columns:repeat(3,1fr); gap:22px;">
+      <span class="chip reveal" data-d="5">Already meaning &mdash; nothing to extract</span>
+      <span class="chip reveal" data-d="6">How a tester talks, so it reads as a test case</span>
+      <span class="chip reveal" data-d="7">Stable &mdash; a restyle moves the DOM, not the tree</span>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>06</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 07 — THE KEYHOLE ══════════════ -->
+  <section class="slide hot" data-no="07">
+    <div class="grain"></div>
+    <div class="s-split" style="padding:0 120px">
+      <div class="lead">
+        <span class="eyebrow reveal" data-d="1">The defect underneath everything</span>
+        <div class="stat reveal" data-d="2" style="margin-top:26px">30&ndash;50%</div>
+        <p class="stat-cap reveal" data-d="3">of events on real sites recorded <b>no observed change at all.</b></p>
+        <p class="reveal" data-d="4" style="margin-top:30px">We captured the region around the element that was clicked.
+           But the thing that <b>changes</b> is usually not the thing you clicked &mdash; so for a third to a half of
+           everything the tester did, the model had nothing to look at, and it guessed.</p>
+      </div>
+      <div>
+        <div class="pagebox old reveal-scale" data-d="4">
+          <span class="lbl">Before &mdash; the keyhole</span>
+          <div class="blk side"></div><div class="blk grid"></div>
+        </div>
+        <div class="diag-note reveal" data-d="5">Captured: the filter sidebar. <b>The product list under test: never captured.</b></div>
+        <div class="pagebox new reveal-scale" data-d="6" style="margin-top:34px">
+          <span class="lbl">Now &mdash; the whole page, one fixed root</span>
+          <div class="blk side"></div><div class="blk grid"></div>
+        </div>
+        <div class="diag-note g reveal" data-d="7">Before and after taken from the same root, so the two are <b>comparable by construction.</b></div>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>07</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 08 — PRIVACY + OBJECTIVE ══════════════ -->
+  <section class="slide" data-no="08">
+    <div class="grain"></div>
+    <div class="std-head">
+      <span class="eyebrow reveal" data-d="1">Before anything is stored</span>
+      <h2 class="reveal" data-d="2">What never <em>leaves the browser.</em></h2>
+    </div>
+    <div style="position:absolute; top:400px; left:120px; right:120px; display:grid; grid-template-columns:repeat(3,1fr); gap:32px;">
+      <div class="card reveal" data-d="3">
+        <div class="tag">Redaction</div><h3>In the page, not later</h3>
+        <p>Passwords are redacted before anything reaches disk. There is deliberately <b>no path that writes a raw value and cleans it up afterwards</b> &mdash; that path always eventually leaks.</p>
+        <div class="gher" style="margin-top:22px;font-size:20px">password&nbsp;<span class="redact"></span></div>
+      </div>
+      <div class="card reveal" data-d="4">
+        <div class="tag">The level</div><h3>The tester decides</h3>
+        <p>Chosen in the recorder, not in a server config: by the time a server could read a setting, <b>the decision has already been taken and cannot be revisited.</b></p>
+        <div style="margin-top:22px;display:flex;gap:10px;flex-wrap:wrap">
+          <span class="badge">secrets&nbsp;only &mdash; default</span><span class="badge r">full</span><span class="badge r">off</span>
+        </div>
+      </div>
+      <div class="card reveal" data-d="5">
+        <div class="tag">The objective</div><h3>One sentence, up front</h3>
+        <p>The strongest signal the tool ever gets, because it is the one thing the app can never observe for itself.</p>
+        <div style="margin-top:20px;font-size:19px;line-height:1.5">
+          <span style="color:var(--red)">Vague</span> &mdash; &ldquo;check the filters work&rdquo;<br>
+          <span style="color:var(--grn)">Sharp</span> &mdash; &ldquo;in-stock should drop the list from 24 to 9&rdquo;
+        </div>
+        <p style="margin-top:14px;font-size:18px">The recorder says which one you have typed, <b>as you type it.</b></p>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>08</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 09 — DEMO 1 + HANDOFF ══════════════ -->
+  <section class="slide" data-no="09">
+    <div class="grain"></div>
+    <div class="s-demo">
+      <span class="eyebrow reveal" data-d="1" style="margin-bottom:32px">Live</span>
+      <p class="big reveal" data-d="2">Record a <em>session.</em></p>
+      <div class="demolist">
+        <span class="d reveal" data-d="3"><b>01</b>Type the objective</span>
+        <span class="d reveal" data-d="4"><b>02</b>Click through the flow</span>
+        <span class="d reveal" data-d="5"><b>03</b>Say what should happen</span>
+        <span class="d reveal fin" data-d="6"><b>04</b>Stop</span>
+      </div>
+      <p class="handoff reveal" data-d="7">&ldquo;About forty seconds of deliberate effort &mdash; and that recording is what <b>my colleague's half</b> now receives.&rdquo;</p>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag">Speaker A</span></div><div class="pageno"><b>09</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 10 — THE MAP ══════════════ -->
+  <section class="slide" data-no="10">
+    <div class="grain"></div>
+    <div class="std-head" style="top:118px">
+      <span class="eyebrow g reveal" data-d="1">From here on</span>
+      <h2 class="reveal" data-d="2">Deterministic where possible.<br><em>Agentic where necessary.</em></h2>
+    </div>
+    <div style="position:absolute; top:462px; left:60px; right:60px;">
+      <div class="pipe">
+        <div class="pnode reveal" data-d="3"><div class="box"><div class="nm">Recording</div><div class="kind">captured</div></div></div>
+        <div class="parr reveal" data-d="3"><svg viewBox="0 0 30 18"><path d="M2 9h24m-6-6 6 6-6 6"/></svg></div>
+        <div class="pnode reveal" data-d="4"><div class="box"><div class="nm">Session<br>index</div><div class="kind">code</div></div></div>
+        <div class="parr reveal" data-d="4"><svg viewBox="0 0 30 18"><path d="M2 9h24m-6-6 6 6-6 6"/></svg></div>
+        <div class="pnode reveal" data-d="4"><div class="box"><div class="nm">Expect&shy;ations</div><div class="kind">asks the tester</div></div></div>
+        <div class="parr reveal" data-d="5"><svg viewBox="0 0 30 18"><path d="M2 9h24m-6-6 6 6-6 6"/></svg></div>
+        <div class="pnode agent reveal" data-d="5"><div class="box"><div class="nm">Author</div><div class="kind">agentic</div></div></div>
+        <div class="parr reveal" data-d="6"><svg viewBox="0 0 30 18"><path d="M2 9h24m-6-6 6 6-6 6"/></svg></div>
+        <div class="pnode gate reveal" data-d="6"><div class="box"><div class="nm">The gate</div><div class="kind">code</div></div></div>
+        <div class="parr reveal" data-d="7"><svg viewBox="0 0 30 18"><path d="M2 9h24m-6-6 6 6-6 6"/></svg></div>
+        <div class="pnode agent reveal" data-d="7"><div class="box"><div class="nm">Judge</div><div class="kind">agentic</div></div></div>
+        <div class="parr reveal" data-d="8"><svg viewBox="0 0 30 18"><path d="M2 9h24m-6-6 6 6-6 6"/></svg></div>
+        <div class="pnode reveal" data-d="8"><div class="box"><div class="nm">.feature<br>xlsx &middot; Jira</div><div class="kind">renderers</div></div></div>
+      </div>
+      <div class="legend reveal" data-d="8">
+        <span><i></i>Plain code &mdash; identical every time</span>
+        <span class="a"><i></i>A model, because judgement is required</span>
+        <span class="g"><i></i>Where the rule is enforced</span>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot" style="background:var(--grn);box-shadow:0 0 14px rgba(6,184,100,.5)"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>10</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 11 — THE AUTHOR ══════════════ -->
+  <section class="slide" data-no="11">
+    <div class="grain"></div>
+    <div class="strip reveal" data-d="1">
+      <span class="sn">Recording</span><span class="sarr"></span>
+      <span class="sn">Session index</span><span class="sarr"></span>
+      <span class="sn">Expectations</span><span class="sarr"></span>
+      <span class="sn on">Author</span><span class="sarr"></span>
+      <span class="sn">Gate</span><span class="sarr"></span>
+      <span class="sn">Judge</span><span class="sarr"></span>
+      <span class="sn">Output</span>
+    </div>
+    <div class="s-split" style="padding:0 120px; padding-top:60px">
+      <div class="lead">
+        <span class="eyebrow reveal" data-d="2">The author</span>
+        <h2 class="reveal" data-d="3">One model.<br>One conversation.<br><em>It goes and looks.</em></h2>
+        <div class="loop">
+          <span class="lp on reveal" data-d="4">Decide</span><span class="larr reveal" data-d="4">&rarr;</span>
+          <span class="lp reveal" data-d="5">Retrieve</span><span class="larr reveal" data-d="5">&rarr;</span>
+          <span class="lp reveal" data-d="6">Observe</span><span class="larr reveal" data-d="6">&#8630;</span>
+        </div>
+        <p class="reveal" data-d="7">It writes the <b>.feature file itself</b> &mdash; it used to emit JSON that a script assembled,
+           which meant no model in this pipeline had ever seen a feature file.</p>
+        <p class="reveal" data-d="8" style="margin-top:18px">And it decides what is worth checking <b>first</b>, then retrieves to prove it.
+           An agent that may only claim what it already fetched writes about whatever was easiest to get.</p>
+      </div>
+      <div class="tools">
+        <div class="tool reveal" data-d="4"><div class="n">get_diff</div><div class="d">What changed between before and after &mdash; the whole document. The workhorse.</div></div>
+        <div class="tool reveal" data-d="4"><div class="n">get_snapshot</div><div class="d">The full page at an event. Expensive, so used sparingly.</div></div>
+        <div class="tool reveal" data-d="5"><div class="n">see</div><div class="d">The screenshot &mdash; for when the text does not settle the question.</div></div>
+        <div class="tool reveal" data-d="6"><div class="n">get_network</div><div class="d">The calls behind an event. The only way to <i>prove</i> a status code.</div></div>
+        <div class="tool reveal" data-d="7"><div class="n">get_narration</div><div class="d">What the tester said. The most direct statement of intent there is.</div></div>
+        <div class="tool reveal" data-d="8"><div class="n">find_text</div><div class="d">Where does this exact string appear across the recording?</div></div>
+        <p class="reveal" data-d="8" style="grid-column:1/-1; margin-top:6px; font-family:var(--font-mono); font-size:16px; color:var(--muted); line-height:1.5">Six tools, down from twelve &mdash; <span style="color:var(--red)">more tools measurably means worse tool choice.</span></p>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot" style="background:var(--grn);box-shadow:0 0 14px rgba(6,184,100,.5)"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>11</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 12 — THE GATE ══════════════ -->
+  <section class="slide cool" data-no="12">
+    <div class="grain"></div>
+    <div class="strip reveal" data-d="1">
+      <span class="sn">Recording</span><span class="sarr"></span>
+      <span class="sn">Session index</span><span class="sarr"></span>
+      <span class="sn">Expectations</span><span class="sarr"></span>
+      <span class="sn">Author</span><span class="sarr"></span>
+      <span class="sn on">Gate</span><span class="sarr"></span>
+      <span class="sn">Judge</span><span class="sarr"></span>
+      <span class="sn">Output</span>
+    </div>
+    <div class="std-head" style="top:150px">
+      <span class="eyebrow g reveal" data-d="2">The gate</span>
+      <h2 class="reveal" data-d="3">A fabricated citation is not something<br>the model <em>can express.</em></h2>
+    </div>
+    <div style="position:absolute; top:432px; left:120px; right:120px;">
+      <div class="nsteps">
+        <div class="nstep reveal" data-d="4"><div class="n">01</div><h4>It quotes a literal</h4><p>An exact string it says it saw. <b>It never supplies a reference, an id, or a citation.</b></p></div>
+        <div class="nstep reveal" data-d="5"><div class="n">02</div><h4>We find the retrieval</h4><p>We search the lookups actually made in this run, <b>re-hash the stored response</b>, and confirm the string is really in it.</p></div>
+        <div class="nstep reveal" data-d="6"><div class="n">03</div><h4>And check it twice</h4><p>Independently, against the recording itself. <b>What the agent was shown, and what is true of the session.</b></p></div>
+      </div>
+      <div class="reveal" data-d="7" style="margin-top:40px; display:grid; grid-template-columns:1.1fr 1fr; gap:40px; align-items:center;">
+        <div class="filewrap">
+          <div class="filebar"><span>the claim</span><span class="badge">Admissible</span></div>
+          <div class="in" style="padding:24px 28px">
+            <div class="gher" style="font-size:23px;line-height:1.7">
+              <span class="then"><span class="kw">Then</span> the message <span class="lit ok">"This coupon has expired"</span> is shown</span>
+            </div>
+            <div class="bindline"><span class="stem"></span><span>bound to <b>get_diff</b> &middot; evt_014 &middot; re-hashed &middot; 1 occurrence</span></div>
+          </div>
+        </div>
+        <p style="font-size:24px; color:var(--muted); line-height:1.55">
+          Seeing a literal in the summary we handed it is <b style="color:var(--cream)">not enough</b> &mdash; a summary points at nothing.
+          It has to have come back from a tool.<br><br>
+          <span style="color:var(--cream)">And be clear about the limit:</span> this proves <b style="color:var(--cream)">provenance</b>, not correctness.
+        </p>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot" style="background:var(--grn);box-shadow:0 0 14px rgba(6,184,100,.5)"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>12</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 13 — REFUSALS + JUDGE ══════════════ -->
+  <section class="slide" data-no="13">
+    <div class="grain"></div>
+    <div class="strip reveal" data-d="1">
+      <span class="sn">Recording</span><span class="sarr"></span>
+      <span class="sn">Session index</span><span class="sarr"></span>
+      <span class="sn">Expectations</span><span class="sarr"></span>
+      <span class="sn">Author</span><span class="sarr"></span>
+      <span class="sn">Gate</span><span class="sarr"></span>
+      <span class="sn on">Judge</span><span class="sarr"></span>
+      <span class="sn">Output</span>
+    </div>
+    <div class="s-split" style="padding:0 120px; padding-top:56px">
+      <div>
+        <span class="eyebrow reveal" data-d="2">When it cannot prove something</span>
+        <h2 class="reveal" data-d="3" style="font-family:var(--font-display);font-weight:600;color:var(--cream-2);font-size:76px;line-height:1.02;letter-spacing:-.022em;margin-top:22px">It says so, <em style="font-style:italic;color:var(--red)">in writing.</em></h2>
+        <div class="card bad reveal-scale" data-d="4" style="margin-top:34px">
+          <div class="tag">Refused &mdash; written by the author</div>
+          <p style="font-family:var(--font-display);font-style:italic;font-size:29px;color:var(--cream-2);line-height:1.35;margin-top:16px">
+            &ldquo;Could not check that the product list narrowed to 9 items &mdash; the list was never captured before or after this click.&rdquo;</p>
+        </div>
+        <p class="reveal" data-d="5" style="margin-top:26px;font-size:22px;color:var(--muted);line-height:1.5">
+          Previously the claim was just deleted. So a scenario with <b style="color:var(--cream)">no verdict</b> and a scenario whose
+          <b style="color:var(--cream)">verdict was invented</b> looked identical on the page.</p>
+      </div>
+      <div>
+        <span class="eyebrow g reveal" data-d="5">The judge</span>
+        <h2 class="reveal" data-d="6" style="font-family:var(--font-display);font-weight:600;color:var(--cream-2);font-size:56px;line-height:1.06;letter-spacing:-.02em;margin-top:20px">Would a QA lead <em style="font-style:italic;color:var(--grn)">sign this?</em></h2>
+        <p class="reveal" data-d="6" style="margin-top:20px;font-size:21px;color:var(--muted);line-height:1.5">
+          A second model, <b style="color:var(--cream)">fresh context</b> &mdash; it never sees how the author reasoned, because a model
+          shown its own justification defends it. Seven questions. Two of them close holes nothing else looks at:</p>
+        <div class="card reveal" data-d="7" style="margin-top:24px;padding:26px 28px">
+          <div class="tag" style="color:var(--red)">claim within evidence</div>
+          <p style="margin-top:10px;font-size:20px">Does the sentence claim <b>more</b> than its literal shows? One shipped saying
+             <i>&ldquo;rejected with a 409 Conflict&rdquo;</i>, proved by a page message with no 409 in it.</p>
+        </div>
+        <div class="card reveal" data-d="8" style="margin-top:16px;padding:26px 28px">
+          <div class="tag" style="color:var(--red)">refusal is true</div>
+          <p style="margin-top:10px;font-size:20px">A refusal passes every automated check <b>by definition</b> &mdash; it claims nothing.
+             It is the one output that is confident and otherwise entirely unchecked.</p>
+        </div>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot" style="background:var(--grn);box-shadow:0 0 14px rgba(6,184,100,.5)"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>13</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 14 — THE REVIEW SCREEN ══════════════
+       NOTE: replace .uimock with a real screenshot when you have one:
+       <img src="assets/review.png" alt="Review screen"> inside the same wrapper. -->
+  <section class="slide" data-no="14">
+    <div class="grain"></div>
+    <div class="std-head" style="top:112px">
+      <span class="eyebrow reveal" data-d="1">Where it surfaces</span>
+      <h2 class="reveal" data-d="2">None of it counts if <em>the reviewer cannot see it.</em></h2>
+    </div>
+    <div style="position:absolute; top:392px; left:120px; right:120px; display:grid; grid-template-columns:1.25fr 1fr; gap:60px; align-items:center;">
+      <div class="uimock reveal-scale" data-d="3">
+        <div class="top"><i></i><i></i><i></i><span class="t">review &mdash; /runs/rec_MTF&hellip;/run_001</span></div>
+        <div class="body">
+          <div class="urow ev">
+            <div class="h"><span>Step 4 &mdash; verdict</span><span class="badge">proved &middot; 1 occurrence</span></div>
+            <div class="txt">Then the message "This coupon has expired" is shown</div>
+          </div>
+          <div class="urow rf">
+            <div class="h"><span>Step 6 &mdash; refused</span><span class="badge r">no evidence</span></div>
+            <div class="txt">Could not check that the list narrowed to 9 items &mdash; never captured</div>
+          </div>
+          <div class="urow">
+            <div class="h"><span>Step 7 &mdash; judge</span><span class="badge r">would send back</span></div>
+            <div class="txt">The verdict binds to "10", which appears in 250 places on this page</div>
+          </div>
+        </div>
+      </div>
+      <div class="callouts">
+        <div class="callout reveal" data-d="4"><span class="k">01</span><span class="v"><b>The evidence</b> behind each verdict &mdash; click through to what was actually retrieved.</span></div>
+        <div class="callout reveal" data-d="5"><span class="k">02</span><span class="v"><b>The refusals</b>, in plain language, on the step they belong to.</span></div>
+        <div class="callout reveal" data-d="6"><span class="k">03</span><span class="v"><b>The judge's findings</b> &mdash; on the step they concern, not a score at the top.</span></div>
+        <div class="callout reveal" data-d="7"><span class="k">&mdash;</span><span class="v">And deliberately <b>no green badge.</b> A count that has never been anything but green is not information.</span></div>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot" style="background:var(--grn);box-shadow:0 0 14px rgba(6,184,100,.5)"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>14</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 15 — DEMO 2 ══════════════ -->
+  <section class="slide cool" data-no="15">
+    <div class="grain"></div>
+    <div class="s-demo">
+      <span class="eyebrow g reveal" data-d="1" style="margin-bottom:32px">Live</span>
+      <p class="big reveal" data-d="2">The <em>output.</em></p>
+      <div class="demolist">
+        <span class="d reveal" data-d="3"><b>01</b>The run</span>
+        <span class="d reveal" data-d="4"><b>02</b>The .feature file</span>
+        <span class="d reveal" data-d="5"><b>03</b>A proved verdict &rarr; its retrieval</span>
+        <span class="d reveal" data-d="6"><b>04</b>A refusal</span>
+        <span class="d reveal fin" data-d="7"><b>05</b>Replay &mdash; against the live app</span>
+      </div>
+      <p class="handoff reveal" data-d="8">&ldquo;Not <i>does the output look right</i>. This is the test case we just wrote, <b>actually running.</b>&rdquo;</p>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot" style="background:var(--grn);box-shadow:0 0 14px rgba(6,184,100,.5)"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>15</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 16 — LIMITS ══════════════ -->
+  <section class="slide hot" data-no="16">
+    <div class="grain"></div>
+    <div class="std-head" style="top:118px">
+      <span class="eyebrow reveal" data-d="1">Being straight with you</span>
+      <h2 class="reveal" data-d="2">What it <em>cannot do yet.</em></h2>
+    </div>
+    <div style="position:absolute; top:388px; left:120px; right:120px;">
+      <div class="lim">
+        <div class="card bad reveal" data-d="3">
+          <div class="tag">01 &mdash; the ask</div><h3>The model tier is the binding constraint</h3>
+          <ul>
+            <li>Free-tier limits are on <b>requests</b>, not tokens: <b>5/min and 20/day</b>. One recording exhausts a day.</li>
+            <li>Free-tier prompts are <b>training-eligible</b>, so the tool <b>refuses to send</b> anything but a demo or public app. Pointing it at a real internal application needs a paid endpoint with a no-training term.</li>
+            <li>Real pages cost ~20&times;: <b>150&ndash;172 KB</b> per event against 5&ndash;10 KB. One full-page look is <b>16&ndash;18k tokens</b>; one real session came to <b>168,690</b> prompt tokens against ~29,000.</li>
+          </ul>
+        </div>
+        <div class="card reveal" data-d="5">
+          <div class="tag">02 &mdash; output</div><h3>The assertions are not always meaningful</h3>
+          <p style="margin-top:6px">The tool can bind a verdict to a value that is genuinely present but <b>not specific enough to be worth checking.</b></p>
+          <p style="margin-top:16px">It now <b>grades</b> that rather than hiding it &mdash; and feeding the grade back to the author is the next step.</p>
+        </div>
+        <div class="card reveal" data-d="6">
+          <div class="tag">03 &mdash; evidence</div><h3>We have not tested it enough</h3>
+          <p style="margin-top:6px">Neither the time nor the quota to run the number of sessions that would settle whether the output is <b>good.</b></p>
+          <p style="margin-top:16px">The architecture is right and we have shown it working. <b>The quality is not proven</b> &mdash; and we are not going to put a green chart in front of you as if it were.</p>
+        </div>
+      </div>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>16</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 17 — MCP ══════════════ -->
+  <section class="slide" data-no="17">
+    <div class="grain"></div>
+    <div class="std-head" style="top:112px">
+      <span class="eyebrow reveal" data-d="1">Asked for, and not shipped</span>
+      <h2 class="reveal" data-d="2">MCP &mdash; why the obvious version <em>breaks the rule.</em></h2>
+    </div>
+    <div style="position:absolute; top:378px; left:120px; right:120px;">
+      <div class="mcp">
+        <div class="card reveal" data-d="3">
+          <div class="tag">The proposal</div><h3>Drive a live browser</h3>
+          <p>Point Playwright MCP or the Chrome DevTools MCP at it and let the agent explore the application directly.</p>
+        </div>
+        <div class="card bad reveal" data-d="4">
+          <div class="tag">Why it does not fit</div>
+          <ul style="list-style:none;margin-top:16px;display:flex;flex-direction:column;gap:14px">
+            <li style="font-size:19px;color:var(--muted);line-height:1.45"><b style="color:var(--cream)">A live browser has no past.</b> Every claim here is checked against a before/after pair from a session that already happened. There is nothing to re-check against.</li>
+            <li style="font-size:19px;color:var(--muted);line-height:1.45"><b style="color:var(--cream)">Its retrievals bypass our runner</b> &mdash; nothing stored, nothing hashed. The gate would refuse every claim and the rule becomes decorative.</li>
+            <li style="font-size:19px;color:var(--muted);line-height:1.45"><b style="color:var(--cream)">Twenty-plus tools at once.</b> We cut ours from twelve to six because more tools measurably means worse tool choice.</li>
+          </ul>
+        </div>
+        <div class="card good reveal" data-d="5">
+          <div class="tag">The idea</div><h3>Suggestions, not claims</h3>
+          <p>A live agent cannot be evidence-bound &mdash; so do not let it make claims. Let it <b>explore and propose extra cases.</b></p>
+          <p style="margin-top:14px">The channel already exists: suggestions sit in their own block, render under an <b>UNVERIFIED</b> heading, and are blocked at the gate from ever becoming assertions.</p>
+        </div>
+      </div>
+      <p class="reveal" data-d="7" style="margin-top:44px;text-align:center;font-family:var(--font-display);font-style:italic;font-weight:600;font-size:31px;color:var(--cream-2)">
+        One seam, where every retrieval is already persisted and hashed. The architecture has the hole shaped for it &mdash;
+        <span style="color:var(--red)">designed, not built.</span></p>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot" style="background:var(--grn);box-shadow:0 0 14px rgba(6,184,100,.5)"></span><span class="speaker-tag b">Speaker B</span></div><div class="pageno"><b>17</b> / 18</div></div>
+  </section>
+
+  <!-- ══════════════ 18 — CLOSE ══════════════ -->
+  <section class="slide cool" data-no="18">
+    <div class="grain"></div>
+    <div class="s-statement">
+      <div class="rule-line reveal" data-d="1" style="background:var(--grn)"></div>
+      <p class="quote reveal" data-d="2" style="font-size:76px">Month one built a tool that could<br>write a test case.<br>
+         Month two built one that <em>cannot write a test case it cannot back up.</em></p>
+      <p class="cap reveal" data-d="4" style="margin-top:56px;font-family:var(--font-mono);font-size:20px;letter-spacing:.06em;color:var(--muted)">
+        A claim is admissible only if it can point at the retrieval that produced it.</p>
+      <p class="reveal" data-d="5" style="margin-top:66px;font-family:var(--font-display);font-weight:600;font-size:52px;color:var(--cream-2)">Thank you &mdash; questions.</p>
+    </div>
+    <div class="footer"><div class="proj"><span class="dot"></span><span>Radouane Baba &middot; [second presenter]</span></div><div class="pageno"><b>18</b> / 18</div></div>
+  </section>
+
+  </main>
+</div>
+
+<div class="deck-controls">
+  <button class="nav" id="prevBtn" aria-label="Previous">&lsaquo;</button>
+  <span class="count"><b id="cur">1</b> / 18</span>
+  <button class="nav" id="nextBtn" aria-label="Next">&rsaquo;</button>
+  <button class="theme" id="themeBtn" aria-label="Toggle light and dark (T)">&#9680;</button>
+</div>
+
+<script>
+/* ============================================================
+   PRESENTATION CONTROLLER — fixed 16:9 stage
+   Arrows / Space / PageUp-Down / Home / End · wheel · swipe
+   T toggles light and dark (remembered in localStorage)
+   ============================================================ */
+class SlidePresentation{
+    constructor(){
+        this.slides = document.querySelectorAll('.slide');
+        this.stage  = document.getElementById('deckStage');
+        this.cur    = 0;
+        this.curEl  = document.getElementById('cur');
+        this.prog   = document.getElementById('progress');
+        this.setupScale();
+        this.setupNav();
+        this.setupTheme();
+        this.show(0);
+    }
+
+    /* Scale the whole 1920x1080 stage to the window. Never reflow content. */
+    setupScale(){
+        const scale = () => {
+            const f = Math.min(window.innerWidth/1920, window.innerHeight/1080);
+            const x = (window.innerWidth  - 1920*f)/2;
+            const y = (window.innerHeight - 1080*f)/2;
+            this.stage.style.transform = `translate(${x}px, ${y}px) scale(${f})`;
+        };
+        scale();
+        window.addEventListener('resize', scale);
+    }
+
+    setupNav(){
+        document.addEventListener('keydown', (e)=>{
+            if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){ e.preventDefault(); this.next(); }
+            else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){ e.preventDefault(); this.prev(); }
+            else if(e.key==='Home'){ this.show(0); }
+            else if(e.key==='End'){ this.show(this.slides.length-1); }
+            else if(e.key==='t'||e.key==='T'){ this.toggleTheme(); }
+        });
+        document.getElementById('nextBtn').addEventListener('click', ()=>this.next());
+        document.getElementById('prevBtn').addEventListener('click', ()=>this.prev());
+
+        let wheelLock=false;
+        window.addEventListener('wheel', (e)=>{
+            if(wheelLock) return; wheelLock=true; setTimeout(()=>wheelLock=false,600);
+            (e.deltaY>0) ? this.next() : this.prev();
+        }, {passive:true});
+
+        let x0=null;
+        window.addEventListener('touchstart', e=>{ x0=e.touches[0].clientX; }, {passive:true});
+        window.addEventListener('touchend', e=>{
+            if(x0===null) return;
+            const dx = e.changedTouches[0].clientX - x0;
+            if(Math.abs(dx)>50){ dx<0 ? this.next() : this.prev(); }
+            x0=null;
+        }, {passive:true});
+    }
+
+    /* Theme is a single data-attribute swap on <html>; both palettes live in CSS. */
+    setupTheme(){
+        let saved=null;
+        try{ saved = localStorage.getItem('aitc-deck-theme'); }catch(e){}
+        if(saved) document.documentElement.setAttribute('data-theme', saved);
+        document.getElementById('themeBtn').addEventListener('click', ()=>this.toggleTheme());
+    }
+    toggleTheme(){
+        const el = document.documentElement;
+        const next = el.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+        el.setAttribute('data-theme', next);
+        try{ localStorage.setItem('aitc-deck-theme', next); }catch(e){}
+    }
+
+    show(i){
+        this.cur = Math.max(0, Math.min(i, this.slides.length-1));
+        this.slides.forEach((s,idx)=>{
+            s.classList.toggle('active',  idx===this.cur);
+            s.classList.toggle('visible', idx===this.cur);
+        });
+        this.curEl.textContent = this.cur+1;
+        this.prog.style.width = ((this.cur+1)/this.slides.length*100) + '%';
+    }
+    next(){ this.show(this.cur+1); }
+    prev(){ this.show(this.cur-1); }
+}
+new SlidePresentation();
+</script>
+</body>
+</html>

@@ -54,6 +54,26 @@ class EvidenceKind(StrEnum):
     a11y_node = "a11y_node"
 
 
+class EvidenceStrength(StrEnum):
+    """
+    How PRECISELY the literal resolves inside the stored response. Descriptive only: it never accepts or refuses anything, and a claim binds exactly as it did before this field existed.
+
+    It exists because the check the gate actually runs is substring containment over every string in the response, and a bare literal makes that check vacuous without saying so. `Then the cart badge shows 1` bound to the literal `1` passes `evidence_retrieved`, `contains_at` and every validator -- and `1` occurs 198 times in the snapshot it cites, in prices, ids and urls, so it would pass on a build where the badge never updated. Nothing in the system could tell that apart from a real verdict.
+
+    The rungs are about STRUCTURE, not length -- a short literal is not the problem and `$7.99` is a perfectly good one:
+
+      strong  exactly one element in the response is NAMED this, so the claim points at one identifiable thing on the page.
+      medium  several elements carry that exact name, or the literal is part of one element's name. Still anchored to the page, but not to a single thing.
+      weak    no element carries it at all: it was found only in loose text inside the response -- spanning nodes, or inside a url or a json body. This is the rung that cannot be told apart from a coincidence.
+
+    Absent when the response holds no elements to grade against (a network or narration retrieval), which is not a criticism of the claim: a status code is not an element name. Read it beside `occurrences`, which is what the check actually ran on.
+    """
+
+    strong = "strong"
+    medium = "medium"
+    weak = "weak"
+
+
 class PredicateForm(StrEnum):
     """
     contains  -- the literal appears in the response. The default, and what every assertion written before this meant.
@@ -292,6 +312,26 @@ class Evidence(StrictModel):
     eventId: str
     kind: EvidenceKind = Field(..., title="EvidenceKind")
     predicate: Predicate | None = None
+    strength: EvidenceStrength | None = Field(None, title="EvidenceStrength")
+    """
+    How PRECISELY the literal resolves inside the stored response. Descriptive only: it never accepts or refuses anything, and a claim binds exactly as it did before this field existed.
+
+    It exists because the check the gate actually runs is substring containment over every string in the response, and a bare literal makes that check vacuous without saying so. `Then the cart badge shows 1` bound to the literal `1` passes `evidence_retrieved`, `contains_at` and every validator -- and `1` occurs 198 times in the snapshot it cites, in prices, ids and urls, so it would pass on a build where the badge never updated. Nothing in the system could tell that apart from a real verdict.
+
+    The rungs are about STRUCTURE, not length -- a short literal is not the problem and `$7.99` is a perfectly good one:
+
+      strong  exactly one element in the response is NAMED this, so the claim points at one identifiable thing on the page.
+      medium  several elements carry that exact name, or the literal is part of one element's name. Still anchored to the page, but not to a single thing.
+      weak    no element carries it at all: it was found only in loose text inside the response -- spanning nodes, or inside a url or a json body. This is the rung that cannot be told apart from a coincidence.
+
+    Absent when the response holds no elements to grade against (a network or narration retrieval), which is not a criticism of the claim: a status code is not an element name. Read it beside `occurrences`, which is what the check actually ran on.
+    """
+    occurrences: int | None = None
+    """
+    How many times the literal occurs among the strings of the stored response -- the number of places that would have satisfied the containment check the gate performs. 1 means the claim had exactly one thing it could be about. 198, for the literal `1`, means it had 198, which is what a vacuous verdict looks like as a number.
+
+    Descriptive, like `strength`, and deliberately NOT a threshold: `evidence_discriminates` was one of the nine refusal rules deleted for guessing at meaning with a heuristic, and any cutoff here would reject true claims -- `Order confirmed` is legitimately rare and a real page can legitimately repeat a valid literal. It is reported so a human can see the difference, never so code can act on it.
+    """
 
 
 class BugDetail(StrictModel):

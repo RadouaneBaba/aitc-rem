@@ -266,6 +266,40 @@ def test_an_honest_run_passes_the_gate_and_grounds_its_assertions(storage: Stora
     assert result.trace.metrics.assertionsUngrounded == 0
 
 
+def test_grading_a_claim_never_decides_whether_it_binds(storage: Storage):
+    """`strength` and `occurrences` describe an accepted claim. That is all.
+
+    The distinction is the whole reason this is not `evidence_discriminates`,
+    which was one of the nine refusal rules deleted for guessing at meaning
+    with a heuristic. A grade that could reject would be that rule again under
+    a friendlier name, and it would kill true claims: `Order confirmed` is
+    legitimately rare and a real page can legitimately repeat a valid literal.
+
+    So the invariant is not "weak claims are refused" -- it is that the same
+    document binds the same assertions it always did, and the grade rides along
+    beside them.
+    """
+    result = run_pipeline(recording(), grounded_model(), storage=storage, run_id="run_001")
+
+    bound = [a for c in result.ir.testCases for s in c.steps for a in s.assertions]
+    assert bound, "the honest model's claim must still bind"
+    for assertion in bound:
+        assert assertion.accepted
+        # Populated on every claim graded against a response with elements in
+        # it, so a reviewer never has to wonder whether a blank means "fine" or
+        # "not measured".
+        assert assertion.evidence.occurrences is not None
+        assert assertion.evidence.occurrences >= 1, (
+            "a bound literal occurs at least once in the response it cites -- "
+            "0 would mean the grader and the gate disagree about containment"
+        )
+
+    # And the numbers reach the metrics table, where they are the only columns
+    # that can tell a document of real verdicts from one full of decoration.
+    assert result.trace.metrics.evidenceOccurrencesMax >= 1
+    assert result.trace.metrics.assertionsWeaklyResolved is not None
+
+
 def test_a_claim_the_model_did_not_retrieve_never_reaches_the_output(storage: Storage):
     """The guarantee, in its strongest form (SS3.2).
 

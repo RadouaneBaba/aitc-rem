@@ -63,7 +63,7 @@ header: true
 # xlsx is on by default. The larger half of SS2.2's wedge does not write
 # Gherkin, and the workbook -- with its Pass / Fail column and its Evidence
 # sheet -- is the file that half actually opens.
-exports: [xlsx]
+exports: [xlsx, jira]
 
 # Xray (a Jira app). There is no exporter, because your .feature file IS the
 # import format:
@@ -82,8 +82,15 @@ xray:
 #   trcli -y -h https://you.testrail.io --project "Your Project" #     parse_gherkin -f tc_rec_xxx.feature
 
 jira:
-  issue_type: Test
-  project_key: ""
+  issue_type: Task
+  project_key: "QA"
+  # Post to Jira automatically at the end of every run that emits the `jira`
+  # export, instead of running `server.cli jira-push` by hand. Off by default:
+  # posting creates issues in a shared system and nothing de-duplicates, so a
+  # re-export files the same issues again. On here for a private test Jira.
+  # Needs JIRA_SITE / JIRA_EMAIL / JIRA_API_TOKEN in .env; absent, the run says
+  # so and still succeeds.
+  auto_push: true
 
 # Narration (SS6.6). The tester talks while they record; the audio is
 # transcribed HERE, on this machine, and never uploaded anywhere.

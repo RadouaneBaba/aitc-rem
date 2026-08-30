@@ -214,6 +214,215 @@ def test_a_verdict_line_attaches_to_the_step_above_it(bits):
     assert document.steps[1].why_not
 
 
+def test_a_then_whose_annotation_went_missing_is_refused_and_not_silently_a_step(bits):
+    """The defect this branch exists for, in the shape it actually shipped.
+
+    On `rec_MTEU954A8F5X` the author wrote a `Then` and returned no annotation
+    echoing it. `_align` appends a bare `{}` for a line it cannot match, the
+    line became a step, `_role` defaulted it to `test_step`, and the renderer
+    wrote `And` -- so a `Scenario Outline` shipped whose only verdict had become
+    an action. Nothing recorded it: no `whyNot`, nothing in `refused`, so
+    `_revision_feedback` had nothing to tell the author, and `event_coverage`
+    could not catch it because a verdict accounts for no events of its own.
+
+    The file is what a reader sees, so the file decides what a line IS. The
+    annotation only decides whether it can be proved.
+    """
+    payload = answer(
+        feature=(
+            "Feature: Order checkout\n"
+            "\n"
+            "  Scenario: A valid order is confirmed\n"
+            "    Given the tester fills in the order\n"
+            "    When the tester places it\n"
+            "    Then the confirmation appears\n"
+        ),
+        # Two annotations for three lines, joined by the line they echo. The
+        # `Then` is the one the author forgot.
+        annotations=[
+            {
+                "kind": "step",
+                "line": "the tester fills in the order",
+                "id": "step_001",
+                "role": "setup",
+                "events": ["evt_001"],
+            },
+            {
+                "kind": "step",
+                "line": "the tester places it",
+                "id": "step_002",
+                "role": "test_step",
+                "events": ["evt_002"],
+            },
+        ],
+    )
+    document = parse(payload, bits)
+
+    assert document.degraded == ""
+    # Two steps, not three: the `Then` is a verdict the author failed to
+    # annotate, not an action it performed.
+    assert len(document.steps) == 2
+    # And the failure is on the record, in both places the author can be told
+    # about it from.
+    assert document.refused
+    assert document.refused[0]["claim"] == "the confirmation appears"
+    assert "quoted nothing" in document.refused[0]["reason"]
+    assert document.steps[1].why_not
+
+
+def test_a_then_annotated_as_a_step_keeps_its_events_on_the_step_above(bits):
+    """Reading the line as a verdict must not orphan the events it named.
+
+    A verdict has no events of its own -- the worked example gives verdict
+    annotations an `evidence.eventId` and no `events` array. So an annotation
+    that named events was written for a step, and those events belong to the
+    step the verdict attaches to. Drop them and `event_coverage` rejects the run
+    for an event nobody accounted for, which would turn one silent defect into a
+    loud unrelated one.
+    """
+    payload = answer(
+        feature=(
+            "Feature: Order checkout\n"
+            "\n"
+            "  Scenario: A valid order is confirmed\n"
+            "    Given the tester fills in the order\n"
+            "    Then the confirmation appears\n"
+        ),
+        annotations=[
+            {"kind": "step", "id": "step_001", "role": "setup", "events": ["evt_001"]},
+            {"kind": "step", "id": "step_002", "role": "test_step", "events": ["evt_002"]},
+        ],
+    )
+    document = parse(payload, bits)
+
+    assert len(document.steps) == 1
+    assert document.steps[0].event_ids == ["evt_001", "evt_002"]
+
+
+def test_an_action_annotated_as_a_step_survives_a_then_block(bits):
+    """An explicit `Then` wins outright; a continuing `And` does not.
+
+    `And` continues the block above it, so an action written there is a Gherkin
+    mistake rather than a claim -- and the annotation is where the author says
+    which it meant. Reading every such line as a verdict destroyed a real
+    recorded step on `rec_MTFFU45SYTV5`: *"And the tester opens the shopping
+    bag"* became *"Could not check that the tester opens the shopping bag"*,
+    which is not even a proposition, and the step and its events went with it.
+
+    So an explicit `kind: step` on a continuing line is honoured. What is NOT
+    honoured is `kind: step` on an explicit `Then` -- that is the contradiction
+    the file has to win, and the defect this whole branch exists for.
+    """
+    payload = answer(
+        feature=(
+            "Feature: Order checkout\n"
+            "\n"
+            "  Scenario: A valid order is confirmed\n"
+            "    When the tester places it\n"
+            "    Then the confirmation appears\n"
+            "    And the tester opens the receipt\n"
+        ),
+        annotations=[
+            {"kind": "step", "id": "step_001", "role": "test_step", "events": ["evt_001"]},
+            {"kind": "verdict", "evidence": {"eventId": "evt_001", "literal": "unretrieved"}},
+            {"kind": "step", "id": "step_002", "role": "test_step", "events": ["evt_002"]},
+        ],
+    )
+    document = parse(payload, bits)
+
+    assert [s.text for s in document.steps] == [
+        "the tester places it",
+        "the tester opens the receipt",
+    ]
+    assert document.steps[1].event_ids == ["evt_002"]
+    # Only the real verdict was refused, and no action was turned into one.
+    assert [r["claim"] for r in document.refused] == ["the confirmation appears"]
+
+
+def test_an_explicit_then_is_a_verdict_even_when_annotated_as_a_step(bits):
+    # The contradiction the file wins. This is the `rec_MTEU954A8F5X` shape with
+    # the annotation present rather than missing: the author wrote `Then`, and a
+    # reader sees `Then`, whatever the JSON beside it says.
+    payload = answer(
+        feature=(
+            "Feature: Order checkout\n"
+            "\n"
+            "  Scenario: A valid order is confirmed\n"
+            "    When the tester places it\n"
+            "    Then the order total is EUR615\n"
+        ),
+        annotations=[
+            {"kind": "step", "id": "step_001", "role": "test_step", "events": ["evt_001"]},
+            {"kind": "step", "id": "step_002", "role": "test_step", "events": ["evt_002"]},
+        ],
+    )
+    document = parse(payload, bits)
+
+    assert [s.text for s in document.steps] == ["the tester places it"]
+    # The events it named move to the step it attaches to, or `event_coverage`
+    # reports them as unaccounted for.
+    assert document.steps[0].event_ids == ["evt_001", "evt_002"]
+    assert [r["claim"] for r in document.refused] == ["the order total is EUR615"]
+
+
+def test_and_continues_the_keyword_that_opened_the_block(bits):
+    """`And` says nothing on its own, so what it continues is what it means.
+
+    `When ... / And ...` is two actions; `Then ... / And ...` is two verdicts.
+    Reading each line's keyword in isolation would make every `And` a step and
+    put the second half of every two-part verdict back where this branch found
+    it.
+    """
+    payload = answer(
+        feature=(
+            "Feature: Order checkout\n"
+            "\n"
+            "  Scenario: A valid order is confirmed\n"
+            "    When the tester places it\n"
+            "    And the tester waits for the receipt\n"
+            "    Then the confirmation appears\n"
+            "    And the receipt is emailed\n"
+        ),
+        # Joined by the line each one echoes, so the last line -- the `And`
+        # continuing the `Then` -- is the one the author forgot.
+        annotations=[
+            {
+                "kind": "step",
+                "line": "the tester places it",
+                "id": "step_001",
+                "role": "test_step",
+                "events": ["evt_001"],
+            },
+            {
+                "kind": "step",
+                "line": "the tester waits for the receipt",
+                "id": "step_002",
+                "role": "test_step",
+                "events": ["evt_002"],
+            },
+            {
+                "kind": "verdict",
+                "line": "the confirmation appears",
+                "evidence": {"eventId": "evt_002", "literal": "unretrieved"},
+            },
+        ],
+    )
+    document = parse(payload, bits)
+
+    # Two steps from the `When` block: an `And` there continues an action.
+    assert [s.text for s in document.steps] == [
+        "the tester places it",
+        "the tester waits for the receipt",
+    ]
+    # And two verdicts from the `Then` block, the second of them an `And` with
+    # no annotation at all -- which is the line that used to become a step in
+    # silence.
+    assert [r["claim"] for r in document.refused] == [
+        "the confirmation appears",
+        "the receipt is emailed",
+    ]
+
+
 def test_a_scenario_that_opens_with_a_verdict_falls_back(bits):
     # `Then` with no `When` is not a document. Falling back is right: the author
     # has produced something structurally wrong, and spending the single

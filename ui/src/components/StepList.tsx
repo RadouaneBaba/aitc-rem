@@ -52,6 +52,26 @@ export function StepList({
   const failsFor = (stepId: string) =>
     findings.filter((f) => f.stepId === stepId && f.severity === 'fail').length;
 
+  /** Findings that name no step, shown on the scenario they are about.
+   *
+   *  A finding carries `scenario` (the name) and/or `stepId`. One with a step
+   *  belongs on that step's card; one without belongs here. Matched by name,
+   *  and an unmatched one falls to the first scenario rather than vanishing --
+   *  a judgement nobody can see is the state this is fixing. */
+  const scenarioFindings = (testCase: TestCase) => {
+    const named = new Set(
+      testCases.map((c) => c.scenarioName || c.title).filter(Boolean) as string[],
+    );
+    const mine = testCase.scenarioName || testCase.title;
+    return findings.filter(
+      (f) =>
+        !f.stepId &&
+        (f.scenario === mine ||
+          (!f.scenario && testCases[0]?.id === testCase.id) ||
+          (!!f.scenario && !named.has(f.scenario) && testCases[0]?.id === testCase.id)),
+    );
+  };
+
   const wants = (step: Step) =>
     Boolean(step.escalation) || step.confidence === 'low' || failsFor(step.id) > 0;
 
@@ -95,6 +115,25 @@ export function StepList({
                 ))}
               </div>
             )}
+
+            {/* Findings about the SCENARIO rather than a step.
+                `StepDetail` filters to `f.stepId === step.id`, so anything the
+                judge raised without a step id rendered nowhere in the whole
+                app -- which is every `one_scenario_one_behaviour` finding, the
+                question about whether this is one test or two. It was written
+                to `judge.json`, counted in the "to fix" chip, and then had no
+                surface to appear on. */}
+            {scenarioFindings(testCase).map((finding, i) => (
+              <p key={`${finding.check}-${i}`} className="scenario-finding">
+                <span
+                  className={`chip ${finding.severity === 'fail' ? 'chip-bad' : 'chip-warn'}`}
+                >
+                  {finding.severity === 'fail' ? 'would not sign' : 'would sign after an edit'}
+                </span>{' '}
+                {finding.what}
+                {finding.fix && <em> — {finding.fix}</em>}
+              </p>
+            ))}
 
             {/* A shared opening lifted into a Background. Without it on screen
                 the second scenario reads as starting from nowhere -- its own

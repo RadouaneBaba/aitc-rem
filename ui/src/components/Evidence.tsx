@@ -13,7 +13,7 @@
  */
 
 import { useState } from 'react';
-import { api, type Predicate, type Trace } from '../api';
+import { api, type Evidence, type Predicate, type Trace } from '../api';
 
 /**
  * WHAT is claimed, not merely that a string appeared.
@@ -37,6 +37,41 @@ export function PredicateLabel({ predicate }: { predicate?: Predicate }) {
 
   return (
     <span className={`predicate predicate-${predicate.form}`} title="what this claim actually says">
+      {text}
+    </span>
+  );
+}
+
+/**
+ * How precisely the literal lands in the retrieval it cites.
+ *
+ * The gate's check is substring containment over the whole response, so a bare
+ * literal makes a verdict vacuous without saying so anywhere: `the cart badge
+ * shows 1` bound to `1` passes every validator, and `1` occurs 198 times in the
+ * snapshot it cites. This is the only place a reviewer can see the difference
+ * between that and a verdict that would actually go red.
+ *
+ * Shown only when it is worth saying. `strong` with a handful of occurrences is
+ * the ordinary case and a badge on every card is a badge nobody reads -- so the
+ * two states rendered are the two that mean "look at this": the literal names
+ * no element, or it had many ways to match. It grades and never rejects; see
+ * `server/evidence/strength.py`.
+ */
+export function ResolvesLabel({ evidence }: { evidence: Evidence }) {
+  const { strength, occurrences } = evidence;
+  const loose = typeof occurrences === 'number' && occurrences > 20;
+  if (strength !== 'weak' && !loose) return null;
+
+  const text = strength === 'weak' ? 'names no element' : `${occurrences}x in this response`;
+  const title =
+    strength === 'weak'
+      ? 'This text is not the name of anything on the page -- it was found in loose text, ' +
+        'which cannot be told apart from a coincidence.'
+      : `The containment check had ${occurrences} ways to pass, so this would stay green ` +
+        'on a build where it stopped being true. Quote the phrase around the value.';
+
+  return (
+    <span className={`resolves resolves-${strength ?? 'loose'}`} title={title}>
       {text}
     </span>
   );

@@ -23,6 +23,7 @@ export function StatusLine({
   judgement,
   jobs,
   pending,
+  recordingId,
   onOpenConfirm,
   onDismissConfirm,
   pane,
@@ -33,6 +34,8 @@ export function StatusLine({
   judgement: Judgement | null;
   jobs: Job[];
   pending: PendingConfirmation[];
+  /** The run on screen, so the pending chip can say when it means another one. */
+  recordingId: string | undefined;
   onOpenConfirm: (recordingId: string) => void;
   onDismissConfirm: (recordingId: string) => void;
   pane: Pane;
@@ -87,9 +90,19 @@ export function StatusLine({
           </span>
         )}
 
+        {/* Which recording, said out loud.
+            `GET /api/expectations/pending` is a GLOBAL list, so the newest
+            unanswered recording is very often not the one on screen -- while
+            reviewing the coffee session this invited the reader to answer the
+            checkout session's guesses, with nothing naming either. A prompt
+            that silently changes subject reads as a bug, and was reported as
+            one. */}
         {firstPending && (
           <span className="chip chip-warn">
             {firstPending.count} unanswered guess{firstPending.count === 1 ? '' : 'es'}
+            {firstPending.recordingId !== recordingId && (
+              <span className="chip-note">on {firstPending.recordingId}</span>
+            )}
             <button className="chip-action" onClick={() => onOpenConfirm(firstPending.recordingId)}>
               Check them
             </button>

@@ -517,6 +517,19 @@ main > * { overflow-y: auto; min-width: 0; }
 }
 .predicate-absent { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
 
+/* How precisely the literal resolved. Rendered only when it means "look at
+   this", so it is allowed to be conspicuous -- but it is a caution and not an
+   error: nothing was rejected, and the claim is in the file either way. */
+.resolves {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  padding: 2px 7px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid var(--warn-line);
+}
+
 .literal {
   background: var(--subtle-bg);
   border: 1px solid var(--line);
@@ -551,6 +564,34 @@ main > * { overflow-y: auto; min-width: 0; }
   margin: 0;
   line-height: var(--lh);
 }
+/* Shown under an accepted verdict as well as instead of one, so it needs air
+   between it and the list above. A step can carry both: `_attach_claim` clears
+   `whyNot` when a claim lands, so both together means a SECOND verdict was
+   refused and the scenario is still missing a check. */
+.assertions + .whynot { margin-top: var(--s-3); }
+
+/* One line, under a heading, saying what a control does before it is used.
+   The accept checkbox silently edits the feature file and nothing said so. */
+.hint {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  line-height: var(--lh-snug);
+}
+
+/* A judge finding about the SCENARIO rather than a step. `StepDetail` filters
+   findings to the selected step, so anything without a `stepId` -- every
+   `one_scenario_one_behaviour` finding -- had no surface in the app at all. */
+.scenario-finding {
+  margin: var(--s-2) 0 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--danger-line);
+  background: var(--danger-bg);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+.scenario-finding em { color: var(--muted); font-style: normal; }
 
 /* The judge, on the step it is about. */
 .findings { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
@@ -1070,4 +1111,27 @@ kbd {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+/* The run being written. One indeterminate spinner, because the pipeline has
+   no honest percentage to report -- the stages take wildly different times and
+   a fake progress bar that stalls at 80% is worse than a spinner that does not
+   pretend. The job's own `detail` supplies the words beside it. */
+.spinner {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.4em;
+  border: 2px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
 }

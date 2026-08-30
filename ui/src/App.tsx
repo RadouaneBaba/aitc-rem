@@ -2,7 +2,7 @@
  * The review UI.
  *
  *   ┌────────────────────────────────────────────────────────────┐
- *   │ ◆ AITC   run ▾                    ⌘K  ☾  ?      [Approve]   │
+ *   │ ◆ AITC   run ▾                        ☾  ?      [Approve]   │
  *   ├────────────────────────────────────────────────────────────┤
  *   │ 3 checks · 9 retrievals · 3 to fix        [Steps][Feature]  │
  *   ├──────────────────┬─────────────────────────────────────────┤
@@ -23,7 +23,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, type Judgement, type RunBody, type RunSummary, type Step, type TestCase } from './api';
+import {
+  api,
+  type Job,
+  type Judgement,
+  type RunBody,
+  type RunSummary,
+  type Step,
+  type TestCase,
+} from './api';
 import { StepList } from './components/StepList';
 import { StepDetail } from './components/StepDetail';
 import { FeatureView } from './components/FeatureView';
@@ -31,7 +39,6 @@ import { NotCovered } from './components/NotCovered';
 import { RunPicker } from './components/RunPicker';
 import { StatusLine, type Pane } from './components/StatusLine';
 import { ShortcutSheet } from './components/ShortcutSheet';
-import { CommandPalette, type Command } from './components/CommandPalette';
 import { Wordmark } from './components/Wordmark';
 import { Confirm } from './components/Confirm';
 import { Help } from './components/Help';
@@ -51,8 +58,10 @@ export function App() {
   const [pane, setPane] = useState<Pane>('step');
   const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
-  const [showPalette, setShowPalette] = useState(false);
   const [theme, cycleTheme] = useTheme();
+
+  /** The run the address bar asks for, if it asks for one. */
+  const wanted = route.name === 'run' ? route : null;
 
   /** Re-read the run list. Called on mount, and again whenever a job settles:
    *  somebody who pressed Send should see the draft appear, not have to reload. */
@@ -61,10 +70,27 @@ export function App() {
       .runs()
       .then(({ runs: next }) => {
         setRuns(next);
-        setSelected((current) => current ?? next[0] ?? null);
+        setSelected((current) => {
+          // An address wins over whatever sorts first. `/runs/<rec>/<run>` is
+          // how the export page hands somebody the run it just started, and
+          // resolving it here rather than in an effect means the moment that
+          // run appears on disk it is the one on screen -- no flash of an
+          // unrelated draft in between.
+          if (wanted) {
+            const match = next.find(
+              (r) => r.recordingId === wanted.recordingId && r.runId === wanted.runId,
+            );
+            if (match) return match;
+            // Not written yet. Hold nothing rather than falling back to an
+            // older run: showing a stale draft under a banner about a job that
+            // is still running is the confusion this whole route exists to end.
+            return current && current.recordingId === wanted.recordingId ? current : null;
+          }
+          return current ?? next[0] ?? null;
+        });
       })
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [wanted]);
 
   useEffect(refresh, [refresh]);
 
@@ -116,16 +142,35 @@ export function App() {
     [selected],
   );
 
-  /** Confirmed, because there is no way back: approval is the record of who
-   *  signed this off, and nothing in the API withdraws one. */
+  /**
+   * Sign the run off, and build the files that signing off is for.
+   *
+   * Approving used to set a flag and stop. It fed the step library once, that
+   * is deleted, and what was left was a button whose whole effect was a chip
+   * saying "approved" -- so the end of the review loop produced nothing a
+   * reviewer could hand to anybody. The exports are what a QA team actually
+   * takes away, so this is where they get built.
+   *
+   * The export is best-effort and never blocks the approval: a run that
+   * hard-failed on redaction refuses to export by design (409), and that must
+   * not stop somebody recording that they read the document.
+   *
+   * Confirmed, because there is no way back: approval is the record of who
+   * signed this off, and nothing in the API withdraws one.
+   */
   const approve = useCallback(() => {
     if (
-      window.confirm(
-        'Approve this run?\n\nThis records that you signed it off, and it cannot be undone here.',
+      !window.confirm(
+        'Approve this run?\n\nThis records that you signed it off and builds the exports. It cannot be undone here.',
       )
     ) {
-      act((rec, run) => api.approve(rec, run));
+      return;
     }
+    act(async (rec, run) => {
+      const next = await api.approve(rec, run);
+      await api.exportRun(rec, run, []).catch(() => undefined);
+      return next;
+    });
   }, [act]);
 
   const step: Step | undefined = useMemo(
@@ -144,6 +189,20 @@ export function App() {
   const testCase: TestCase | undefined = useMemo(
     () => body?.ir.testCases.find((c) => c.steps.some((s) => s.id === stepId)),
     [body, stepId],
+  );
+
+  /**
+   * The one feature file, and the id that addresses it.
+   *
+   * `body.feature` is a map of one entry now: the server renders every
+   * scenario into a single document and keys it by the first rendered case.
+   * Reading the single entry rather than looking one up by case id is what
+   * stops the pane swapping documents when the reader selects a step in
+   * another scenario.
+   */
+  const [featureKey, featureText] = useMemo(
+    () => Object.entries(body?.feature ?? {})[0] ?? [undefined, undefined],
+    [body],
   );
 
   const orderedSteps = useMemo(() => body?.ir.testCases.flatMap((c) => c.steps) ?? [], [body]);
@@ -167,12 +226,27 @@ export function App() {
     [orderedSteps, stepId],
   );
 
+  /**
+   * Accept or reject every candidate on the step, in order.
+   *
+   * Sequential, and it matters: this used to fire one PATCH per assertion in a
+   * `for` loop without awaiting, so N concurrent requests each read the IR,
+   * each wrote it back whole, and the last response won. On a step with two
+   * candidates one of the two edits could be lost -- and `review.json` is the
+   * project's only source of difficulty labels, so a dropped edit is a dropped
+   * measurement as well as a dropped verdict.
+   */
   const verdict = useCallback(
     (accepted: boolean) => {
       if (!step?.assertions.length) return;
-      for (const assertion of step.assertions) {
-        act((rec, run) => api.setAssertion(rec, run, step.id, assertion.id, accepted));
-      }
+      const ids = step.assertions.map((a) => a.id);
+      act(async (rec, run) => {
+        let latest: RunBody | null = null;
+        for (const id of ids) {
+          latest = await api.setAssertion(rec, run, step.id, id, accepted);
+        }
+        return latest as RunBody;
+      });
     },
     [step, act],
   );
@@ -191,11 +265,6 @@ export function App() {
         !!target &&
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setShowPalette((on) => !on);
-        return;
-      }
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault();
         if (!body?.review.approved) approve();
@@ -215,55 +284,13 @@ export function App() {
           window.setTimeout(() => document.getElementById('step-text')?.focus(), 0);
           break;
         case '?': setShowKeys((on) => !on); break;
-        case 'Escape': setShowKeys(false); setShowPalette(false); break;
+        case 'Escape': setShowKeys(false); break;
         default: return;
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [move, verdict, body, approve]);
-
-  const commands: Command[] = useMemo(() => {
-    const out: Command[] = [
-      { id: 'pane-steps', group: 'View', label: 'Show the steps', run: () => setPane('step') },
-      { id: 'pane-feature', group: 'View', label: 'Show the feature file', hint: 'f', run: () => setPane('feature') },
-      { id: 'theme', group: 'View', label: `Theme: ${theme} — switch`, run: cycleTheme },
-      { id: 'help', group: 'Go', label: 'How to use this', run: () => go({ name: 'help' }) },
-      { id: 'keys', group: 'Go', label: 'Keyboard shortcuts', hint: '?', run: () => setShowKeys(true) },
-    ];
-    if (suggestionCount > 0) {
-      out.push({
-        id: 'pane-notcovered',
-        group: 'View',
-        label: 'What this session did not cover',
-        run: () => setPane('notcovered'),
-      });
-    }
-    if (body && !body.review.approved) {
-      out.push({ id: 'approve', group: 'Run', label: 'Approve this run', hint: '⌘↵', run: approve });
-    }
-    for (const run of runs) {
-      out.push({
-        id: `run-${run.recordingId}-${run.runId}`,
-        group: 'Open run',
-        label: run.titles[0] ?? run.recordingId,
-        hint: `${run.runId}${run.judgeFails ? ` · ${run.judgeFails} to fix` : ''}`,
-        run: () => setSelected(run),
-      });
-    }
-    for (const s of orderedSteps) {
-      out.push({
-        id: `step-${s.id}`,
-        group: 'Step',
-        label: `${s.keyword} ${s.text}`,
-        run: () => {
-          setStepId(s.id);
-          setPane('step');
-        },
-      });
-    }
-    return out;
-  }, [runs, orderedSteps, body, approve, go, theme, cycleTheme, suggestionCount]);
 
   // Ahead of the "looking for a run" branch on purpose: somebody arrives here
   // from the export page seconds after pressing Send, when there is no run yet.
@@ -286,6 +313,27 @@ export function App() {
     return <Help onBack={() => go({ name: 'review' })} />;
   }
 
+  // An addressed run that is not on disk yet. This is the state somebody is in
+  // for the two-to-five minutes after pressing Send, and it used to be
+  // unreachable: they landed on whichever run sorted first -- often one from a
+  // different session -- while the banner above it described the job they had
+  // just started. Two runs on one screen and nothing saying which was which.
+  if (wanted && !selected) {
+    const mine = jobs.find((j) => j.recordingId === wanted.recordingId);
+    return (
+      <RunWaiting
+        recordingId={wanted.recordingId}
+        runId={wanted.runId}
+        job={mine ?? null}
+        error={error}
+        onReview={() => go({ name: 'review' })}
+        onConfirm={() => go({ name: 'confirm', recordingId: wanted.recordingId })}
+        theme={theme}
+        onTheme={cycleTheme}
+      />
+    );
+  }
+
   if (!body || !selected) {
     return (
       <FirstRun
@@ -304,9 +352,6 @@ export function App() {
         <Wordmark />
         <RunPicker runs={runs} selected={selected} onSelect={setSelected} />
         <div className="spacer" />
-        <button className="icon" onClick={() => setShowPalette(true)} title="Commands (⌘K)">
-          ⌘K
-        </button>
         <button
           className="icon"
           onClick={cycleTheme}
@@ -338,6 +383,7 @@ export function App() {
         judgement={judgement}
         jobs={jobs}
         pending={pending}
+        recordingId={selected?.recordingId}
         onOpenConfirm={(recordingId) => go({ name: 'confirm', recordingId })}
         onDismissConfirm={dismissPending}
         pane={pane}
@@ -377,14 +423,16 @@ export function App() {
         {pane === 'feature' ? (
           <FeatureView
             testCase={testCase}
-            /* `feature` is keyed by case id, because the renderer keys it that
-               way -- and a bug report is deliberately absent from that map,
-               having no `.feature` at all, so the empty fallback is the correct
-               answer here rather than a missing one. */
-            text={(testCase && body.feature[testCase.id]) ?? ''}
+            /* One file, every scenario. `feature` holds a single entry keyed by
+               the document -- it used to hold one per test case, and selecting
+               a step in another scenario silently swapped the document under
+               the reader. A run that is nothing but a bug report has no
+               `.feature` at all, so the empty fallback is still the right
+               answer rather than a missing one. */
+            text={featureText ?? ''}
             busy={busy}
             onSave={(text) =>
-              testCase && act((rec, run) => api.editFeature(rec, run, testCase.id, text))
+              featureKey && act((rec, run) => api.editFeature(rec, run, featureKey, text))
             }
           />
         ) : pane === 'notcovered' ? (
@@ -416,9 +464,6 @@ export function App() {
       </main>
 
       {showKeys && <ShortcutSheet onClose={() => setShowKeys(false)} />}
-      {showPalette && (
-        <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />
-      )}
     </div>
   );
 }
@@ -430,6 +475,96 @@ export function App() {
  * installed the tool and has no idea what to do next. This is the first screen
  * of the product and it should be the shortest possible route to the second.
  */
+/**
+ * One run, while it is still being written.
+ *
+ * The screen somebody sees for the two-to-five minutes after pressing Send, and
+ * the reason `/runs/<rec>/<run>` exists. Before it, that moment landed them on
+ * whichever run sorted first -- frequently a draft from another session -- with
+ * a banner above it describing the job they had just started. Nothing on the
+ * page said the two were different things.
+ *
+ * It shows the job's own `detail`, which is the pipeline naming the stage it is
+ * in, so a slow run and a stuck one do not look alike. A failure is shown here
+ * too rather than bouncing to an empty picker: "it failed" with no cause is
+ * what makes a tester stop trusting the tool.
+ */
+function RunWaiting({
+  recordingId,
+  runId,
+  job,
+  error,
+  onReview,
+  onConfirm,
+  theme,
+  onTheme,
+}: {
+  recordingId: string;
+  runId: string;
+  job: Job | null;
+  error: string | null;
+  onReview: () => void;
+  onConfirm: () => void;
+  theme: string;
+  onTheme: () => void;
+}) {
+  const failed = job?.state === 'failed';
+  return (
+    <div className="firstrun">
+      <header className="topbar">
+        <Wordmark />
+        <div className="spacer" />
+        <button className="icon" onClick={onTheme} title={`Theme: ${theme}`}>
+          {theme === 'dark' ? '☾' : theme === 'light' ? '☀' : '◐'}
+        </button>
+        <button onClick={onReview}>All runs</button>
+      </header>
+
+      <div className="firstrun-body">
+        {error ? (
+          <p className="error">{error}</p>
+        ) : failed ? (
+          <>
+            <h1>This run did not finish</h1>
+            <p className="error">{job?.error ?? 'The pipeline stopped before writing a draft.'}</p>
+            <p className="muted">
+              Your recording is safe — <code>{recordingId}</code> is on disk and can be run again.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1>
+              <span className="spinner" aria-hidden="true" /> Writing your test case…
+            </h1>
+            <p className="muted">
+              {job?.detail ?? 'Starting up'} — a couple of minutes. The tool is going back through
+              the recording and checking each expected result against what was actually on the
+              page. This page becomes the draft the moment it is ready.
+            </p>
+            <p className="muted">
+              <code>
+                {recordingId} / {runId}
+              </code>
+            </p>
+            {/* The one thing the recording cannot show us, asked while they
+                still remember. Offered rather than forced: the draft is being
+                written either way. */}
+            <p>
+              <button className="primary" onClick={onConfirm}>
+                Tell us what should have happened
+              </button>
+            </p>
+            <p className="muted">
+              It takes about a minute of clicking, and it is the only part of this the recording
+              cannot answer on its own.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FirstRun({
   error,
   working,
@@ -506,6 +641,11 @@ function ExportMenu({
   const [open, setOpen] = useState(false);
   const [fresh, setFresh] = useState<string[]>([]);
 
+  // The cases that are actually rendered as Gherkin. A bug report shares the
+  // IR and is a different kind of artifact (`bug_md` writes it), so the feature
+  // link must not be built from one.
+  const scenarios = testCases.filter((c) => c.kind !== 'bug_report');
+
   const run = async (formats: string[]) => {
     try {
       const { exports } = await api.exportRun(recordingId, runId, formats);
@@ -533,12 +673,24 @@ function ExportMenu({
           <div className="menu-scrim" onClick={() => setOpen(false)} />
           <div className="menu-list">
             <p className="menu-head">Download</p>
+            {/* One feature file for the whole recording, and one evidence
+                sidecar per scenario. A bug report is not a scenario and has no
+                `.feature`, so it must not offer a link to one -- it used to,
+                and the link 404'd. */}
+            {scenarios[0] && (
+              <div className="menu-group">
+                <span className="menu-label">Feature file</span>
+                <a
+                  href={api.fileUrl(recordingId, runId, `${scenarios[0].id}.feature`)}
+                  download
+                >
+                  {scenarios[0].id}.feature
+                </a>
+              </div>
+            )}
             {testCases.map((c) => (
               <div key={c.id} className="menu-group">
                 <span className="menu-label">{c.scenarioName || c.title}</span>
-                <a href={api.fileUrl(recordingId, runId, `${c.id}.feature`)} download>
-                  Feature file
-                </a>
                 <a href={api.fileUrl(recordingId, runId, `${c.id}.trace.md`)} download>
                   Evidence sidecar
                 </a>
