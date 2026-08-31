@@ -430,6 +430,14 @@ export interface TesterAnnotation {
   text?: string;
   timestamp: number;
   eventId?: string;
+  /**
+   * Marks made in one picker session share this. A tester checking that a list is SORTED points at two prices; separately those are two identical-looking marks, and the pipeline saw exactly that on rec_MTG3YY559C5U -- two `assertion -> "275.00"` lines with nothing to say they belonged together. Together they are a claim about the RELATION between them, which is the only thing a sort, a total or a difference can be.
+   */
+  groupId?: string;
+  /**
+   * Order within `groupId`, from 1. The order the tester pointed in is the order they mean: first, then second.
+   */
+  index?: number;
   target?: AnnotationTarget;
 }
 /**
@@ -439,6 +447,14 @@ export interface AnnotationTarget {
   role: string;
   name: string;
   value?: string;
+  /**
+   * The element's own visible text, capped. Separate from `name` so a CONTAINER can be marked: `name` stays a short handle a sentence can use, and this carries the words. A tester pointing at a product card means the card, and until this existed the click was refused outright -- `nameOf` returns "" for an unnamed div and the text fallback gave up over 120 characters.
+   */
+  text?: string;
+  /**
+   * 1-based position among the element's like-tagged siblings, set only where there is more than one. This is how `the FIRST product` becomes expressible: the css selector already carried `nth-of-type(1)` and nothing downstream could read it, so a tester marking the first and second prices in a sorted list handed the pipeline no position at all.
+   */
+  ordinal?: number;
   selectors?: SelectorSet;
 }
 /**

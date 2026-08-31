@@ -15,11 +15,13 @@ from .generated.common_schema import (
 )
 from .generated.expectations_schema import (
     Expectation,
+    ExpectationRank,
     ExpectationSet,
     ExpectationSource,
 )
 from .generated.ir_schema import (
     Assertion,
+    AssertionStatus,
     BugDetail,
     BugEnvironment,
     CoverageSuggestion,
@@ -114,6 +116,7 @@ from .generated.trace_schema import (
 
 __all__ = [
     "Expectation",
+    "ExpectationRank",
     "ScenarioExamples",
     "ExpectationSet",
     "ExpectationSource",
@@ -169,6 +172,7 @@ __all__ = [
     "SegmentsDocument",
     # ir
     "Assertion",
+    "AssertionStatus",
     "BugDetail",
     "BugEnvironment",
     "CoverageSuggestion",

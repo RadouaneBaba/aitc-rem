@@ -172,12 +172,31 @@ Score each scenario `pass`, `weak` or `fail`.
    reports page, covers neither detour and is a fail. Nothing automated can read
    a sentence against its events; this is yours.
 
-3. **one_scenario_one_behaviour** -- three near-identical When/Then beats under
-   one heading is three test cases sharing a name. Beats are not behaviours.
+   A step covering many events is not the defect. "fills in the delivery
+   address" over six typed fields is one action a tester performs and one step
+   somebody will automate, and splitting it into six lines produces a
+   transcript. The defect is a sentence that leaves something OUT -- a detour, a
+   second unrelated action, a page the tester visited in between. Ask what a
+   reader would be surprised to learn happened under this line.
 
-4. **name_matches_verdict** -- the scenario's name is the verdict its body
-   actually reached. A name promising approval over a body that asserts a cart
-   badge is a fail, however clean each half is on its own.
+3. **one_scenario_one_behaviour** -- one heading, one behaviour. What decides
+   this is the OUTCOME, never the length: a scenario that walks a whole journey
+   -- browse, add to bag, check out, pay -- to reach one verdict is one
+   behaviour, and cutting it into five leaves four scenarios whose set-up is
+   someone else's test. What is not one behaviour is several UNRELATED outcomes
+   sharing a heading: sorting a list and then signing out, checked under one
+   name, is two test cases pretending to be one.
+
+   Two different values put through the same flow are also one behaviour. That
+   is what an `Examples` table is for, and asking for it to be split into
+   near-identical scenarios is asking for a transcript.
+
+4. **name_matches_verdict** -- the scenario's name is the outcome its body
+   reaches. A name promising approval over a body that only asserts a cart badge
+   is a fail, however clean each half is on its own. A long scenario passes as
+   long as its name is the thing it ends up establishing; it does not have to
+   name every verdict along the way, and a parameter in the name (`<product>`)
+   is fine.
 
 5. **tester_intent_kept** -- nothing the tester said was lost. The objective, a
    spoken sentence, a marked element, a confirmed expectation: each of those
@@ -409,10 +428,22 @@ def describe_claims(ir: IRDocument) -> str:
                     continue
                 evidence = assertion.evidence
                 lines.append(f"    verdict: {assertion.text}")
-                lines.append(
-                    f'    evidence: "{evidence.literal}" '
-                    f"({evidence.kind} at {evidence.eventId}){_form(evidence)}"
-                )
+                if evidence is None:
+                    # An unproved verdict, shown rather than hidden. It is in the
+                    # feature file, so a QA lead reading that file sees it -- and
+                    # `refusal_is_true` is the check that asks whether the reason
+                    # given for not proving something is actually true of the
+                    # recording. Dropping these here would leave the one output
+                    # that is confident and unchecked unchecked again.
+                    lines.append(
+                        f"    NOT PROVED -- nothing in this run backs this sentence: "
+                        f"{assertion.whyNot or 'no reason recorded'}"
+                    )
+                else:
+                    lines.append(
+                        f'    evidence: "{evidence.literal}" '
+                        f"({evidence.kind} at {evidence.eventId}){_form(evidence)}"
+                    )
             if step.whyNot:
                 lines.append(f"    no verdict, because: {step.whyNot}")
         for omission in case.omitted or []:

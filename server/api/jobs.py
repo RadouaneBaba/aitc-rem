@@ -98,6 +98,20 @@ class JobRunner:
     def all(self) -> list[Job]:
         return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
 
+    def latest(self, recording_id: str) -> Job | None:
+        """The most recent job for one recording, settled or not.
+
+        Answering the confirmation screen inside the hold window continues the
+        job that is already running rather than enqueuing a second one, and the
+        endpoint has to hand that job back so the screen can follow it. Newest
+        first, because "one recording, one run" means the newest is the one
+        writing the run directory.
+        """
+        for job in self.all():
+            if job.recording_id == recording_id:
+                return job
+        return None
+
     def wait(self, timeout: float | None = None) -> None:
         """Block until every job has settled. For tests and for `--wait`."""
         for thread in list(self._threads):

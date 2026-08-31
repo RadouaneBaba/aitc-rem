@@ -78,10 +78,33 @@ def test_an_examples_table_is_read_as_test_design():
     assert outline.examples.rows[0] == ["price desc", "The Autumnal Hamper"]
 
 
-def test_a_one_row_table_is_not_a_table():
-    # One row is a scenario with extra ceremony, and rendering it as an outline
-    # makes a single case look like a designed set.
+def test_a_one_row_table_is_the_parameter_contract_and_is_kept():
+    # This used to be `test_a_one_row_table_is_not_a_table`, and the argument it
+    # rested on was about a table used as a DATA MATRIX: one row is a scenario
+    # with extra ceremony, and `parameters: inline` already puts those values in
+    # the step text where a reader finds them without looking in two places.
+    #
+    # That argument is right about a matrix and wrong about the other use, which
+    # is the one a QA team actually writes. `<product>` in the step text is what
+    # makes a scenario a test of the FEATURE rather than a transcript of one
+    # session -- a storefront with a million products needs a test that reads
+    # the same for any of them -- and the row underneath records which values
+    # this run used. Three of the four reference feature files the `journey`
+    # style was built from ship exactly one row.
     text = FEATURE.replace("      | price asc  | Marmalade           |\n", "")
+    examples = parse_feature(text).scenarios[1].examples
+    assert examples is not None
+    assert examples.columns == ["order", "first"]
+    assert examples.rows == [["price desc", "The Autumnal Hamper"]]
+
+
+def test_a_table_with_no_rows_at_all_is_still_not_a_table():
+    # The floor that remains. A header with nothing under it names parameters
+    # that have no values, so `_step_text` would render `<order>` into a
+    # scenario nothing can execute.
+    text = FEATURE.replace("      | price asc  | Marmalade           |\n", "").replace(
+        "      | price desc | The Autumnal Hamper |\n", ""
+    )
     assert parse_feature(text).scenarios[1].examples is None
 
 

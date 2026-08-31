@@ -21,6 +21,7 @@ from server.config import ProjectConfig
 from server.models import (
     AgentTrace,
     Assertion,
+    AssertionStatus,
     Evidence,
     EvidenceStrength,
     IRDocument,
@@ -136,18 +137,33 @@ def _expected_results(case: TestCaseIR) -> list[str]:
     out.append("|---|---|---|---|---|---|---|")
     for step_id, assertion in rows:
         mark = "x" if assertion.accepted else " "
+        evidence = assertion.evidence
+        if evidence is None:
+            # An unproved claim: the sentence the author wrote, kept in the file
+            # rather than deleted, with nothing behind it. It has no literal and
+            # no retrieval by construction, so the columns that describe a
+            # retrieval say so instead of being left blank -- an empty cell here
+            # reads as an oversight, and this is a finding.
+            out.append(
+                f"| [{mark}] | `{step_id}` | {assertion.text} | "
+                f"— | **not proved** | — | {assertion.provenance.value} |"
+            )
+            continue
         out.append(
             f"| [{mark}] | `{step_id}` | {assertion.text} | "
-            f"`{_escape(assertion.evidence.literal)}` | "
-            f"{_resolves(assertion.evidence)} | "
-            f"`{assertion.evidence.toolCallId}` | {assertion.provenance.value} |"
+            f"`{_escape(evidence.literal)}` | "
+            f"{_resolves(evidence)} | "
+            f"`{evidence.toolCallId}` | {assertion.provenance.value} |"
         )
     out.append("")
     out.append(
-        "Each row resolves: `evidence_retrieved` looks up the tool call, re-hashes "
-        "the stored response and confirms the literal occurs in it. A row that did "
-        "not resolve would not have been rendered (SS3.2)."
+        "A row with a literal resolves: `evidence_retrieved` looks up the tool "
+        "call, re-hashes the stored response and confirms the literal occurs in "
+        "it (SS3.2). A row marked **not proved** is a verdict the author wanted "
+        "and the gate could not license -- it is in the feature file, and "
+        "nothing in this run backs it."
     )
+    out.extend(_unproved_note(rows))
     out.extend(_resolves_note(rows))
 
     unchecked = [a for _, a in rows if not a.accepted]
@@ -188,6 +204,37 @@ def _resolves(evidence: Evidence) -> str:
     return f"{rung}, {evidence.occurrences}x"
 
 
+def _unproved_note(rows: list[tuple[str, Assertion]]) -> list[str]:
+    """Say what is not backed, and why, where a reviewer will look.
+
+    The feature file carries the sentence and a one-line comment; this is the
+    place a reviewer decides what to do about it. Each reason is a statement
+    about THIS RUN rather than about the application -- the author looked at the
+    wrong event, the page had no container to address, the recorder captured
+    nothing at that moment -- and telling them apart is the difference between
+    re-running and going back to the application.
+    """
+    unproved = [(sid, a) for sid, a in rows if a.status is AssertionStatus.unproved]
+    if not unproved:
+        return []
+    out = [
+        "",
+        "### Not proved",
+        "",
+        "These verdicts are in the feature file and nothing in this run backs "
+        "them. They were kept rather than deleted: a scenario that stops on a "
+        "`When` cannot be told apart from one that had nothing worth checking, "
+        "and every reason below is a fact about this run rather than about the "
+        "application under test.",
+        "",
+    ]
+    for step_id, assertion in unproved:
+        out.append(f"- `{step_id}` — **{assertion.text}**")
+        if assertion.whyNot:
+            out.append(f"  - {assertion.whyNot}")
+    return out
+
+
 def _resolves_note(rows: list[tuple[str, Assertion]]) -> list[str]:
     """Explain the column, and say plainly when a row is decoration.
 
@@ -195,7 +242,9 @@ def _resolves_note(rows: list[tuple[str, Assertion]]) -> list[str]:
     every literal names one element should not carry a paragraph about what
     would have been wrong with it.
     """
-    graded = [a for _, a in rows if a.evidence.strength is not None]
+    graded = [
+        a for _, a in rows if a.evidence is not None and a.evidence.strength is not None
+    ]
     if not graded:
         return []
     out = [

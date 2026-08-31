@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from server.api import review as review_ops
+from server.api.confirm import ConfirmGate
 from server.api.jobs import Job, JobRunner
 from server.config import (
     ProjectConfig,
@@ -142,11 +143,13 @@ def create_app(
     storage = storage or Storage()
     config = config or load_project_config()
     runner = JobRunner()
+    gate = ConfirmGate(config.confirm_window_seconds)
 
     app = FastAPI(title="aitc-rem", version="0.1.0")
     app.state.storage = storage
     app.state.config = config
     app.state.jobs = runner
+    app.state.confirm_gate = gate
 
     # The recorder runs inside whatever page the tester is on, so the POST is
     # cross-origin by definition. Local-only server, local-only exposure.
@@ -191,7 +194,7 @@ def create_app(
         run_id = _run_id(storage, recording.id)
         job = runner.enqueue(
             recording.id,
-            lambda job: _run(job, recording, storage, _model(), options, config),
+            lambda job: _run(job, recording, storage, _model(), options, config, gate),
             run_id=run_id,
         )
         return {
@@ -200,6 +203,10 @@ def create_app(
             # than a promise in a document.
             "unknownOrigins": unknown,
             "narration": transcription,
+            # How long authoring will hold for the confirmation screen. The
+            # export page opens that screen, so it is the one surface that
+            # knows the hold started; 0 means the run is already authoring.
+            "confirmWindowSeconds": config.confirm_window_seconds,
         }
 
     @app.get("/api/recordings/{recording_id}/expectations")
@@ -212,7 +219,14 @@ def create_app(
         stored = storage.load_expectations(recording_id)
         if stored is None:
             raise HTTPException(404, f"no expectations for {recording_id} yet")
-        return stored
+        # `holdingUntil` is an INSTANT rather than a remaining duration. This
+        # screen is opened seconds after Stop sometimes and minutes after at
+        # others, and a countdown seeded with the full window would be wrong in
+        # exactly the case where the tester most needs it to be right. Absent
+        # means nothing is holding: either the window closed and a draft is
+        # being written, or one was written long ago. Answering still works.
+        deadline = gate.deadline(recording_id)
+        return {**stored, "holdingUntil": deadline.isoformat() if deadline else None}
 
     @app.post("/api/recordings/{recording_id}/expectations")
     def post_expectations(recording_id: str, payload: ExpectationAnswers) -> dict[str, Any]:
@@ -257,8 +271,24 @@ def create_app(
             if answer.note:
                 target.note = answer.note
 
+        # Saved BEFORE the gate is released, and that order is the whole
+        # argument in `server/api/confirm.py` that a lost update is impossible:
+        # a run woken by this call re-reads the file, and the file is already
+        # written when it wakes.
         expectations.confirmedAt = datetime.now(UTC)
         storage.save_expectations(expectations)
+
+        if gate.release(recording_id):
+            # A run was still holding between the guess and the author, so the
+            # answers go into the document it is about to write and there is no
+            # second run to pay for. This is the common path: the export page
+            # opens this screen the moment Stop lands.
+            held = runner.latest(recording_id)
+            return {
+                "job": held.as_dict() if held else None,
+                "foldedIn": True,
+                "expectations": expectations.model_dump(mode="json", exclude_none=True),
+            }
 
         recording = Recording.model_validate(storage.load_recording_json(recording_id))
         run_id = _run_id(storage, recording_id)
@@ -274,7 +304,31 @@ def create_app(
             ),
             run_id=run_id,
         )
-        return {"job": job.as_dict(), "expectations": expectations.model_dump(mode="json", exclude_none=True)}
+        return {
+            "job": job.as_dict(),
+            # The window had closed, so these answers cost a second run. Said
+            # out loud because it is the difference the tester can actually act
+            # on next time, and because "your draft is being rewritten" and
+            # "your draft is being written" are different sentences.
+            "foldedIn": False,
+            "expectations": expectations.model_dump(mode="json", exclude_none=True),
+        }
+
+    @app.post("/api/recordings/{recording_id}/expectations/skip")
+    def skip_expectations(recording_id: str) -> dict[str, Any]:
+        """Start authoring now, on the guesses.
+
+        Skipping has always been legitimate and free. What is new is that it is
+        now also FASTER: the run is holding, and this ends the hold rather than
+        walking away from a run that had already started without you.
+
+        Not an error when nothing is holding -- the window may have closed, or
+        the recording may have been authored long ago. Either way the tester's
+        intent is satisfied: nothing is waiting on them.
+        """
+        released = gate.release(recording_id)
+        held = runner.latest(recording_id)
+        return {"released": released, "job": held.as_dict() if held else None}
 
     @app.post("/api/recordings/{recording_id}/audio", status_code=201)
     async def post_audio(recording_id: str, request: Request) -> dict[str, Any]:
@@ -363,12 +417,22 @@ def create_app(
         agreed" is the whole point of storing it. Nothing had ever read it.
 
         This does not make the run wait. `POST /api/recordings` still guesses,
-        runs and produces a draft on the guesses alone, and answering enqueues a
-        SECOND run -- the skip path is the one that has to be right, because it
-        is what happens by default.
+        runs and produces a draft on the guesses alone, and answering re-runs
+        the recording IN PLACE -- the skip path is the one that has to be right,
+        because it is what happens by default.
+
+        **Only recordings with a live run count.** Archiving moves the RUN, under
+        `runs/_archive/`, and never the recording -- so a recording stayed
+        pending forever once its run was archived, and the banner offered a
+        tester work on drafts that are no longer on the review screen. Nothing
+        good comes of answering one: the answers are an input to authoring, and
+        authoring would re-run a recording whose output somebody has already
+        decided they are done with.
         """
         out: list[dict[str, Any]] = []
         for recording_id in storage.list_recordings():
+            if not _has_live_run(storage, recording_id):
+                continue
             stored = storage.load_expectations(recording_id)
             if not stored or stored.get("confirmedAt"):
                 continue
@@ -756,12 +820,45 @@ def _run(
     model,
     options: PipelineOptions | None,
     config: ProjectConfig,
+    gate: ConfirmGate | None = None,
 ) -> dict[str, Any]:
     opts = options or PipelineOptions()
     opts.project = config
 
-    def progress(stage: PipelineStage) -> None:
-        job.detail = STAGE_DETAIL.get(stage, stage.value)
+    def await_answers(guess: ExpectationSet) -> ExpectationSet:
+        """Hold between the guess and the author, so answering costs one run.
+
+        Re-reads from disk whatever woke it -- an answer, a skip, or the window
+        closing. That re-read is what makes the timeout race harmless rather
+        than merely unlikely; see `server/api/confirm.py`.
+        """
+        assert gate is not None
+        job.detail = "waiting for you to confirm what should have happened"
+        gate.hold(recording.id)
+        job.detail = STAGE_DETAIL[PipelineStage.author]
+        stored = storage.load_expectations(recording.id)
+        if not stored:
+            return guess
+        try:
+            return ExpectationSet.model_validate(stored)
+        except Exception:  # noqa: BLE001 - a broken file degrades to the guess
+            return guess
+
+    if gate is not None and gate.window > 0:
+        opts.await_answers = await_answers
+
+    def progress(stage: PipelineStage, attempt: int = 1) -> None:
+        detail = STAGE_DETAIL.get(stage, stage.value)
+        # Say when a round is a REVISION, because the reviewer can see the
+        # consequence and not the cause. `_write_output` runs inside the
+        # author/judge loop, so round 1's feature file is on disk and being read
+        # while round 2 rewrites it -- on a real session a `Scenario Outline`
+        # became two plain scenarios between one refresh and the next, which is
+        # the judge working exactly as designed and reads as the tool changing
+        # its mind at random.
+        if attempt > 1:
+            detail = f"{detail} — revising, round {attempt} of {opts.max_author_rounds}"
+        job.detail = detail
 
     opts.on_stage = progress
 
@@ -897,6 +994,21 @@ def _run_id(storage: Storage, recording_id: str) -> str:
     if not existing:
         return "run_001"
     return max(existing, key=lambda p: p.stat().st_mtime).name
+
+
+def _has_live_run(storage: Storage, recording_id: str) -> bool:
+    """Is there a run of this recording on the review screen?
+
+    The same question `_list_runs` answers, asked without parsing every
+    `ir.json` -- this runs once per recording on a dashboard poll, and the
+    recordings directory outnumbers the runs directory by a factor of ten.
+
+    A run directory with nothing in it yet still counts: that is a job in
+    flight, which is exactly when the confirmation screen is most worth
+    offering.
+    """
+    root = storage.runs_dir / recording_id
+    return root.is_dir() and any(child.is_dir() for child in root.iterdir())
 
 
 def _list_runs(storage: Storage) -> list[dict[str, Any]]:

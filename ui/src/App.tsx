@@ -301,8 +301,21 @@ export function App() {
     return (
       <Confirm
         recordingId={route.recordingId}
-        onDone={() => {
-          go({ name: 'review' });
+        onDone={(runId) => {
+          // Answering re-runs the recording IN PLACE, so by the time this
+          // fires the draft in the drafts list is already being replaced.
+          // Sending the tester there showed them the run they had just
+          // superseded, on a screen with no sign anything was happening --
+          // they had pressed the most valuable button in the product and the
+          // interface answered by looking like it had lost their work.
+          //
+          // `/runs/<rec>/<run>` already renders the in-flight state, and the
+          // run id comes back on the job the answers started.
+          go(
+            typeof runId === 'string' && runId
+              ? { name: 'run', recordingId: route.recordingId, runId }
+              : { name: 'review' },
+          );
           refresh();
         }}
       />

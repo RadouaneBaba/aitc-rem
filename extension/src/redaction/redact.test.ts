@@ -233,3 +233,62 @@ describe('the redaction level', () => {
     expect(new Redactor(undefined, 'secrets_only').redactionLevel()).toBe('secrets_only');
   });
 });
+
+describe('a field name that merely CONTAINS a short secret word', () => {
+  /**
+   * The rule that decides by context runs at every level except `off`, so a
+   * false positive here is one the tester cannot turn off and cannot see: the
+   * value reaches disk as `<<password>>`, no verdict can bind to it, and
+   * nothing anywhere says why.
+   *
+   * Found on the field names of a gift-card form -- the one artifact where the
+   * whole test is "do the details I typed come back on the confirmation page".
+   * `pin` is inside "shipping"; `cc` is inside "occasion", "account" and
+   * "success"; `auth` is inside "author"; `pass` is inside "passenger".
+   */
+  it.each([
+    'shipping',
+    'shippingAddress',
+    'shipping-method',
+    'occasion',
+    'account',
+    'accountName',
+    'success-message',
+    'author',
+    'passenger',
+  ])('%s is an ordinary field and keeps its value', (name) => {
+    const el = document.createElement('input');
+    el.setAttribute('name', name);
+    expect(isSecretField(el)).toBe(false);
+  });
+
+  /** And the narrowing did not cost the cases the rule exists for. A short key
+   *  still matches wherever it is a word of its own, which is how field names
+   *  are actually written. */
+  it.each([
+    'password',
+    'userPassword',
+    'password_confirm',
+    'pass',
+    'pwd',
+    'cc',
+    'cc-number',
+    'ccNumber',
+    'ccnumber',
+    'cardNumber',
+    'card_number',
+    'cvv',
+    'cardCvv',
+    'cvc',
+    'pin',
+    'auth',
+    'auth_token',
+    'apiKey',
+    'sessionId',
+    'ssn',
+  ])('%s is still recognised as a secret field', (name) => {
+    const el = document.createElement('input');
+    el.setAttribute('name', name);
+    expect(isSecretField(el)).toBe(true);
+  });
+});

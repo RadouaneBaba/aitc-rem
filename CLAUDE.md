@@ -38,7 +38,10 @@ pnpm codegen                   # regenerate from schema/ after editing a .schema
 
 # Which house style the author writes in. `style:` in config/project.yaml, and
 # each name is a file in server/pipeline/styles/ holding one good .feature.
-#   automation  -> every action, specific values (the default)
+#   journey     -> the whole flow as ONE Scenario Outline reaching one outcome,
+#                  every value that identifies WHICH item in an Examples table,
+#                  section comments where the journey turns. THE DEFAULT.
+#   automation  -> every action, specific values in the prose, shorter scenarios
 #   business    -> few steps, plain language, one verdict per scenario
 #   data-driven -> a repeated flow becomes one Scenario Outline; a flow that
 #                  happened once stays a plain Scenario
@@ -77,6 +80,18 @@ rebuild of `run.py` once. Commit before experimenting on a file instead.
 **Never weaken a validator to make output pass.** The gate is the product. If a
 true assertion is being rejected, the bug is upstream — in what the agent was
 shown, or in what got stored — not in the validator.
+
+*Two changes on 2026-08-30 look like exceptions and are the rule being applied.*
+Both were cases where the gate was answering a question nobody asked. `_rescue`
+retrieves the moment a claim is about before refusing it, because "must point at
+a retrieval made in this run" had been enforced as "must point at a retrieval
+the author HAPPENED TO MAKE" -- the claim still cites one real, hashed,
+re-checkable retrieval. And a predicate that returns **cannot-evaluate** no
+longer refuses, because `predicate.py`'s own docstring says it must not: the
+claim keeps the plain `contains` it would have had with no predicate, and the
+gap is recorded on `Evidence.predicateUnresolved`. A predicate that evaluates
+FALSE still refuses. Nothing here lowered a bar; both moved a check off a
+question about this run's luck and back onto the recording.
 
 **`canonical_json` is the only serializer for tool responses.** Any variance in
 key order or whitespace between write and re-read breaks the hash and rejects a
@@ -204,8 +219,14 @@ first emission was rejected once on exactly that objection. If the body does not
 parse or the join fails, `author._parse` falls back to the old JSON path and
 marks the document `degraded`.
 
-**The `.feature` body is still prose, and nothing else.** No comments, no ids,
-no review markers, no fidelity flags. All of that lives in the `.trace.md`
+**The `.feature` body is prose, and the only comments in it are the author's
+own section headings.** No ids, no review markers, no fidelity flags, and
+nothing the pipeline generates about itself. A `# choose the product and add it
+to bag` between two beats of a forty-line journey is part of the writing -- the
+`journey` style's worked example uses them and a scenario that long is
+unreadable without them. The distinction that matters is authorship: a comment a
+QA lead would have typed stays; a comment the tool emits about its own
+bookkeeping does not. All of that lives in the `.trace.md`
 sidecar (`server/renderers/trace_md.py`); the machine-readable form is in
 `ir.json` and `trace.json`, which is what the validators read.
 
@@ -263,6 +284,29 @@ a file in `server/pipeline/styles/` holding one good feature file written that
 way. Adding a style is writing one; nothing else in the pipeline changes. That
 is the only mechanism that has ever moved output here -- every content RULE
 added to a drafting prompt measured at or near zero uptake.
+
+**`journey` is the default as of 2026-08-30, and a QA lead is why.** Reading the
+`automation` output they said it was not a test case: *"the order summary shows a
+total of $49.50"* is a fact about one afternoon, where the test is *add these
+products and the bag totals their prices*. Their own files are journey-length
+`Scenario Outline`s -- every value that identifies WHICH item in an `Examples`
+table, section comments where the flow turns, per-scenario tags -- because the
+step text has to read the same for any of a million products.
+
+The reconciliation with the gate is the table, and it already existed: **the LINE
+is templated and the LITERAL is concrete.** `Then the first product shown is
+<first>` with `evidence.literal: "£275.00"`. A `<placeholder>` as a literal
+proves nothing, because no page ever said `<price>`.
+
+Two things had to move with it, and both were the pipeline arguing against the
+style: `parameters: outline` in `project.yaml`, and the judge. `judge.py`'s
+`one_scenario_one_behaviour` had ordered a `Scenario Outline` split into two
+plain scenarios on a real run, so round 2 shipped output FURTHER from the target
+-- it now says what decides one behaviour is the OUTCOME and never the length,
+and `name_matches_verdict` asks for the outcome the body reaches rather than
+every verdict in it. Reworded rather than made style-aware: `judge.py:360` still
+does `del config`, and teaching the judge a house style is worse than writing
+two checks that are correct for both.
 
 **`narrative.py` lays out what the author chose.**
 Given/When/Then used to be DERIVED from a step's role plus its position, and
@@ -443,6 +487,20 @@ scenario ended silently without a `Then`, and a style warning said so in a
 vocabulary nobody outside the pipeline reads -- 27 of those warnings turned out
 to be a readout of the capture bug, and not one told a reviewer what to do.
 
+**And as of 2026-08-30 the SENTENCE is no longer deleted either.** Naming the
+refusal fixed half of it; the half it left is the one the tester sees, because
+the scenario still stopped on a `When` and the comment underneath named the STEP
+rather than the claim. `_refuse` now also writes an `Assertion` carrying
+`status: "unproved"` and the reason, so the verdict is a `Then` line in the file
+and says what it is. Three places keep that from being mistaken for a proved
+claim, and none of them is a convention: `grounding._assertions` filters it out
+(`evidence_retrieved` would otherwise reject every one), `claim_total` and
+`_metrics` count proved claims only (a rate that counted these would fall
+whenever the author was honest -- the vacuous-rate trap in its eighth costume),
+and every renderer labels it. `Assertion.evidence` is optional exactly when
+`status` is `unproved`; **read it guarded**, and `scripts/prove_grounding.py`
+was the first thing that did not.
+
 **The FILE decides whether a line is a verdict; the annotation only decides
 whether it can be proved.** A `Then` line -- or an `And` continuing a `Then`
 block -- is read as a verdict whatever its annotation says, and refused through
@@ -545,6 +603,36 @@ tuning the pipeline tunes the instrument.
 Bounded at **two author rounds**, and a revision that would put two adjacent
 steps with identical text in one scenario is refused whole (`_collapsing_pair`)
 -- `merge_repeats` would fold them and the document would silently lose a step.
+
+**The last round is not automatically the one that ships.** Two documents were
+always written and both were always judged, and nothing chose between them --
+the later one shipped for no reason beyond being later. It cost a real artifact:
+on `rec_MTG3YY559C5U/run_001` the judge told round 1 its `Scenario Outline`
+combined two sorting behaviours and should be split, round 2 obeyed, and the
+outline -- the shape the house style now asks for -- was written, judged and
+discarded. `author.json`, `ir.json` and the `.feature` are rewritten in place
+each attempt, so it was not even on disk to compare against.
+
+`_pick_round` now ships the last round **unless an earlier one dominates it** --
+at least as good on all three comparable things and better on one:
+
+* **the gate**, because `evidence_retrieved` checks a fact and the judge reads
+  prose;
+* **proved verdicts**, because an unproved claim is filtered out of the gate and
+  draws no findings, so a document that claims NOTHING passes cleanly and scores
+  zero `fail`s. Ranked on findings alone the emptiest document a run can produce
+  wins every time -- the vacuity trap arriving at its ninth column;
+* **judge `fail`s**, not `weak`s: a finding somebody would sign after an edit
+  must not decide between two documents.
+
+**Strict dominance rather than a weighted score, and the refusal to weight is
+the design.** Any number balancing "how much it proves" against "how much a lead
+would send back" is one somebody made up, and it is gameable in both directions
+-- pad the verdicts, or refuse them all. Dominance declines to choose in the
+middle, where the honest answer is that nobody knows. With the judge off (A0,
+A1) nothing can dominate on findings and the behaviour is what it always was.
+The non-shipped round's model calls and investigation are folded into the trace,
+or shipping an earlier round would hide what the run spent.
 
 **`judgeFails` is a count and never a rate.** `Converged` reported 1-of-9 while
 measuring how much of what the critic said the loop was *allowed* to act on.
@@ -702,7 +790,16 @@ several sets of values. Distinct from `parameters: outline`, which lifts
 redaction placeholders into a one-row table and is a rendering setting. An
 author table wins where both exist, and `_outline_names` returns nothing then --
 or `_step_text` would rewrite `<<password>>` into `<password>` in a scenario
-whose table has no such column. Two rows minimum: one row is not a table.
+whose table has no such column.
+
+*One row is a table, and it did not used to be.* The floor was two, on the
+argument that a single row is a scenario with extra ceremony -- right about a
+table used as a DATA MATRIX and wrong about the other use, which is the one a QA
+team writes. There the table is the PARAMETER CONTRACT: `<product>` in the step
+text is what makes the scenario a test of the feature rather than a transcript
+of one session, and the row records which values this run used. Three of the
+four reference files the `journey` style was built from ship exactly one row. A
+table with NO rows is still refused.
 
 **`Step.keyword` is derived, and `sync_keywords` keeps it honest.** Both
 `ir.json` and the feature file get it from `build_narrative`.
@@ -804,6 +901,38 @@ before this links to.
 /api/recordings` guesses, runs, and produces a draft on the guesses alone. The
 skip path is the one that has to be right, because it is what happens by
 default.
+
+**It may HOLD, though, and the distinction is a bound versus a dependency.**
+Answers are an input to authoring rather than an edit to its output, so a
+recording answered afterwards has to be authored again -- and that repeats the
+author (up to two rounds) and the judge after each, to replace a draft nobody
+had read. The guess is not repeated (it is saved beside the recording and
+re-read), so what the common path was paying twice for was the whole expensive
+half. On a free tier whose real limit is requests per DAY that is most of a
+day's budget.
+
+`ConfirmGate` (`server/api/confirm.py`) stops the run between the guess and the
+author for `confirm_window_seconds`, and an answer, a skip, or the window
+closing all release the SAME job. **The re-run path stays and must stay**: a
+late answer has to count, and for it a second run is the only way to get one.
+`foldedIn` on the answer response is which of the two happened, because "being
+written" and "being rewritten" are different sentences to put in front of a
+tester.
+
+Two things are load-bearing and neither is a convention. **`hold` re-reads
+`expectations.json` after waking, whatever woke it, and the endpoint saves
+before it releases** -- those two orderings together are the whole argument that
+no ordering exists in which the endpoint reports the answers were folded in and
+the author proceeds without them. And **the deadline sent to the screen is an
+INSTANT, not a remaining duration**: that screen is opened seconds after Stop
+sometimes and minutes after at others, and a countdown seeded with the full
+window would be wrong in exactly the case where the tester most needs it right.
+
+`PipelineOptions.await_answers` is the seam and it is deliberately ignorant --
+the pipeline knows only that something may want to intervene there, and the API
+owns how long that is worth. The CLI passes nothing and behaves as it always
+has. Not called when the caller handed in expectations, and not called on an
+empty guess: a screen that opens on nothing is a wait nobody can end.
 
 **One recording, one run.** Answering the confirmation screen re-runs IN PLACE
 (`api._run_id`) rather than enqueuing a second run beside the first, which is
@@ -961,6 +1090,21 @@ command, not by comparing against the artifact already in the run directory.
 **The picker's own click was recorded as a step that never happened.** The
 recorder ignores events while `picker.active`.
 
+**A settle window must not be ended by a URL CHANGE.** `settle.ts` finished on
+the first mutation after `location.href` differed, with no quiet window and no
+in-flight check -- a rule written for a document replacement, where no further
+mutations arrive, and exactly wrong for the `pushState` every faceted commerce
+listing routes with. The url changes the instant the control is operated and the
+results land hundreds of ms later, so the `after` snapshot was of the page being
+LEFT, stored under the new url. Measured on `rec_MTG3YY559C5U`: sorting a tea
+listing high to low settled after 571 ms with 12 mutations and one request still
+in flight, and captured the UNSORTED list; the same code on the same page waited
+1055 ms for the other sort and got the right one. A navigation now ARMS the
+window -- it decides what the reason is called -- and the quiet timer's two
+conditions decide when it ends. The cost is real and bounded: an action opening
+a request that never completes waits out the 5s timeout rather than finishing
+early, which is `settle_timeout` and is better than a confident wrong page.
+
 **A mark with no words in it is not a mark, and the picker used to record one
 anyway.** `nameOf` returns `""` for an unnamed `<div>` -- which is what a
 commercial site's mini-cart panel is -- so both real marks ever made with this
@@ -968,11 +1112,44 @@ tool came back `{role: "div", name: ""}` on the same `#ui-id-17`. The tester
 pointed at the bag twice, believed they had marked it twice, and the pipeline
 received nothing twice, with no feedback either time. The popup promises the
 mark becomes an expected result WORD FOR WORD, and there were no words.
-`picker.describe` now falls back to the element's visible text (redacted through
-`redactKnownSecrets`, capped at `MAX_FALLBACK_NAME` because a whole panel is not
-a verdict), and a click with nothing quotable is REFUSED with a hint while the
-picker stays open. Silently recording an empty target is what taught the tester
-the feature works.
+`picker.describe` now falls back to the element's visible text, and a click with
+nothing quotable is REFUSED with a hint while the picker stays open. Silently
+recording an empty target is what taught the tester the feature works.
+
+*That fix then refused too much, and the cap was the whole reason.* The text
+fallback gave up over 120 characters, so a product CARD -- title, price, button,
+copy -- was unmarkable, and a tester asked to show that a list had sorted was
+refused twice and fell back to marking two bare prices. Three changes, all
+2026-08-30:
+
+* **`name` and `text` are different questions.** `name` is a short handle and is
+  now always a WHOLE string that really appears on the page -- the accessible
+  name, else the element's own text, else the first named thing inside it, which
+  for a card is the product's title. Never a truncation: a half-sentence ending
+  in an ellipsis gets quoted back as a literal and refused by the gate, which is
+  worse than having no name. `AnnotationTarget.text` carries the words.
+* **Arrow up and down widen and narrow the mark**, and the highlight always
+  outlines what will be recorded. Deliberately manual -- resolving the
+  "meaningful" ancestor automatically means the tester clicks one thing and the
+  recorder stores another, which is the surprise this feature exists to remove.
+* **One picker session can mark SEVERAL things**, sharing a `groupId` and
+  numbered in the order pointed. A sort, a total and a difference are claims
+  about a RELATION and one target cannot express one. Each mark is sent the
+  moment it lands rather than on a commit gesture: there is no keystroke a
+  tester can forget and lose their work to. **The picker now stays open until
+  Escape**, and `picking` guards every recorder listener -- a caller that
+  forgets to close it silently swallows the rest of the session, which is what
+  the e2e `pick()` helper did until it was taught to press Escape.
+
+**`AnnotationTarget.ordinal` is why a sort can be talked about at all.** The css
+selector always carried `div.product:nth-of-type(1)` and nothing downstream could
+read it, so two marks on the first and second rows of a sorted list reached the
+author as two identical lines. `digest._annotation` prints role, ordinal and mark
+number now -- it printed `target.name` and nothing else, dropping the one field
+(`role`) that a predicate's address is built from -- and `_mark_groups` prints a
+banner when several marks share a moment. It is still true that ORDER cannot be
+PROVED on a page whose grid has no accessible name; `ordinal` is the route to
+fixing that and is not wired to `first_of` yet.
 
 **A predicate addresses a container by role and accessible name, and a
 commercial page's containers have neither.** On `rec_MTFGTP9YNBNC` the author
@@ -986,6 +1163,22 @@ lookup.
 
 **Attribution direction is not the same for every annotation.** An assertion
 annotation comes AFTER what it points at; an intent note comes BEFORE.
+
+**A short sensitive key matched as a SUBSTRING redacted half a commerce form.**
+`isSensitiveKey` did `k.includes(s)`, so `pin` matched **shipping**, `cc`
+matched **occasion**, **account** and **success**, `auth` matched **author** and
+`pass` matched **passenger**. Every one is an ordinary field, and this rule
+decides by CONTEXT -- so it runs at `secrets_only`, the recorder default, and
+there is no level short of `off` at which the tester gets the value back. The
+value reaches disk as `<<password>>`, no verdict can bind to it, and nothing
+says why: on a gift-card form, where the whole test is *do the details I typed
+come back on the confirmation page*, it deletes the test. It hits response
+bodies too, through `redactJson`. A key longer than `WHOLE_TOKEN_MAX` still
+matches anywhere; a short one has to be a word of its own, splitting on
+separators AND camelCase -- so `isSecretField` must pass the name with its case
+intact, or `cardCvv` is one unsplittable token. The same narrowing as the 2026-
+08-28 pattern rules and for the same reason: a scan destroying evidence to
+protect a value nobody entered.
 
 **An imported recording is not redacted.** `server/importers/devtools.py`
 redacts before constructing the `Recording`.
@@ -1227,6 +1420,49 @@ verdicts, one is a real test (`$49.50`, 2 occurrences) and two are decoration
 open defect**, they are the most common judge `fail` in the corpus, and the next
 move is feeding a weak grade back to the author with the candidate element
 names -- not another rule in the prompt.
+
+### And 2026-08-30, later -- what the QA tester said
+
+A QA tester read the output of three real sessions and rejected it, and five
+separate product complaints came with it. Almost all of it traced to four
+causes, each written up above:
+
+* **The recorder was losing the page.** `url_change` ended the settle window on
+  the first mutation, so a sorted list was captured unsorted.
+* **The binding was deleting true verdicts.** Two of six refusal conditions
+  fired wrongly on one run, and both had a cause that was not about the claim:
+  the author looked one event over, and a commercial grid has no named container
+  for a predicate to address.
+* **The picker could not mark what testers point at.** A product card was
+  unmarkable, and the positional information the marks DID carry was dropped by
+  `digest._annotation`.
+* **The house style was wrong for the audience.** `journey` is now the default.
+
+Also landed: a claim that cannot be proved is written into the file as
+`status: "unproved"` rather than deleted; the confirmation screen returns to the
+run it just restarted instead of the drafts list; unanswered guesses no longer
+point at archived runs; a revising round says so in the job detail; expectations
+carry `rank` so the confirmation screen leads with what the session was FOR.
+
+**What is measured and what is not.** The rescue works: on `rec_MTG3YY559C5U`
+the `£275.00` verdict the tester had marked by hand now binds, through a real
+retrieval of `evt_004.before`, at `medium` strength and 2 occurrences. The mark
+grouping reaches the model -- the judge's own finding now reads *"the tester
+explicitly marked two prices (£5.95 and £6.95)"*, which is information that did
+not exist before. **The output shape is not settled**: across three runs of that
+recording the author produced a `Scenario Outline` twice and two plain scenarios
+once, and the judge raised two `fail`s on all three. The free-tier daily budget
+was exhausted partway through (276 calls against a limit of 200), so those runs
+are not a clean comparison -- read them as "the machinery works", not as "the
+output is good".
+
+**The open defect is unchanged and now has a name.** A verdict about ORDER
+cannot be proved on a page whose product grid carries no accessible name:
+`first_of` returns cannot-evaluate, the claim degrades to containment, and the
+judge correctly says a single price proves nothing about sorting.
+`AnnotationTarget.ordinal` is now captured and is the route to fixing it -- bind
+a predicate to the element the tester marked, by selector and position, rather
+than by a role and name the page does not have. It is not wired up.
 
 **Not done, and next: MCP.** `ToolRunner.call` is the seam -- a live agent's
 retrievals must be persisted and hashed there or they never reach

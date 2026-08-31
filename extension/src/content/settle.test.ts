@@ -40,7 +40,12 @@ describe('waitForSettle', () => {
 
   /** Drives the state machine on fake timers so the tests do not actually wait. */
   function harness(
-    opts: { inFlight?: () => number; timeoutMs?: number; quietMs?: number } = {},
+    opts: {
+      inFlight?: () => number;
+      timeoutMs?: number;
+      quietMs?: number;
+      urlChanged?: () => boolean;
+    } = {},
   ) {
     const transient: Element[] = [];
     const handle = waitForSettle({
@@ -48,6 +53,7 @@ describe('waitForSettle', () => {
       inFlight: opts.inFlight ?? (() => 0),
       onTransient: (el) => transient.push(el),
       timeoutMs: opts.timeoutMs ?? 5000,
+      ...(opts.urlChanged ? { urlChanged: opts.urlChanged } : {}),
       ...(opts.quietMs !== undefined ? { quietMs: opts.quietMs } : {}),
     });
     return { handle, transient };
@@ -93,6 +99,56 @@ describe('waitForSettle', () => {
     vi.useRealTimers();
   });
 
+  it('a url change does not end the window while the results are still coming', async () => {
+    // The defect this replaces, in one test. A single-page application routes
+    // by changing the url FIRST and rendering the answer when the network
+    // returns; the old rule called `finish('url_change')` from inside the
+    // MutationObserver on the first mutation after `location.href` differed,
+    // so the `after` snapshot was of the page being left.
+    //
+    // Measured on rec_MTG3YY559C5U: sorting a tea listing high to low settled
+    // as `url_change` after 571ms with one request in flight, and captured the
+    // UNSORTED list under the sorted url. The verdict the tester had marked by
+    // hand was then refused for want of evidence the recorder had discarded.
+    // No DOM writes here on purpose: what is under test is that the url alone
+    // no longer finishes the window, and driving happy-dom's MutationObserver
+    // under fake timers leaks records into the real-timer tests below.
+    vi.useFakeTimers();
+    let inFlight = 1;
+    const { handle } = harness({ inFlight: () => inFlight, urlChanged: () => true });
+
+    let settled = false;
+    void handle.done.then(() => (settled = true));
+
+    // The route change has landed and the results are still on the wire. Under
+    // the old rule this window was already over.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(settled).toBe(false);
+
+    // The results arrive.
+    inFlight = 0;
+    await vi.advanceTimersByTimeAsync(400);
+
+    const info = await handle.done;
+    expect(info.reason).toBe('url_change');
+    vi.useRealTimers();
+  });
+
+  it('still finishes a navigation that replaces the document and mutates nothing', async () => {
+    // The case rule 3 was written for, and the one that must not regress: a
+    // full document replacement produces no further mutations to observe, so
+    // the quiet timer is the only thing that will ever fire for it. Reaching
+    // the finish means quiet AND drained either way -- the url only decides
+    // what the reason is called.
+    vi.useFakeTimers();
+    const { handle } = harness({ urlChanged: () => true });
+    await vi.advanceTimersByTimeAsync(320);
+    const info = await handle.done;
+    expect(info.reason).toBe('url_change');
+    expect(info.mutationCount).toBe(0);
+    vi.useRealTimers();
+  });
+
   it('reports a live region the moment it appears, ahead of settle', async () => {
     // A toast frequently vanishes within three seconds. Without this early
     // capture, an assertion about it could never be grounded.
@@ -105,7 +161,7 @@ describe('waitForSettle', () => {
 
     expect(transient).toHaveLength(1);
     expect(transient[0]!.textContent).toBe('Order confirmed');
-    handle.cancel();
+    handle.cancel('superseded');
   });
 
   it('notices a live region that already existed and only just gained text', async () => {
@@ -117,7 +173,7 @@ describe('waitForSettle', () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(transient).toHaveLength(1);
-    handle.cancel();
+    handle.cancel('superseded');
   });
 
   it('a window ended by the next action says so, and stops absorbing the page', async () => {

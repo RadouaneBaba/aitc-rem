@@ -65,7 +65,11 @@ test.afterAll(async () => {
   await context?.close();
 });
 
-async function startRecording(objective: string, narrate = false): Promise<Page> {
+async function startRecording(
+  objective: string,
+  narrate = false,
+  redaction?: 'full' | 'secrets_only' | 'off',
+): Promise<Page> {
   // Open the application first: the popup is a tab in this harness, and the
   // worker deliberately refuses to record its own UI.
   const page = await context.newPage();
@@ -76,6 +80,22 @@ async function startRecording(objective: string, narrate = false): Promise<Page>
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await popup.fill('#objective', objective);
+  // Chosen through the real control when a test's assertions depend on it.
+  //
+  // The popup default is `secrets_only`, which turns off the pattern scan --
+  // the half that decides by SHAPE -- so a typed email is kept where under
+  // `full` it becomes a placeholder. A test asserting on that has to SAY which
+  // level it means: relying on the default made it a test of whatever the
+  // default happened to be, and it silently became a different test the day
+  // the default changed.
+  if (redaction) {
+    // Through the gear, the way a tester reaches it. The pane is `hidden` until
+    // then, and driving `chrome.storage` directly would exercise a path nobody
+    // uses.
+    await popup.click('#settings');
+    await popup.click(`[data-level="${redaction}"]`);
+    await popup.click('#settings-done');
+  }
   await popup.click('#start');
   await expect(popup.locator('#active')).toBeVisible();
   await popup.close();
@@ -172,7 +192,15 @@ async function stopAndCollect(): Promise<Captured> {
 }
 
 test('records a checkout flow into a schema-valid recording.json', async () => {
-  const page = await startRecording('Check that an order over EUR500 requires approval');
+  // `full`, explicitly, because this test asserts on the PATTERN SCAN -- that a
+  // typed email becomes a placeholder. That scan is exactly what `secrets_only`
+  // (the popup default) turns off, so under the default this assertion is about
+  // a guarantee the recording never claimed to make.
+  const page = await startRecording(
+    'Check that an order over EUR500 requires approval',
+    false,
+    'full',
+  );
 
   // --- sign in -------------------------------------------------------------
   await page.fill('#email', 'tester@example.com');
@@ -397,14 +425,20 @@ test('records what the tester pointed at and what they named', async () => {
   await pause(page);
   await expect(page.locator('.cart-badge')).toHaveText('1');
 
-  // ...and then points at the thing they are actually verifying.
-  await pick(page, '.cart-badge');
+  // ...and then points at the thing they are actually verifying. Twice, in one
+  // picker session, which is how a tester says "check these against each
+  // other" -- the shape a sort, a total or a difference has, and the shape the
+  // picker could not express at all until it stopped resolving on the first
+  // click. A tester asked to show that a list had sorted was refused twice and
+  // fell back to marking two bare prices, which reached the author as two
+  // identical lines with nothing to say they belonged together.
+  await pick(page, '.cart-badge', 'button:has-text("Add Blue Widget to cart")');
 
   await page.close();
   const recording = await stopRecording();
 
   const marked = recording.annotations.filter((a) => a.kind === 'assertion');
-  expect(marked).toHaveLength(1);
+  expect(marked).toHaveLength(2);
   // Role and ACCESSIBLE NAME, the same vocabulary every event uses -- an
   // annotation described differently could not be matched to a step or grounded
   // against a snapshot. Note this is the badge's aria-label rather than its
@@ -412,6 +446,14 @@ test('records what the tester pointed at and what they named', async () => {
   // string an assertion quoting this annotation can actually be grounded on.
   expect(marked[0].target?.name).toContain('Cart contains 1');
   expect(marked[0].target?.selectors.css).toBeTruthy();
+
+  // One picker session, so one group -- and numbered, because the order the
+  // tester pointed in is the order they mean. `digest.py` prints that grouping
+  // as an instruction to the author; without it two marks are two unrelated
+  // facts and the relation between them, which is the whole claim, is lost.
+  expect(marked[0].groupId).toBeTruthy();
+  expect(marked[1].groupId).toBe(marked[0].groupId);
+  expect(marked.map((a) => a.index)).toEqual([1, 2]);
 
   const notes = recording.annotations.filter((a) => a.kind === 'intent_note');
   expect(notes).toHaveLength(1);
@@ -429,6 +471,10 @@ test('records what the tester pointed at and what they named', async () => {
   // that would put a step in the test case that never happened.
   expect(owning[0].target.name).toContain('Blue Widget');
   expect(recording.events.some((e) => e.target.name?.includes('Cart contains'))).toBe(false);
+  // Both marks land on that one event, which is what makes the group visible to
+  // `digest._mark_groups` -- it reads them per event, because that is where the
+  // author sees them.
+  expect((owning[0].annotations ?? []).filter((a) => a.kind === 'assertion')).toHaveLength(2);
 
   mkdirSync(FIXTURE_OUT, { recursive: true });
   writeFileSync(
@@ -467,7 +513,7 @@ async function annotate(kind: string, text?: string): Promise<void> {
  * element in the page. The popup closes itself for the same reason it does for
  * a real tester -- a focused popup swallows the first click on the page.
  */
-async function pick(page: Page, selector: string): Promise<void> {
+async function pick(page: Page, ...selectors: string[]): Promise<void> {
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   // The popup closes itself here -- that is the feature, not a race: a focused
@@ -477,8 +523,16 @@ async function pick(page: Page, selector: string): Promise<void> {
   if (!popup.isClosed()) await popup.close();
 
   await page.bringToFront();
-  await page.hover(selector);
-  await page.click(selector);
+  for (const selector of selectors) {
+    await page.hover(selector);
+    await page.click(selector);
+  }
+  // Escape, because the picker STAYS OPEN until the tester leaves it -- that is
+  // how two things get marked as one comparison, and it is what a tester now
+  // does. Leaving it out is not a cosmetic difference in a helper: `picking`
+  // guards every recorder listener, so an armed picker silently swallows every
+  // event for the rest of the session and the recording comes back short.
+  await page.keyboard.press('Escape');
   await pause(page);
 }
 

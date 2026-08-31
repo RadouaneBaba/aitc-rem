@@ -294,9 +294,49 @@ function normaliseKey(key: string): string {
   return k === 'pwd' || k === 'passwd' || k === 'pass' ? 'password' : k;
 }
 
+/** Sensitive keys short enough that a substring match is a coin toss.
+ *
+ *  `pin` is inside "shipping". `cc` is inside "account", "occasion" and
+ *  "success". `auth` is inside "author"; `pass` is inside "passenger". Every
+ *  one of those is an ordinary field on a commerce page, and this rule decides
+ *  by CONTEXT -- so it runs at `secrets_only` too, which is the recorder
+ *  default, and there is no level at which the tester can get the value back.
+ *
+ *  A value redacted here is not merely hidden, it is *unassertable*: it reaches
+ *  disk as `<<password>>`, so nothing downstream can bind a verdict to it and
+ *  nothing says why. Measured on the field names of a gift-card form, where
+ *  "Occasion" and the shipping fields are exactly what the test is about.
+ *
+ *  This is the same narrowing the pattern rules got on 2026-08-28 for the same
+ *  reason -- a scan that destroys evidence to protect a value nobody entered --
+ *  and it is not a weakening: `password`, `cardnumber` and `sessionid` match
+ *  exactly as before, and a short key still matches whenever it is a word of
+ *  its own (`cc-number`, `cardCvv`, `pin`, `auth_token`). */
+const WHOLE_TOKEN_MAX = 4;
+
+/** The key as words: separators and camelCase both split.
+ *
+ *  `shippingAddress` -> [shipping, address], `cc-number` -> [cc, number],
+ *  `password_confirm` -> [password, confirm]. Splitting on the case boundary
+ *  is what lets a short key stay matchable in the names people actually write.
+ */
+function keyTokens(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
 export function isSensitiveKey(key: string): boolean {
-  const k = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-  return SENSITIVE_KEYS.some((s) => k === s.replace(/[^a-z0-9]/g, '') || k.includes(s.replace(/[^a-z0-9]/g, '')));
+  const flat = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const parts = keyTokens(key);
+  return SENSITIVE_KEYS.some((raw) => {
+    const s = raw.replace(/[^a-z0-9]/g, '');
+    // A long key is unambiguous wherever it appears: nothing innocent contains
+    // "cardnumber". A short one has to be a word of its own.
+    return s.length > WHOLE_TOKEN_MAX ? flat.includes(s) : parts.includes(s);
+  });
 }
 
 /** Context-based secret detection: type, autocomplete hint, name and id. */
@@ -308,7 +348,10 @@ export function isSecretField(el: Element): boolean {
   if (autocomplete.includes('password') || autocomplete === 'one-time-code') return true;
   if (autocomplete === 'cc-number' || autocomplete === 'cc-csc') return true;
 
-  const hint = `${el.getAttribute('name') ?? ''} ${el.id ?? ''}`.toLowerCase();
+  // Passed with its case intact: `isSensitiveKey` splits on the camelCase
+  // boundary to find a short key that is a word of its own, and lowercasing
+  // here first turns `cardCvv` into one unsplittable token.
+  const hint = `${el.getAttribute('name') ?? ''} ${el.id ?? ''}`;
   return isSensitiveKey(hint);
 }
 

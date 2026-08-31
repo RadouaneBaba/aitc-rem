@@ -215,17 +215,34 @@ def _lines(block: dict) -> list[ParsedLine]:
 def _examples(scenario: dict) -> ScenarioExamples | None:
     """The author's own `Examples` table, when it wrote one.
 
-    A judgement about test design -- one flow exercised with several sets of
+    A judgement about test design -- one flow exercised with a named set of
     values -- and distinct from `parameters: outline`, which lifts redaction
-    placeholders and is a rendering setting. Two rows minimum: one row is not a
-    table, it is a scenario with extra ceremony.
+    placeholders and is a rendering setting.
+
+    A single row is a table here, and it did not used to be.
+
+    The floor was two, on the argument that one row is a scenario with extra
+    ceremony and `parameters: inline` renders those values in the step text
+    where a reader finds them without looking in two places. That argument is
+    about a table used as a DATA MATRIX, and it is right about one.
+
+    It is wrong about the other use, which is the one a QA team actually writes:
+    the table is the PARAMETER CONTRACT. `<product>` in the step text is what
+    makes the scenario a test of the feature rather than a transcript of one
+    session -- an application with a million products needs a test that reads
+    the same for any of them -- and the row underneath says which values this
+    run used. Three of the four reference feature files this style was built
+    from ship exactly one row.
+
+    So a one-row table is kept. What is still refused is a table with no rows at
+    all, and a ragged one, because neither is a table under any reading.
     """
     for block in scenario.get("examples") or []:
         if not isinstance(block, dict):
             continue
         header = block.get("tableHeader")
         body = block.get("tableBody") or []
-        if not isinstance(header, dict) or len(body) < 2:
+        if not isinstance(header, dict) or not body:
             continue
         columns = [str(c.get("value") or "") for c in header.get("cells") or []]
         rows = [
@@ -234,7 +251,7 @@ def _examples(scenario: dict) -> ScenarioExamples | None:
             if isinstance(row, dict)
         ]
         rows = [r for r in rows if len(r) == len(columns)]
-        if columns and len(rows) >= 2:
+        if columns and rows:
             return ScenarioExamples(columns=columns, rows=rows)
     return None
 

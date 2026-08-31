@@ -35,6 +35,11 @@ class Proof:
     run: Path
     assertions: int = 0
     resolved: int = 0
+    #: Claims the author wrote and the gate could not license. They are in the
+    #: feature file, labelled, and they are NOT grounding claims -- counting
+    #: them in `assertions` would make the rate fall whenever the author was
+    #: honest, which is the vacuous-rate trap wearing yet another costume.
+    unproved: int = 0
     tool_calls: int = 0
     problems: list[str] = field(default_factory=list)
     tool_calls_per_step: dict[str, int] = field(default_factory=dict)
@@ -79,8 +84,15 @@ def prove(run: Path) -> Proof | None:
                 yield bug
 
     for case, step, assertion in claims():
-        proof.assertions += 1
         where = f"{case.id}/{step.id}/{assertion.id}"
+        # An unproved claim has no retrieval to resolve, by construction. It is
+        # counted apart rather than skipped silently: this script exists to say
+        # what a run can prove, and "two claims, one of them unproved" is a
+        # different sentence from "one claim".
+        if assertion.evidence is None:
+            proof.unproved += 1
+            continue
+        proof.assertions += 1
         call = calls.get(assertion.evidence.toolCallId)
 
         if call is None:
@@ -146,6 +158,7 @@ def main(argv: list[str]) -> int:
             f"[{mark}] {_where(proof.run)}"
             f"  {proof.resolved}/{proof.assertions} assertions resolved, "
             f"{proof.tool_calls} tool calls"
+            + (f", {proof.unproved} unproved" if proof.unproved else "")
         )
         for problem in proof.problems[:10]:
             print(f"         - {problem}")
@@ -163,6 +176,12 @@ def main(argv: list[str]) -> int:
     print(f"Tool calls:      {total_calls}")
     print(f"Assertions:      {total_assertions}")
     print(f"Resolved:        {total_resolved}")
+    total_unproved = sum(p.unproved for p in graded)
+    if total_unproved:
+        # Read the rate WITH this. A run that refuses to write what it cannot
+        # prove and a run that writes it and says so have the same grounding
+        # rate and are not the same document.
+        print(f"Unproved:        {total_unproved}  (in the file, labelled, not counted above)")
     rate = total_resolved / total_assertions if total_assertions else 1.0
     print(f"Grounding rate:  {rate:.1%}")
 

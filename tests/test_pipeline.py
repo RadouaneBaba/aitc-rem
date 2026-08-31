@@ -17,6 +17,7 @@ from server.ablation import run_ablation, write_report
 from server.llm import CompletionRequest, ScriptedModelClient, answer, calls
 from server.models import (
     AblationConfig,
+    AssertionStatus,
     ExpectationSet,
     PipelineStage,
     Recording,
@@ -100,7 +101,13 @@ def sends_it_back(check: str = "verdict_fails_on_broken_build", severity: str = 
     return behave
 
 
-def document_over(request: CompletionRequest, *, literal: str | None = None) -> str:
+def document_over(
+    request: CompletionRequest,
+    *,
+    literal: str | None = None,
+    predicate: dict | None = None,
+    uncovered: bool = False,
+) -> str:
     """A feature file covering whatever events the index lists, plus its annotations.
 
     The stand-in reads the session index it was handed, exactly as the author
@@ -132,17 +139,27 @@ def document_over(request: CompletionRequest, *, literal: str | None = None) -> 
         "  An order is placed and confirmed.",
         "",
         "  Scenario: Submitting a valid order shows the confirmation",
-        "    Given the tester fills in the purchase order",
-        "    When the tester places the order",
     ]
-    annotations: list[dict] = [
-        {"kind": "step", "id": "step_001", "role": "setup", "events": head},
-        {"kind": "step", "id": "step_002", "role": "test_step", "events": tail},
-    ]
+    annotations: list[dict] = []
+    # `uncovered` drops the opening step, leaving its events in no step and in
+    # no omission -- which is what `event_coverage` rejects. The only way to
+    # make a round fail the GATE on purpose while leaving everything else alone.
+    if not uncovered:
+        body.append("    Given the tester fills in the purchase order")
+        annotations.append({"kind": "step", "id": "step_001", "role": "setup", "events": head})
+    body.append("    When the tester places the order")
+    annotations.append({"kind": "step", "id": "step_002", "role": "test_step", "events": tail})
     if literal:
         body.append("    Then the confirmation banner appears")
         annotations.append(
-            {"kind": "verdict", "evidence": {"eventId": tail[-1], "literal": literal}}
+            {
+                "kind": "verdict",
+                "evidence": {
+                    "eventId": tail[-1],
+                    "literal": literal,
+                    **({"predicate": predicate} if predicate else {}),
+                },
+            }
         )
     else:
         annotations[-1]["whyNot"] = "Nothing retrieved for this step names the outcome."
@@ -300,24 +317,39 @@ def test_grading_a_claim_never_decides_whether_it_binds(storage: Storage):
     assert result.trace.metrics.assertionsWeaklyResolved is not None
 
 
-def test_a_claim_the_model_did_not_retrieve_never_reaches_the_output(storage: Storage):
+def test_a_claim_the_model_did_not_retrieve_is_never_reported_as_grounded(storage: Storage):
     """The guarantee, in its strongest form (SS3.2).
 
     Under retrieve-first the model supplied its own `toolCallId` and the gate
-    caught a bad one after the fact. It cannot supply one at all now: it names
-    a literal, and `evidence.citation` searches the retrievals the agent
-    actually made for a response containing that string. This model quotes
-    something no tool ever returned, so there is nothing to resolve and the
-    claim never reaches the feature file to be rejected there.
+    caught a bad one after the fact. It cannot supply one at all now: it names a
+    literal, and `evidence.citation` searches the retrievals the agent actually
+    made for a response containing that string. This model quotes something no
+    tool ever returned, so there is nothing to resolve.
 
-    The test that this replaces asserted the weaker property: that a fabricated
-    citation was caught. Catching it was never as good as making it
-    unexpressible.
+    **What that buys is not the claim's absence, and this test used to say it
+    was.** Deleting the sentence was a second, separate decision, and it was the
+    wrong one: it is how a scenario came to stop on a `When` with a comment
+    naming the step instead of the verdict, and how a QA tester was handed a
+    file with no check in it for something they had marked by hand. The
+    sentence now stays and says it is unproved.
+
+    The guarantee that matters is narrower and completely intact: a fabricated
+    claim never becomes EVIDENCE. It carries no `toolCallId` it could have
+    invented, it is not counted in `assertionsTotal`, it is not put through
+    `evidence_retrieved`, and every renderer marks it. There is no state in
+    which a reader is told this was checked.
     """
     result = run_pipeline(recording(), fabricating_model(), storage=storage, run_id="run_002")
 
-    claimed = [a.text for c in result.ir.testCases for s in c.steps for a in s.assertions]
-    assert claimed == [], f"an unretrieved claim reached the output: {claimed}"
+    claims = [a for c in result.ir.testCases for s in c.steps for a in s.assertions]
+    assert claims, "the sentence is kept -- deleting it is what left scenarios verdictless"
+
+    for assertion in claims:
+        # The whole of it: nothing to point at, and it says so rather than
+        # carrying a citation nobody can check.
+        assert assertion.status is AssertionStatus.unproved
+        assert assertion.evidence is None
+        assert assertion.whyNot
 
     # And it is not silently absent -- which is the half the old pipeline got
     # wrong. The claim is recorded as refused WITH ITS REASON, and the step
@@ -326,9 +358,18 @@ def test_a_claim_the_model_did_not_retrieve_never_reaches_the_output(storage: St
     assert "nothing this run retrieved" in result.document.refused[0]["reason"]
     assert any(s.why_not for s in result.document.steps)
 
-    # Nothing was rejected, because nothing false was emitted. A configuration
-    # that abstains has a vacuous grounding rate -- read it with Yield.
+    # Nothing was rejected, because nothing false was emitted, and nothing was
+    # counted either. An unproved claim in this denominator would make the
+    # grounding rate fall whenever the author was honest -- the vacuous-rate
+    # trap this project has now found in seven columns.
     assert result.trace.metrics.assertionsTotal == 0
+    assert not [r for r in result.report.results if r.status == ValidatorStatus.fail]
+
+    # The reader is told, in the file itself. This is the artifact that gets
+    # imported into Xray and mailed around.
+    feature = next(iter(result.rendered.values()))
+    assert "# unproved" in feature
+    assert "the confirmation banner appears" in feature
 
 
 def test_the_trace_records_what_the_agent_did(storage: Storage):
@@ -492,6 +533,213 @@ def test_the_judge_never_reaches_the_tester(storage: Storage):
     assert "verdict_fails_on_broken_build" not in feature
     assert "weak" not in feature
     assert "The verdict rests on" not in feature
+
+
+def test_a_revision_the_judge_liked_less_does_not_ship(storage: Storage):
+    """Two rounds were always written and judged. Nothing chose between them.
+
+    The later document shipped for no reason other than being later, and the
+    cost was real: on `rec_MTG3YY559C5U/run_001` the judge told round 1 that its
+    `Scenario Outline` combined two sorting behaviours and should be split,
+    round 2 obeyed, and the outline -- the shape this project's house style now
+    asks for -- was written, judged and thrown away. `author.json`, `ir.json`
+    and the `.feature` are rewritten in place each attempt, so it was not even
+    on disk to compare against afterwards.
+
+    Here round 1 writes a verdict and earns one `fail`; round 2 abandons the
+    verdict and earns two. Round 1 ships.
+    """
+    state = {"judged": 0}
+
+    def finding(index: int) -> dict:
+        return {
+            "check": "verdict_fails_on_broken_build",
+            "severity": "fail",
+            "scenario": "Submitting a valid order shows the confirmation",
+            "what": f"finding {index}",
+            "fix": "assert the value the feature computes",
+        }
+
+    def worse_on_the_second_pass(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            state["judged"] += 1
+            count = 1 if state["judged"] == 1 else 2
+            return answer(json.dumps({"findings": [finding(i) for i in range(count)]}))
+        # Keyed on the JUDGE count rather than on how many times the author has
+        # been called: one round can take several author turns.
+        first_round = state["judged"] == 0
+        return answer(document_over(request, literal=CONFIRMATION if first_round else None))
+
+    result = run_pipeline(
+        recording(),
+        ScriptedModelClient(worse_on_the_second_pass),
+        storage=storage,
+        run_id="run_001",
+    )
+
+    # Both rounds ran. This is not "stop revising earlier".
+    assert result.revision_rounds == 2
+    assert state["judged"] == 2
+
+    # And round 1 is what shipped -- with its verdict, in the file.
+    claimed = [a.text for c in result.ir.testCases for s in c.steps for a in s.assertions]
+    assert "the confirmation banner appears" in claimed
+    feature = next(iter(result.rendered.values()))
+    assert "Then the confirmation banner appears" in feature
+
+    # The judgement reported is the shipped document's, not the last one made.
+    # `judgeFails` is described everywhere in this project as what is still true
+    # of the document that shipped, and it would have been a count of a document
+    # nobody can read.
+    assert result.judgement is not None
+    assert len(result.judgement.fails) == 1
+    assert result.trace.metrics.judgeFails == 1
+    on_disk = json.loads((result.run.root / "judge.json").read_text(encoding="utf-8"))
+    assert on_disk["attempt"] == 1
+    assert len(on_disk["findings"]) == 1
+
+    # Said out loud, so a reader is not left wondering why the run has two
+    # rounds and the earlier one's output.
+    assert any("shipped round 1" in r.finding for r in result.trace.repairAttempts)
+
+    # And the trace still accounts for what the RUN spent. `_trace` collects
+    # model calls from the document it was built for, so shipping an earlier
+    # round would otherwise hide the second round's cost -- a stage that costs
+    # quota invisibly is the defect the trace exists to prevent.
+    assert result.trace.metrics.uncachedModelCalls >= 4
+
+
+def test_a_round_that_claims_nothing_does_not_win_by_being_unobjectionable(storage: Storage):
+    """The vacuity trap, arriving at the round chooser.
+
+    It has now appeared in eight columns and this was very nearly the ninth. An
+    unproved claim is filtered out of `evidence_retrieved`, so a round that
+    proves NOTHING passes the gate cleanly -- and it gives the judge nothing to
+    object to, so it scores zero `fail`s. Ranked on findings alone, the emptiest
+    document a run can produce wins every time.
+
+    That is why `_pick_round` compares proved verdicts as well, and why it
+    demands strict DOMINANCE rather than a weighted score: any weighting between
+    "how much it proves" and "how much a lead would send back" is a number
+    somebody made up, and it is gameable in both directions -- pad the verdicts,
+    or refuse them all.
+
+    Round 1 quotes a literal that is nowhere in the recording, so it proves
+    nothing and draws no findings. Round 2 quotes a real one and earns two.
+    Round 2 ships.
+    """
+    state = {"judged": 0}
+
+    def fabricates_then_grounds(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            state["judged"] += 1
+            findings = (
+                []
+                if state["judged"] == 1
+                else [
+                    {
+                        "check": "verdict_fails_on_broken_build",
+                        "severity": "fail",
+                        "scenario": "Submitting a valid order shows the confirmation",
+                        "what": f"finding {i}",
+                        "fix": "assert the value the feature computes",
+                    }
+                    for i in range(2)
+                ]
+            )
+            return answer(json.dumps({"findings": findings}))
+        first_round = state["judged"] == 0
+        return answer(
+            document_over(request, literal="Order rejected" if first_round else CONFIRMATION)
+        )
+
+    result = run_pipeline(
+        recording(),
+        ScriptedModelClient(fabricates_then_grounds),
+        storage=storage,
+        run_id="run_001",
+    )
+
+    assert result.revision_rounds == 2
+    # Round 2 shipped despite carrying both judge findings, because round 1's
+    # verdict rested on a string no retrieval ever returned.
+    claims = [a for c in result.ir.testCases for s in c.steps for a in s.assertions]
+    assert claims
+    assert all(a.status is not AssertionStatus.unproved for a in claims)
+    assert [a.evidence.literal for a in claims if a.evidence] == [CONFIRMATION]
+    assert result.judgement is not None
+    assert len(result.judgement.fails) == 2
+
+
+def test_the_gate_outranks_the_judge_when_choosing_a_round(storage: Storage):
+    """A round the gate REJECTED never replaces one it passed.
+
+    The ordering inside `_dominates`, and it is the architecture rather than a
+    preference: the judge reads prose and can be wrong about it, while
+    `event_coverage` and `evidence_retrieved` check facts and cannot. Ranked the
+    other way, a revision that fixed a rejected document while picking up a
+    judge finding would be thrown away in favour of the rejected one -- the
+    single trade this project exists to refuse.
+
+    Round 1 leaves an event in no step and no omission, which `event_coverage`
+    rejects, and draws no findings. Round 2 accounts for everything and earns
+    two. Both prove the same verdict, so the gate is the only thing between
+    them, and round 2 ships.
+    """
+    state = {"judged": 0}
+
+    def loses_an_event_then_finds_it(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            state["judged"] += 1
+            findings = (
+                []
+                if state["judged"] == 1
+                else [
+                    {
+                        "check": "verdict_fails_on_broken_build",
+                        "severity": "fail",
+                        "scenario": "Submitting a valid order shows the confirmation",
+                        "what": f"finding {i}",
+                        "fix": "assert the value the feature computes",
+                    }
+                    for i in range(2)
+                ]
+            )
+            return answer(json.dumps({"findings": findings}))
+        first_round = state["judged"] == 0
+        return answer(
+            document_over(request, literal=CONFIRMATION, uncovered=first_round)
+        )
+
+    result = run_pipeline(
+        recording(),
+        ScriptedModelClient(loses_an_event_then_finds_it),
+        storage=storage,
+        run_id="run_001",
+    )
+
+    assert result.revision_rounds == 2
+    # Round 2, with both findings against it, because round 1 did not pass.
+    assert result.report.ok
+    assert result.judgement is not None
+    assert len(result.judgement.fails) == 2
+    covered = {e for c in result.ir.testCases for s in c.steps for e in s.eventIds}
+    assert covered == {"evt_001", "evt_002"}
 
 
 def test_an_unresolved_finding_is_recorded_as_exhausted_rather_than_dropped(storage: Storage):
@@ -1325,6 +1573,15 @@ def test_an_author_that_quotes_without_looking_is_told_so(storage: Storage):
     author simply never learned that the one thing it had to do, it had not
     done. It is also the finding the author can always act on, because the fix
     is entirely in its hands.
+
+    **The literal here is one that is nowhere in the recording, and that is now
+    the point.** This test used to quote `CONFIRMATION`, which IS in the
+    recording -- true, unretrieved, and therefore rescuable. `author._rescue`
+    goes and retrieves such a literal rather than refusing it, so that fixture
+    would now bind and this test would pass for a reason it is not about. What
+    survives here is the narrower guarantee, which is the one that matters: a
+    claim that cannot be licensed at all still reaches the author as a sentence.
+    The rescue is pinned by `test_a_true_verdict_is_rescued...` below.
     """
 
     def never_looks(request: CompletionRequest):
@@ -1335,7 +1592,7 @@ def test_an_author_that_quotes_without_looking_is_told_so(storage: Storage):
             return answer(json.dumps({"suggestions": []}))
         if stage == "judge":
             return signs_it_off(request)
-        return answer(document_over(request, literal=CONFIRMATION))
+        return answer(document_over(request, literal="Order rejected"))
 
     result = run_pipeline(
         recording(), ScriptedModelClient(never_looks), storage=storage, run_id="run_001"
@@ -1353,6 +1610,163 @@ def test_an_author_that_quotes_without_looking_is_told_so(storage: Storage):
     assert "Retrieve the thing you are claiming" in told[0]
     # And it spent the round it was worth spending.
     assert result.revision_rounds == 2
+
+
+def test_a_true_verdict_is_rescued_rather_than_deleted(storage: Storage):
+    """The author looked in the wrong place, and the verdict survives it.
+
+    The rule is that a claim must point at a retrieval made in THIS run. It was
+    being enforced as something narrower by accident -- a claim must point at a
+    retrieval the author HAPPENED TO MAKE -- and the two differ exactly when the
+    author guesses the wrong event. Then a true, provable verdict was deleted
+    while its evidence sat in the recording untouched.
+
+    Measured on `rec_MTG3YY559C5U`. The tester sorted a tea listing by price and
+    marked the top price by hand. The author retrieved `evt_003.after`, which is
+    the right event and the wrong page: the recorder had closed its settle
+    window before the sorted results arrived, so the snapshot holds the unsorted
+    list. `275.00` is in the recording from `evt_004` on. The run told the
+    tester that nothing had retrieved the value they had pointed at themselves.
+
+    Nothing here is loosened. The assertion still carries a `toolCallId` for a
+    real retrieval, persisted and hashed through `ToolRunner.call`, which
+    `evidence_retrieved` re-reads and every predicate is re-evaluated against --
+    the gate below proves that by passing. What changed is who decided where to
+    look.
+    """
+
+    def quotes_without_retrieving(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return signs_it_off(request)
+        return answer(document_over(request, literal=CONFIRMATION))
+
+    result = run_pipeline(
+        recording(),
+        ScriptedModelClient(quotes_without_retrieving),
+        storage=storage,
+        run_id="run_001",
+    )
+
+    # The verdict is in the document, not in a `whyNot`.
+    claims = [a for step in result.document.steps for a in step.assertions]
+    assert claims, "a true verdict was deleted because the author looked one event over"
+    assert not result.document.refused
+
+    # And it is bound the ordinary way: a real retrieval, made in this run.
+    cited = claims[0].evidence
+    assert cited is not None
+    assert cited.literal == CONFIRMATION
+    assert cited.toolCallId in {call.id for call in result.trace.toolCalls}
+    assert not [r for r in result.report.results if r.status == ValidatorStatus.fail]
+
+    # It is a retrieval, so it costs one and is counted like any other. A rescue
+    # that did not reach the trace would be evidence nothing could re-check.
+    assert result.document.rescues == 1
+
+
+def test_a0_makes_no_rescue_retrieval_either(storage: Storage):
+    """A0 is the arm that makes NO retrievals, and a rescue is a retrieval.
+
+    The baseline exists to show what a configuration without grounding produces,
+    so anything that quietly goes and looks on its behalf makes the comparison
+    measure nothing. This is the same trap as every rate in this project that
+    turned out to be vacuous, arriving through a new door: the rescue is a good
+    thing everywhere else, and putting it in A0 would improve the number the
+    ablation exists to keep honest.
+    """
+
+    def quotes_without_retrieving(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return signs_it_off(request)
+        return answer(document_over(request, literal=CONFIRMATION))
+
+    result = run_pipeline(
+        recording(),
+        ScriptedModelClient(quotes_without_retrieving),
+        storage=storage,
+        run_id="run_001",
+        options=PipelineOptions.for_config(AblationConfig.A0),
+    )
+
+    assert result.trace.toolCalls == []
+    assert result.document.rescues == 0
+    claims = [a for c in result.ir.testCases for s in c.steps for a in s.assertions]
+    assert all(a.status is AssertionStatus.unproved for a in claims)
+
+
+def test_a_predicate_that_cannot_be_evaluated_downgrades_rather_than_deletes(storage: Storage):
+    """The third outcome, put back where its own module says it belongs.
+
+    `predicate.evaluate` returns true, false or cannot-evaluate, and its
+    docstring is explicit that the third goes to `whyNot` where a person can
+    read it -- because folding it into pass builds a laundering machine and
+    folding it into reject silently kills true claims when a response shape
+    changes. `_attach_claim` was folding it into reject.
+
+    That is not a hypothetical cost. A predicate addresses its container by role
+    and accessible NAME, and a commercial page's containers have neither: on
+    `rec_MTG3YY559C5U` a `first_of` over a product grid resolved to the
+    page-level group and reported the first item as 'Skip to main content', so a
+    true sort verdict was deleted with its literal sitting in the retrieval the
+    whole time.
+
+    The claim now survives as the plain `contains` it would have been with no
+    predicate at all. What must not happen is the claim quietly keeping the
+    STRONGER reading -- the sentence says FIRST and only PRESENT was checked --
+    so the gap is recorded rather than papered over.
+    """
+
+    def claims_a_position_in_an_unnamed_container(request: CompletionRequest):
+        stage = stage_of(request)
+        if stage == "expectations":
+            return answer(json.dumps({"expectations": []}))
+        if stage == "coverage":
+            return answer(json.dumps({"suggestions": []}))
+        if stage == "judge":
+            return signs_it_off(request)
+        return answer(
+            document_over(
+                request,
+                literal=CONFIRMATION,
+                # No such container exists in the snapshot, which is the normal
+                # shape of a real storefront rather than an error.
+                predicate={"form": "first_of", "container": {"role": "list", "name": "Orders"}},
+            )
+        )
+
+    result = run_pipeline(
+        recording(),
+        ScriptedModelClient(claims_a_position_in_an_unnamed_container),
+        storage=storage,
+        run_id="run_001",
+    )
+
+    claims = [a for step in result.document.steps for a in step.assertions]
+    assert claims, "a true claim was deleted because its container had no accessible name"
+    assert not result.document.refused
+
+    cited = claims[0].evidence
+    assert cited is not None
+    # Downgraded to containment, and saying so. Keeping the predicate would mean
+    # a positional claim nothing ever evaluated.
+    assert cited.predicate is None
+    assert cited.predicateUnresolved
+    assert "Orders" in cited.predicateUnresolved
+
+    # And the gate does not reject it -- but it does not call it proved-as-written
+    # either. Cannot-evaluate is a warning, which is the distinction that was
+    # collapsed.
+    assert not [r for r in result.report.results if r.status == ValidatorStatus.fail]
 
 
 def test_an_author_that_writes_verdicts_without_looking_is_sent_back_to_look(storage: Storage):

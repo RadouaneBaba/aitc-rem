@@ -42,6 +42,16 @@ export type PredicateForm = "contains" | "first_of" | "count" | "absent";
  */
 export type EvidenceStrength = "strong" | "medium" | "weak";
 /**
+ * Whether this claim points at a retrieval, or only at itself.
+ *
+ * Absent means `proved`, so every artifact written before this field existed means exactly what it always did -- there was no other kind.
+ *
+ * `unproved` exists because the alternative was deletion, and deletion was losing true verdicts. The author writes a sentence, the gate cannot license it, and the sentence used to vanish: the scenario then ended mid-air on a `When` and a comment underneath named the STEP rather than the claim. Measured on rec_MTG3YY559C5U, where the tester had marked the price by hand and the run told them nothing had retrieved it -- true of the one snapshot the author fetched, false of the recording, which held the sorted list one event later.
+ *
+ * So the sentence stays and says what it is. What must never happen is the third thing: an unproved claim reported as proved. `validators/grounding._assertions` filters on this field, because `evidence_retrieved` would otherwise reject every one of them, and the metrics count proved claims only -- a grounding rate that counted these would be measuring itself.
+ */
+export type AssertionStatus = "proved" | "unproved";
+/**
  * What the recorder could NOT determine. SS6.8. Propagates from event to step and is rendered prominently in review. Degrading loudly is the point.
  */
 export type FidelityFlag =
@@ -205,18 +215,20 @@ export interface Assertion {
    */
   text: string;
   provenance: Provenance;
-  evidence: Evidence;
+  evidence?: Evidence;
   accepted: boolean;
+  status?: AssertionStatus;
+  /**
+   * Why an `unproved` claim could not be licensed, in language a tester can act on. The same sentence that used to be written to `Step.whyNot` and lose the claim it was about.
+   */
+  whyNot?: string;
   /**
    * Candidate ordering within the step. Two or three where the step genuinely produced more than one checkable outcome, one where only one thing mattered, none where nothing observable happened (SS9.5). Forcing a second candidate onto a step with one obvious outcome manufactures exactly the weak incidental assertion the ranking exists to demote.
    */
   rank?: number;
 }
 /**
- * SS3.2 -- the single most important structure in the system. A claim is valid only if its literal appeared in a tool response THIS agent actually received during THIS run.
- *
- * This interface was referenced by `IRDocument`'s JSON-Schema
- * via the `definition` "Evidence".
+ * Absent exactly when `status` is `unproved`. Required for every proved claim, which is every claim the gate licenses.
  */
 export interface Evidence {
   /**
@@ -237,6 +249,14 @@ export interface Evidence {
    * Descriptive, like `strength`, and deliberately NOT a threshold: `evidence_discriminates` was one of the nine refusal rules deleted for guessing at meaning with a heuristic, and any cutoff here would reject true claims -- `Order confirmed` is legitimately rare and a real page can legitimately repeat a valid literal. It is reported so a human can see the difference, never so code can act on it.
    */
   occurrences?: number;
+  /**
+   * Set when the author asked for a `first_of` or a `count`, the predicate could not be EVALUATED at all against the stored response, and the claim was kept as a plain `contains` instead. It carries the evaluator's own reason -- typically that the named container is not in the retrieval, which on a commercial page is the normal case rather than an error: `{"role": "list", "name": "Your Selection"}` finds nothing where the real tree has that string as a bare text node inside an unnamed group.
+   *
+   * Cannot-evaluate used to refuse the claim, and that cost real verdicts: on rec_MTG3YY559C5U a `first_of` over a product grid reported that the first item was 'Skip to main content', and a true sort verdict was deleted for it. Refusing was the wrong half of the three-outcome rule -- the module docstring says cannot-evaluate goes to `whyNot`, where a person can read it, and this is that place for a claim that survived.
+   *
+   * What it does NOT mean is that the claim is weaker than a plain `contains` one; it means the SENTENCE may say more than the check ran. Read it beside `strength` and `occurrences`, which say the same kind of thing about the containment check itself.
+   */
+  predicateUnresolved?: string;
 }
 /**
  * WHAT is being claimed about the retrieval, not merely that a string is in it.
@@ -376,11 +396,45 @@ export interface BugDetail {
   failureStepId: string;
   expected: string;
   actual: string;
-  actualEvidence?: Evidence;
+  actualEvidence?: Evidence1;
   consoleErrorIds?: string[];
   failedRequestIds?: string[];
   screenshotAtFailure?: string;
   environment: BugEnvironment;
+}
+/**
+ * SS3.2 -- the single most important structure in the system. A claim is valid only if its literal appeared in a tool response THIS agent actually received during THIS run.
+ *
+ * This interface was referenced by `IRDocument`'s JSON-Schema
+ * via the `definition` "Evidence".
+ */
+export interface Evidence1 {
+  /**
+   * Exact retrieved string, e.g. 'Order confirmed'. Checked character-for-character by evidence_retrieved.
+   */
+  literal: string;
+  /**
+   * The retrieval that produced it, e.g. tc_0447. The second of the two backlinks (SS10): this one proves the agent went and looked. If this id does not resolve in the trace, the assertion is rejected.
+   */
+  toolCallId: string;
+  eventId: string;
+  kind: EvidenceKind;
+  predicate?: Predicate;
+  strength?: EvidenceStrength;
+  /**
+   * How many times the literal occurs among the strings of the stored response -- the number of places that would have satisfied the containment check the gate performs. 1 means the claim had exactly one thing it could be about. 198, for the literal `1`, means it had 198, which is what a vacuous verdict looks like as a number.
+   *
+   * Descriptive, like `strength`, and deliberately NOT a threshold: `evidence_discriminates` was one of the nine refusal rules deleted for guessing at meaning with a heuristic, and any cutoff here would reject true claims -- `Order confirmed` is legitimately rare and a real page can legitimately repeat a valid literal. It is reported so a human can see the difference, never so code can act on it.
+   */
+  occurrences?: number;
+  /**
+   * Set when the author asked for a `first_of` or a `count`, the predicate could not be EVALUATED at all against the stored response, and the claim was kept as a plain `contains` instead. It carries the evaluator's own reason -- typically that the named container is not in the retrieval, which on a commercial page is the normal case rather than an error: `{"role": "list", "name": "Your Selection"}` finds nothing where the real tree has that string as a bare text node inside an unnamed group.
+   *
+   * Cannot-evaluate used to refuse the claim, and that cost real verdicts: on rec_MTG3YY559C5U a `first_of` over a product grid reported that the first item was 'Skip to main content', and a true sort verdict was deleted for it. Refusing was the wrong half of the three-outcome rule -- the module docstring says cannot-evaluate goes to `whyNot`, where a person can read it, and this is that place for a claim that survived.
+   *
+   * What it does NOT mean is that the claim is weaker than a plain `contains` one; it means the SENTENCE may say more than the check ran. Read it beside `strength` and `occurrences`, which say the same kind of thing about the containment check itself.
+   */
+  predicateUnresolved?: string;
 }
 export interface BugEnvironment {
   browser: string;

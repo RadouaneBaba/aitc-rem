@@ -56,6 +56,7 @@ from server.evidence.tools import ToolRunner
 from server.llm.client import ModelClient
 from server.models import (
     Expectation,
+    ExpectationRank,
     ExpectationSet,
     ExpectationSource,
     PipelineStage,
@@ -125,6 +126,25 @@ usually setup: skip them unless the sign-in is what is being tested. Between six
 and twelve expectations is normal for a long session; two is normal for a short
 one. Prefer fewer, sharper ones.
 
+**Say which one is the point.** `rank` is `outcome` or `waypoint`:
+
+  outcome   what the tester came to find out. Read their objective and write
+            the expectation that answers it. Usually one, occasionally two.
+  waypoint  a checkable fact on the road to it. Real, worth confirming, and not
+            why anybody recorded anything.
+
+An outcome is held to exactly the same standard as everything else -- it names a
+value that would be different if the feature were broken. It is NOT the vague
+one:
+
+  bad   the bag should show the correct prices          (nobody can answer this)
+  good  the bag should total $49.50 for 10 Cinnamon Apple Crisp
+        and 20 Pumpkin Spice Cake
+
+That second sentence is the objective made checkable, which is the whole job.
+A session whose objective is a topic rather than a check may have no outcome at
+all; say so by marking everything a waypoint rather than promoting a guess.
+
 `observed` is what the recording shows actually happened, in one clause. Say it
 plainly even when it contradicts your expectation -- that disagreement is the
 most valuable thing in the file, because it means the tester recorded a bug.
@@ -141,6 +161,7 @@ Answer with JSON and nothing else:
       "action": "You filtered the list to in-stock products.",
       "expected": "the list should drop from 24 products to 9",
       "observed": "the count changed from 24 to 9",
+      "rank": "waypoint",
       "fromTester": false
     }
   ]
@@ -251,6 +272,15 @@ def _parse(answer: dict[str, Any], store: EvidenceStore) -> ExpectationSet:
                     else ExpectationSource.inferred
                 ),
                 screenshot=_screenshot(store, event_ids),
+                # Unrecognised or absent means `waypoint`, which is what every
+                # expectation written before this field existed was in practice.
+                # A model that promotes everything to `outcome` gains nothing --
+                # the screen orders by this and orders nothing if all are equal.
+                rank=(
+                    ExpectationRank.outcome
+                    if _clean(item.get("rank")).lower() == "outcome"
+                    else ExpectationRank.waypoint
+                ),
             )
         )
     return out

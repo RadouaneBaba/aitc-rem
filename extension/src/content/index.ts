@@ -184,22 +184,30 @@ class Recorder {
    * belongs to -- the same reason network calls are attributed at assembly
    * rather than in the frame -- so the timestamp is recorded and `export.ts`
    * decides which action owns it.
+   *
+   * One picker session can produce SEVERAL marks now, and they are reported as
+   * they land rather than at the end. A tester showing that a list is sorted
+   * points at the first price and then the second; separately those are two
+   * marks that look identical, and `groupId` is what says they are one claim
+   * about the relation between them. Reporting each immediately means there is
+   * no commit gesture to forget and nothing to lose by walking away.
    */
   async pickAssertion(): Promise<void> {
     if (!this.recording || this.picker.active) return;
-    const picked = await this.picker.start();
-    if (!picked) return;
-
-    this.report({
-      type: 'annotation',
-      annotation: {
-        // The worker renumbers against the session; this only has to be unique
-        // enough to survive the trip.
-        id: `ann_${Date.now()}`,
-        kind: 'assertion',
-        timestamp: this.clock(),
-        target: picked.target,
-      },
+    await this.picker.start((mark) => {
+      this.report({
+        type: 'annotation',
+        annotation: {
+          // The worker renumbers against the session; this only has to be
+          // unique enough to survive the trip.
+          id: `ann_${Date.now()}_${mark.index}`,
+          kind: 'assertion',
+          timestamp: this.clock(),
+          groupId: mark.groupId,
+          index: mark.index,
+          target: mark.target,
+        },
+      });
     });
   }
 

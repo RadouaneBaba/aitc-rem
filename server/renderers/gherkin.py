@@ -22,7 +22,7 @@ import re
 import textwrap
 
 from server.config import ProjectConfig
-from server.models import FidelityFlag, IRDocument, Step, TestCaseIR
+from server.models import AssertionStatus, FidelityFlag, IRDocument, Step, TestCaseIR
 from server.pipeline.narrative import Line, Narrative, build_narrative
 from server.renderers.base import test_cases
 
@@ -331,20 +331,37 @@ def _unproved(case: TestCaseIR) -> list[str]:
     completeness contract omissions already have, and it keeps the steps
     themselves readable as a hand-written feature file.
 
-    Keyed on `whyNot` alone, exactly as `needs_review` is, and the two must not
-    drift: a marker on a scenario whose file says nothing about why is the
-    unclickable red badge this project already removed once. `_attach_claim`
-    clears `why_not` when a claim lands, so a step carrying BOTH an accepted
-    assertion and a `whyNot` means a second claim was refused -- still a gap,
-    still worth naming.
+    Two shapes, because there are two ways a scenario can lack a check, and a
+    reader has to be able to tell them apart:
+
+    * **An `unproved` assertion.** The author wrote the verdict and the gate
+      could not license it. The sentence is now a `Then` line in the body like
+      any other, so this names THE CLAIM -- the reader can find the line above
+      and read why it is not backed. It used to name the STEP, which is a
+      different sentence and rarely the one in doubt.
+    * **A step's own `whyNot` with no claim under it.** The author decided there
+      was nothing here worth checking and said why. Nothing was lost; this is
+      the honest gap the judge is told to treat as `pass`.
+
+    Kept in step with `needs_review`, and the two must not drift: a marker on a
+    scenario whose file says nothing about why is the unclickable red badge this
+    project already removed once. Both now read the assertions as well as
+    `whyNot`, which closes the one case where they could disagree -- a step
+    whose second claim was refused after its first one landed and cleared
+    `why_not`.
     """
     lines: list[str] = []
     for step in case.steps:
-        if not step.whyNot:
-            continue
-        lines.append("")
-        lines.append(f'{INDENT * 2}# unchecked - {_one_line(step.text)}')
-        lines.append(f"{INDENT * 2}#   {_one_line(step.whyNot)}")
+        unproved = [a for a in step.assertions if a.status is AssertionStatus.unproved]
+        for assertion in unproved:
+            lines.append("")
+            lines.append(f"{INDENT * 2}# unproved - {_one_line(assertion.text)}")
+            if assertion.whyNot:
+                lines.append(f"{INDENT * 2}#   {_one_line(assertion.whyNot)}")
+        if step.whyNot and not unproved:
+            lines.append("")
+            lines.append(f"{INDENT * 2}# unchecked - {_one_line(step.text)}")
+            lines.append(f"{INDENT * 2}#   {_one_line(step.whyNot)}")
     return lines
 
 
@@ -471,6 +488,15 @@ def needs_review(step: Step) -> bool:
     # every review edit with no access to the run, the report or the author's
     # document, so anything the tag depends on has to survive in `ir.json`.
     if step.whyNot:
+        return True
+    # A verdict that IS in the file and is not backed by anything.
+    #
+    # Read alongside `whyNot` rather than instead of it, because they can come
+    # apart in one direction: `_attach_claim` clears `why_not` when a claim
+    # lands, so a step whose first verdict resolved and whose second did not has
+    # an unproved line in the body and an empty `whyNot`. Keyed on `whyNot`
+    # alone, that scenario would carry an unproved `Then` and no marker.
+    if any(a.status is AssertionStatus.unproved for a in step.assertions):
         return True
     # A finding nothing resolved. Kept for the artifacts already on disk that
     # carry notes from when the critic existed: every model is

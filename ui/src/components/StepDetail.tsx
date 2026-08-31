@@ -309,28 +309,46 @@ function Candidate({
       </label>
 
       {/* Three lines, and then it stops. What kind of claim this is, the exact
-          value it was checked against, and where that value came from. */}
-      <div className="proof">
-        <span
-          className={`provenance ${assertion.provenance}`}
-          title={PROVENANCE_HINT[assertion.provenance]}
-        >
-          {assertion.provenance}
-        </span>
-        <PredicateLabel predicate={assertion.evidence.predicate} />
-        <code className="literal" title="the exact text a retrieval returned">
-          {assertion.evidence.literal}
-        </code>
-        <span className="muted at-event">at {assertion.evidence.eventId}</span>
-        <ResolvesLabel evidence={assertion.evidence} />
-      </div>
+          value it was checked against, and where that value came from.
 
-      <Retrieval
-        recordingId={recordingId}
-        runId={runId}
-        toolCallId={assertion.evidence.toolCallId}
-        trace={trace}
-      />
+          An unproved claim has none of that by construction, and the one thing
+          it must never do is look like a proved one with an empty proof strip.
+          It gets its own line saying so, in the reviewer's language, with the
+          author's reason -- which is always a fact about this RUN (it looked at
+          the wrong moment, the page named no container, the recorder captured
+          nothing there) rather than about the application. */}
+      {assertion.evidence ? (
+        <>
+          <div className="proof">
+            <span
+              className={`provenance ${assertion.provenance}`}
+              title={PROVENANCE_HINT[assertion.provenance]}
+            >
+              {assertion.provenance}
+            </span>
+            <PredicateLabel predicate={assertion.evidence.predicate} />
+            <code className="literal" title="the exact text a retrieval returned">
+              {assertion.evidence.literal}
+            </code>
+            <span className="muted at-event">at {assertion.evidence.eventId}</span>
+            <ResolvesLabel evidence={assertion.evidence} />
+          </div>
+
+          <Retrieval
+            recordingId={recordingId}
+            runId={runId}
+            toolCallId={assertion.evidence.toolCallId}
+            trace={trace}
+          />
+        </>
+      ) : (
+        <div className="proof">
+          <span className="provenance unproved" title="nothing in this run backs this line">
+            not proved
+          </span>
+          <span className="muted">{assertion.whyNot}</span>
+        </div>
+      )}
     </li>
   );
 }

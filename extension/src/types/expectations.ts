@@ -10,6 +10,19 @@
  * rejected  -- the tester said this is NOT what should have happened. The strongest signal in the file: it means the recording contains a bug, and the author writes a bug report rather than a passing step.
  */
 export type ExpectationSource = "inferred" | "confirmed" | "corrected" | "stated" | "rejected";
+/**
+ * Whether this is the thing the session was FOR, or a step on the way to it.
+ *
+ * Absent means `waypoint`, which is what every expectation written before this field existed was in practice.
+ *
+ * outcome  -- what the tester came to find out. There is usually one per objective, occasionally two. "the bag should total 49.50 for 10 Cinnamon Apple Crisp and 20 Pumpkin Spice Cake".
+ * waypoint -- a checkable fact on the road to it. "the basket should show 10 capsules". Real, worth confirming, and not why anybody recorded anything.
+ *
+ * Every card used to be flat and equal, and a tester answering three of them never saw the sentence describing what they had actually set out to check. Their words for it: the objective says *check the bag shows the correct prices*, and what came back was a card per step result. The answer is not fewer cards -- a single vague card naming no value is exactly the expectation nobody can tick -- it is saying which one is the point.
+ *
+ * This orders the confirmation screen and nothing else. It does not gate authoring: a waypoint the tester confirms is as binding as an outcome they confirm, because both are the tester speaking.
+ */
+export type ExpectationRank = "outcome" | "waypoint";
 
 /**
  * What SHOULD have happened, per action.
@@ -56,6 +69,7 @@ export interface Expectation {
    */
   observed?: string;
   source: ExpectationSource;
+  rank?: ExpectationRank;
   /**
    * Path to the PNG for the event this is about, relative to the recording directory. The confirmation screen is pictures and two buttons; asking someone to read a semantic tree is how you get a screen nobody uses.
    */

@@ -26,6 +26,24 @@ class ExpectationSource(StrEnum):
     rejected = "rejected"
 
 
+class ExpectationRank(StrEnum):
+    """
+    Whether this is the thing the session was FOR, or a step on the way to it.
+
+    Absent means `waypoint`, which is what every expectation written before this field existed was in practice.
+
+    outcome  -- what the tester came to find out. There is usually one per objective, occasionally two. "the bag should total 49.50 for 10 Cinnamon Apple Crisp and 20 Pumpkin Spice Cake".
+    waypoint -- a checkable fact on the road to it. "the basket should show 10 capsules". Real, worth confirming, and not why anybody recorded anything.
+
+    Every card used to be flat and equal, and a tester answering three of them never saw the sentence describing what they had actually set out to check. Their words for it: the objective says *check the bag shows the correct prices*, and what came back was a card per step result. The answer is not fewer cards -- a single vague card naming no value is exactly the expectation nobody can tick -- it is saying which one is the point.
+
+    This orders the confirmation screen and nothing else. It does not gate authoring: a waypoint the tester confirms is as binding as an outcome they confirm, because both are the tester speaking.
+    """
+
+    outcome = "outcome"
+    waypoint = "waypoint"
+
+
 class Expectation(StrictModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -59,6 +77,19 @@ class Expectation(StrictModel):
     corrected -- the tester rewrote it. Theirs, word for word.
     stated    -- taken verbatim from what they typed or said DURING the recording (an intent note, a narration segment, the objective). Never a guess.
     rejected  -- the tester said this is NOT what should have happened. The strongest signal in the file: it means the recording contains a bug, and the author writes a bug report rather than a passing step.
+    """
+    rank: ExpectationRank | None = Field(None, title="ExpectationRank")
+    """
+    Whether this is the thing the session was FOR, or a step on the way to it.
+
+    Absent means `waypoint`, which is what every expectation written before this field existed was in practice.
+
+    outcome  -- what the tester came to find out. There is usually one per objective, occasionally two. "the bag should total 49.50 for 10 Cinnamon Apple Crisp and 20 Pumpkin Spice Cake".
+    waypoint -- a checkable fact on the road to it. "the basket should show 10 capsules". Real, worth confirming, and not why anybody recorded anything.
+
+    Every card used to be flat and equal, and a tester answering three of them never saw the sentence describing what they had actually set out to check. Their words for it: the objective says *check the bag shows the correct prices*, and what came back was a card per step result. The answer is not fewer cards -- a single vague card naming no value is exactly the expectation nobody can tick -- it is saying which one is the point.
+
+    This orders the confirmation screen and nothing else. It does not gate authoring: a waypoint the tester confirms is as binding as an outcome they confirm, because both are the tester speaking.
     """
     screenshot: str | None = None
     """

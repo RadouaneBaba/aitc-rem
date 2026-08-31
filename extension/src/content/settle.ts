@@ -13,8 +13,33 @@ import { isLiveRegion } from './a11y';
  *      at settle -- toasts routinely vanish within three seconds, and an
  *      assertion about a toast that disappeared is one the system would
  *      otherwise be unable to ground)
- *   3. a URL change completes
- *   4. hard timeout at 5000 ms -> flag `settle_timeout`
+ *   3. hard timeout at 5000 ms -> flag `settle_timeout`
+ *
+ * **A URL change is not one of them, and used to be.** It ARMS the window --
+ * it decides what the reason will be called -- but it no longer ends it. The
+ * old rule fired `finish('url_change')` from inside the MutationObserver, on
+ * the FIRST mutation batch after `location.href` differed, with no quiet
+ * window and no in-flight check. That was written for a document replacement,
+ * where no further mutations arrive. It is exactly wrong for the `pushState`
+ * that every faceted commerce listing uses: the URL changes the instant the
+ * control is operated and the results arrive from the network hundreds of
+ * milliseconds later, so the `after` snapshot captured the OLD list stored
+ * under the NEW url -- a wrong snapshot that reads as a right one.
+ *
+ * Measured on `rec_MTG3YY559C5U` (Fortnum & Mason, sort a tea listing by price
+ * high to low): `evt_003` finished as `url_change` after 571 ms with 12
+ * mutations and **one request still in flight**, and its `after` holds
+ * `14.95, 14.95, 17.95` -- the unsorted order. `evt_007`, the same code path on
+ * the same page, happened to wait 1055 ms and got the sorted list. Same rule,
+ * different luck. The verdict the tester had marked by hand was then refused
+ * for want of evidence that the recorder had thrown away.
+ *
+ * So the decision now lives only in the quiet timer, which already had the two
+ * conditions that matter, and a navigation is subject to both of them. The
+ * cost is real and worth naming: a page whose action opens a request that never
+ * completes now waits out the full timeout rather than finishing early on the
+ * url. That is bounded at 5s, flagged `settle_timeout`, and strictly better
+ * than a confident wrong page.
  */
 
 export const QUIET_MS = 300;
@@ -42,8 +67,14 @@ export interface SettleHandle {
    * page's response to the NEXT action and attributed it to this one. That is
    * worse than an early snapshot, because it is a wrong one that reads as
    * right: it grounds a false assertion that passes every validator.
+   *
+   * The reason is REQUIRED. It defaulted to `'quiet'`, which is the one value
+   * it can never honestly be: `SettleInfo.reason` is what tells a reader
+   * whether the `after` snapshot is the page's considered answer or an early
+   * one, and a cancelled window labelled `quiet` says the page settled when
+   * nobody waited for it to.
    */
-  cancel(reason?: SettleReason): void;
+  cancel(reason: SettleReason): void;
 }
 
 export interface SettleDeps {
@@ -96,7 +127,9 @@ export function waitForSettle(deps: SettleDeps): SettleHandle {
       }
     }
 
-    if (urlChanged?.()) return finish('url_change');
+    // No `finish('url_change')` here. A navigation arms the window; it does
+    // not end it. See the module docstring -- ending on the first mutation
+    // after the url differed is how a sorted list was captured unsorted.
     restartQuiet();
   });
 
@@ -118,20 +151,23 @@ export function waitForSettle(deps: SettleDeps): SettleHandle {
     if (settled) return;
     if (quietTimer !== undefined) clearTimeoutFn(quietTimer);
     quietTimer = setTimeoutFn(() => {
-      // A navigation that replaces the document produces no further mutations
-      // to observe, so the check has to happen on the timer as well.
-      if (urlChanged?.()) {
-        finish('url_change');
-        return;
-      }
       // Quiet is necessary but not sufficient: a request still in flight means
       // the outcome has not arrived yet, so keep waiting rather than capturing
       // a half-updated page.
+      //
+      // This is the ONE test now, and a navigation gets it too. A single-page
+      // application routes by changing the url first and rendering the answer
+      // when the network comes back; treating the url as the finish line
+      // captured the page it was leaving.
       if (inFlight() > 0) {
         restartQuiet();
         return;
       }
-      finish('quiet');
+      // A navigation that replaces the document produces no further mutations
+      // to observe, so this timer is the only thing that will ever fire for it.
+      // Reaching here means the page is quiet AND drained either way; the url
+      // only decides what the reason is called.
+      finish(urlChanged?.() ? 'url_change' : 'quiet');
     }, quietMs);
   }
 
@@ -153,7 +189,7 @@ export function waitForSettle(deps: SettleDeps): SettleHandle {
 
   return {
     done,
-    cancel: (reason: SettleReason = 'quiet') => finish(reason),
+    cancel: (reason: SettleReason) => finish(reason),
   };
 }
 

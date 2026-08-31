@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from server.evidence.predicate import evaluate
 from server.models import (
     Assertion,
+    AssertionStatus,
     Provenance,
     ValidatorAction,
     ValidatorName,
@@ -29,9 +30,24 @@ from server.util.canonical import response_hash
 
 
 def _assertions(ctx: ValidationContext):
+    """Every claim that says it points at a retrieval.
+
+    An `unproved` assertion says the opposite -- it is a sentence the author
+    wrote and the gate could not license, kept in the file rather than deleted
+    so a scenario does not silently end on a `When`. It has no `toolCallId` to
+    resolve and no stored response to re-hash, so putting it through
+    `evidence_retrieved` would reject every one of them: the run would go red
+    for claims that are already, visibly, admitting they are unproved.
+
+    This filter is the whole contract between the two halves. A claim is either
+    checked here or labelled unproved everywhere it is rendered, and nothing is
+    allowed to be neither.
+    """
     for case in ctx.ir.testCases:
         for step in case.steps:
             for assertion in step.assertions:
+                if assertion.status is AssertionStatus.unproved:
+                    continue
                 yield case, step, assertion
         claim = bug_claim(case)
         if claim is not None:
@@ -71,13 +87,25 @@ def bug_claim(case) -> tuple | None:
 def claim_total(ir) -> int:
     """Every claim the gate checks, which is the denominator of the grounding rate.
 
-    Kept in step with `_assertions` above: a bug report's `actual` is checked by
-    `evidence_retrieved`, so counting only step assertions here would let one
-    rejected bug claim push the rate below what the run actually produced.
+    Kept in step with `_assertions` above, and for the same reason in both
+    directions. A bug report's `actual` is checked by `evidence_retrieved`, so
+    counting only step assertions would let one rejected bug claim push the rate
+    below what the run actually produced -- and an `unproved` claim is NOT
+    checked, so counting it would push the rate down for a sentence that never
+    said it was grounded.
+
+    Neither is a rounding error. This project has now found the vacuous-rate
+    trap in seven columns, and putting unproved claims in this denominator would
+    make it eight: the number would fall whenever the author was honest and rise
+    whenever it stopped writing the verdicts it could not prove.
     """
-    return sum(len(s.assertions) for c in ir.testCases for s in c.steps) + sum(
-        1 for c in ir.testCases if bug_claim(c) is not None
-    )
+    return sum(
+        1
+        for c in ir.testCases
+        for s in c.steps
+        for a in s.assertions
+        if a.status is not AssertionStatus.unproved
+    ) + sum(1 for c in ir.testCases if bug_claim(c) is not None)
 
 
 def evidence_retrieved(ctx: ValidationContext) -> Iterable[ValidatorResult]:
@@ -94,8 +122,15 @@ def evidence_retrieved(ctx: ValidationContext) -> Iterable[ValidatorResult]:
     """
     checked = 0
     for case, step, assertion in _assertions(ctx):
-        checked += 1
         evidence = assertion.evidence
+        if evidence is None:
+            # Unreachable through `_assertions`, which filters unproved claims
+            # out, and cheap insurance against a future caller that does not.
+            # `evidence` is optional exactly when `status` is unproved, and
+            # reading it unguarded would be an AttributeError in the one place
+            # that must never crash: the gate.
+            continue
+        checked += 1
         call = ctx.tool_call(evidence.toolCallId)
 
         if call is None:
@@ -158,7 +193,36 @@ def evidence_retrieved(ctx: ValidationContext) -> Iterable[ValidatorResult]:
         # `stored` is the full response even where the model was shown a smaller
         # view, which is what makes a positional check mean anything.
         verdict = evaluate(stored, evidence.literal, evidence.predicate)
-        if not verdict.holds:
+        if verdict.unresolved:
+            # Cannot-evaluate is not false, and this used to treat it as false.
+            #
+            # `predicate.evaluate` has three outcomes by design and this branch
+            # read `not verdict.holds`, which folds the third into the second --
+            # the one thing its own docstring says not to do. The practical cost
+            # is that a claim whose container stops resolving, for any reason
+            # including a page that never named one, is rejected as though the
+            # application had failed the check.
+            #
+            # A warning rather than a pass, because the sentence may genuinely
+            # say more than anything verified: the claim is real, its literal
+            # did come back from this retrieval, and the SHAPE of it went
+            # unchecked. `author._attach_claim` records the same fact on
+            # `Evidence.predicateUnresolved` at the moment it happens.
+            yield result(
+                ValidatorName.evidence_retrieved,
+                ValidatorStatus.warn,
+                ValidatorAction.none,
+                ctx,
+                message=(
+                    f"{evidence.literal!r} came back from {call.id} ({call.tool}), "
+                    f"but the shape of the claim could not be checked: {verdict.why}. "
+                    f"The literal is proved; FIRST, or HOW MANY, is not."
+                ),
+                test_case_id=case.id,
+                step_id=step.id,
+                assertion_id=assertion.id,
+            )
+        elif not verdict.holds:
             yield result(
                 ValidatorName.evidence_retrieved,
                 ValidatorStatus.fail,

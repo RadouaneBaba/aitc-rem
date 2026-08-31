@@ -157,6 +157,7 @@ def case_evidence_rows(case: TestCaseIR) -> list[EvidenceRow]:
         for assertion in step.assertions:
             if not assertion.accepted:
                 continue
+            evidence = assertion.evidence
             rows.append(
                 EvidenceRow(
                     case_id=case.id,
@@ -164,10 +165,18 @@ def case_evidence_rows(case: TestCaseIR) -> list[EvidenceRow]:
                     step_number=position,
                     step_text=text,
                     claim=assertion.text,
-                    literal=assertion.evidence.literal,
-                    tool_call_id=assertion.evidence.toolCallId,
-                    event_id=assertion.evidence.eventId,
-                    provenance=assertion.provenance.value,
+                    # An unproved claim has no retrieval to name, and this sheet
+                    # is the Evidence tab of a workbook somebody signs off from.
+                    # Blank cells there read as a missing export; saying it in
+                    # words is the whole point of keeping the claim visible.
+                    literal=evidence.literal if evidence else "",
+                    tool_call_id=evidence.toolCallId if evidence else "",
+                    event_id=evidence.eventId if evidence else "",
+                    provenance=(
+                        assertion.provenance.value
+                        if evidence
+                        else f"{assertion.provenance.value} (not proved)"
+                    ),
                 )
             )
     return rows

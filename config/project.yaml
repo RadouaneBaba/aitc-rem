@@ -8,9 +8,15 @@
 # reads. It changes the EXAMPLE, never the rules and never what may be claimed:
 # a business-style document is bound exactly as tightly as an automation one.
 #
-#   automation -> every action, specific values, a check wherever there is
-#                 something worth checking. For whoever writes the step
-#                 definitions.
+#   journey    -> the whole flow as ONE `Scenario Outline` reaching one outcome,
+#                 with every value that identifies WHICH item (`<product>`,
+#                 `<country>`, `<quantity>`) in an `Examples` table and section
+#                 comments where the journey turns. The default. For a QA team
+#                 who will write step definitions against this and run it
+#                 against any product in the catalogue.
+#   automation -> every action, specific values in the prose, a check wherever
+#                 there is something worth checking. Shorter scenarios, one
+#                 behaviour each.
 #   business   -> few steps, plain language, one verdict at the end of each
 #                 scenario. For whoever decides the behaviour is right.
 #   data-driven -> a repeated flow becomes one `Scenario Outline` with the
@@ -23,7 +29,7 @@
 # the pipeline changes, which is the point: every attempt in this project's
 # history to change output with a RULE measured at or near zero uptake, and
 # every improvement came from a better example.
-style: automation
+style: journey
 
 # Subject of every step sentence. "I" switches to the classic Cucumber register
 # ("When I sign in"); "the tester" and "the user" stay third person.
@@ -43,7 +49,12 @@ trace: sidecar
 #            in a plain Scenario. A tester executing the test reads top to
 #            bottom and never looks in two places for one value.
 # outline -> lift the placeholders into a Scenario Outline with an Examples row.
-parameters: inline
+#
+# This is about REDACTION placeholders only, and is independent of the author's
+# own `Examples` table -- where the author wrote one, its columns win and these
+# are not lifted. `outline` to match the journey style: a redacted email in the
+# table reads as a parameter of the test, which is what it is.
+parameters: outline
 
 # Filename stem for the rendered feature. Available: {caseId} {title} {recordingId}
 feature_name: "{caseId}"
@@ -119,6 +130,26 @@ narration:
   # a human can check a lossy transcript: the review UI plays the clip beside
   # the assertion it produced. Set false to delete it once transcribed.
   keep_audio: true
+
+# How long the pipeline waits for the confirmation screen before authoring on
+# its own guesses, in seconds. 0 turns the wait off.
+#
+# The screen exists because there is no oracle: the recording says what the
+# application DID, and only the tester knows whether that was right. Their
+# answers are an INPUT to authoring, not an edit to its output, so a recording
+# answered after the fact has to be authored again -- and that repeats the
+# expensive half, the author (up to two rounds) and the judge after each. The
+# guess itself is not repeated; it is saved beside the recording and re-read.
+#
+# So the run holds here instead. The guess is made and saved, the screen opens,
+# and authoring begins when you answer, when you press skip, or when this many
+# seconds have passed -- whichever is first, and all three continue the SAME
+# run. Answering later than that still works and still counts; it just pays for
+# a second run, which is what every answer used to cost.
+#
+# Expiring is a normal outcome, not a failure. A run must never depend on a
+# screen having been opened.
+confirm_window_seconds: 120
 
 # What to do when a recording touches an origin that is not in
 # config/allowed_origins.yaml.

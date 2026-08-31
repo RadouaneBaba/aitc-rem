@@ -505,6 +505,13 @@ main > * { overflow-y: auto; min-width: 0; }
 }
 .provenance.confirmed { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .provenance.objective { background: var(--subtle-bg); }
+/* A verdict in the file that nothing in the run backs. Warning rather than
+   danger: it is not a failure, it is a gap the reviewer has to close -- and it
+   is visibly better than the alternative it replaced, which was the sentence
+   silently disappearing. */
+.provenance.unproved {
+  background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line);
+}
 
 .predicate {
   font-size: var(--fs-xs);
@@ -935,6 +942,22 @@ kbd {
 .confirm .ok { color: var(--accent); }
 .confirm .bad { color: var(--danger); }
 
+/* The hold. A quiet band rather than a banner: it is context for a decision
+   the tester is already making, not an alarm -- nothing is lost when it
+   elapses, and a screen that shouted would make a normal outcome look like a
+   failure. */
+.confirm-hold {
+  margin: 0 0 var(--s-5);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  line-height: var(--lh);
+  font-size: var(--fs-md);
+}
+.confirm-hold.elapsed { border-left-color: var(--line); color: var(--muted); }
+
 /* Progress. There was none, so three cards read as an unbounded scroll. */
 .confirm-progress { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-md); color: var(--muted); }
 .pips { display: inline-flex; gap: 4px; }
@@ -957,6 +980,24 @@ kbd {
   letter-spacing: var(--track-tight);
   margin: 0 0 var(--s-3);
 }
+/* The card the session was FOR. Every card used to look the same, so a tester
+   answering three of them never saw the one describing what they had come to
+   check -- it was a card per step result and no sign which was the point. */
+.confirm-card.outcome {
+  border-color: var(--accent-line);
+  background: var(--accent-bg);
+}
+.confirm-card.outcome h3 { font-size: var(--fs-2xl); }
+.rank-tag {
+  display: inline-block;
+  margin-bottom: var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
 /* Answered cards recede rather than disappear: somebody scanning back for the
    one they got wrong has to be able to find it. */
 .confirm-card.answered { opacity: 0.66; }

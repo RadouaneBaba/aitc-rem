@@ -61,6 +61,7 @@ from server.llm.client import ModelClient
 from server.llm.gemini import fenced_block
 from server.models import (
     Assertion,
+    AssertionStatus,
     Confidence,
     Evidence,
     ExpectationSet,
@@ -87,6 +88,17 @@ from server.pipeline.investigate import investigate
 #: variance is the observable signature of an agent deciding rather than a
 #: pipeline executing. A per-step budget cannot express it.
 AUTHOR_BUDGET = 24
+
+#: Retrievals `_rescue` may spend on top of that, over a whole document.
+#:
+#: Small on purpose, and it is a ceiling rather than an allowance. A rescue
+#: costs up to two retrievals -- the cited event, then the next one's `before`
+#: -- so this is roughly three claims' worth. A document needing more than that
+#: is not one where the author guessed the wrong event a few times; it is one
+#: where the author wrote its verdicts without going and looking, and the answer
+#: to that is `investigate`'s `needs_retrieval` nudge sending it back, not this
+#: quietly carrying it. Read the count beside `toolCallsTotal`.
+RESCUE_BUDGET = 6
 
 #: Six, not twelve. The drafting stage was once handed twelve tools and told
 #: about five, and more tools measurably means worse tool choice. Everything
@@ -170,6 +182,10 @@ class AuthoredDocument:
     #: the reason. Kept because a refusal nobody can see is indistinguishable
     #: from a step that was never worth checking.
     refused: list[dict[str, str]] = field(default_factory=list)
+    #: Rescue retrievals spent so far. See `_rescue`. Not serialised -- the
+    #: retrievals themselves land in `trace.toolCalls` like any others, which is
+    #: where they can be counted honestly.
+    rescues: int = 0
 
     @property
     def steps(self) -> list[AuthoredStep]:
@@ -319,9 +335,18 @@ def apply_intent_notes(store: EvidenceStore, document: AuthoredDocument) -> set[
 #: in an afternoon, rather than "add a clause and hope".
 STYLES_DIR = Path(__file__).resolve().parent / "styles"
 
-#: What a project gets if it says nothing. Named for what it optimises: a
-#: reader who is going to write step definitions against this.
-DEFAULT_STYLE = "automation"
+#: What a project gets if it says nothing, and the fallback when a named style
+#: has no file. Named for what it optimises: a whole flow read as one test, by a
+#: QA team who will run it against any product in the catalogue rather than the
+#: one the session happened to use.
+#:
+#: It was `automation`, whose example writes short scenarios with the recorded
+#: values in the prose. A QA lead read that output and said it was not a test
+#: case -- *"the order summary shows a total of $49.50"* is a fact about one
+#: afternoon, where the test is *add these products and the bag totals their
+#: prices*. Both are legitimate artifacts and `automation` is still selectable;
+#: this is the one somebody signs.
+DEFAULT_STYLE = "journey"
 
 
 def worked_example(style: str = DEFAULT_STYLE) -> str:
@@ -483,10 +508,17 @@ Nothing else, and do not omit either block.
   abandoned. Signing in and navigating are usually setup.
 * Every recorded event must appear in exactly one step's `events`, or in
   `omitted` with a reason naming it. Nothing the tester did may silently vanish.
-* Write `Scenario:` blocks. Do not write a `Background:` -- shared setup is
-  worked out from the scenarios.
-* A repeated flow is one `Scenario Outline` with an `Examples` table, not two
-  near-identical scenarios. Two rows minimum: one row is not a table.
+* Do not write a `Background:` -- shared setup is worked out from the
+  scenarios. Whether a scenario is a `Scenario:` or a `Scenario Outline:` is
+  yours to decide, and the worked example above shows which this project wants.
+* Values that identify WHICH item the tester happened to use -- a product, a
+  country, a quantity, a message -- belong in `<angle brackets>` with an
+  `Examples` table underneath. The application has a million products and the
+  test is of the feature, not of the one product the session used. Values the
+  feature COMPUTES -- a total, a count, a status -- stay in the sentence,
+  because those are the verdict.
+* A repeated flow is one `Scenario Outline` with several rows, not two
+  near-identical scenarios.
 
 {voice}
 """
@@ -652,6 +684,7 @@ def write_document(
         config,
         expectations,
         answer_text=result.answer_text,
+        tools_enabled=tools_enabled,
     )
     document.digest = digest
     document.uncertainties = list(result.uncertainties)
@@ -677,13 +710,14 @@ def _parse(
     config: ProjectConfig,
     expectations: ExpectationSet | None,
     answer_text: str = "",
+    tools_enabled: bool = True,
 ) -> AuthoredDocument:
     # The author writes a `.feature` and annotates its lines. That is the whole
     # of the 2026-08-29 change: no model in this pipeline had ever seen a
     # feature file, so the one artifact it is judged by was assembled by a
     # script from parts none of which were Gherkin.
     document = _from_feature(
-        answer, store, runner, tool_call_ids, config, expectations, answer_text
+        answer, store, runner, tool_call_ids, config, expectations, answer_text, tools_enabled
     )
     if document is not None:
         _apply_rejections(document, expectations)
@@ -717,7 +751,9 @@ def _parse(
             bug=bool(raw.get("bug")),
             actual=_clean(raw.get("actual")),
         )
-        _attach_claim(step, raw, store, runner, tool_call_ids, document, expectations)
+        _attach_claim(
+            step, raw, store, runner, tool_call_ids, document, expectations, tools_enabled
+        )
         by_id[step_id] = step
 
     document.scenarios = _scenarios(answer.get("scenarios"), by_id, config)
@@ -739,6 +775,7 @@ def _from_feature(
     config: ProjectConfig,
     expectations: ExpectationSet | None,
     answer_text: str = "",
+    tools_enabled: bool = True,
 ) -> AuthoredDocument | None:
     """Build the document out of the `.feature` the author wrote, or return None.
 
@@ -879,6 +916,7 @@ def _from_feature(
                     document,
                     expectations,
                     config,
+                    tools_enabled,
                 )
                 continue
 
@@ -1036,6 +1074,7 @@ def _attach_verdict(
     document: AuthoredDocument,
     expectations: ExpectationSet | None,
     config: ProjectConfig,
+    tools_enabled: bool = True,
 ) -> None:
     """A verdict LINE, bound the same way a verdict FIELD always was.
 
@@ -1054,6 +1093,7 @@ def _attach_verdict(
         tool_call_ids,
         document,
         expectations,
+        tools_enabled,
     )
     # A refusal the author wrote about this verdict belongs on the step that
     # was supposed to carry it, and only when nothing landed.
@@ -1100,6 +1140,7 @@ def _attach_claim(
     tool_call_ids: list[str],
     document: AuthoredDocument,
     expectations: ExpectationSet | None,
+    tools_enabled: bool = True,
 ) -> None:
     """Turn the author's claim into a cited assertion, or refuse it out loud.
 
@@ -1124,7 +1165,10 @@ def _attach_claim(
     evidence = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
     literal = _clean(evidence.get("literal"))
     if not literal:
-        _refuse(step, document, expected, "the author quoted nothing to rest it on")
+        _refuse(
+            step, document, expected,
+            "the author quoted nothing to rest it on", store, expectations,
+        )
         return
 
     predicate = _predicate(evidence.get("predicate"))
@@ -1187,8 +1231,23 @@ def _attach_claim(
                     "what was retrieved, so this claim could not be re-checked. This is a "
                     "fault in the run, not in the recording -- re-run it"
                 ),
+                store,
+                expectations,
             )
             return
+        # Go and look, before deciding the run never did.
+        # Go and look, before deciding the run never did.
+        #
+        # Gated on `tools_enabled` because A0's whole definition is a
+        # configuration that makes NO retrievals -- it is the baseline the
+        # ablation compares against, and a rescue firing there would ground a
+        # claim in the arm that exists to show what happens without grounding.
+        call_id = (
+            _rescue(store, runner, tool_call_ids, document, literal, event_id, negative)
+            if tools_enabled
+            else None
+        )
+    if call_id is None:
         # It may still be true. It is simply not something this run went and
         # looked at, and the whole architecture exists to keep those apart.
         _refuse(
@@ -1201,6 +1260,8 @@ def _attach_claim(
                 if negative
                 else f"nothing this run retrieved contains {literal[:60]!r}"
             ),
+            store,
+            expectations,
         )
         return
 
@@ -1224,19 +1285,44 @@ def _attach_claim(
                 document,
                 expected,
                 f"{literal[:60]!r} does not appear at {event_id or 'any event of this step'}",
+                store,
+                expectations,
             )
             return
 
+    unresolved = ""
     if predicate is not None:
         verdict = evaluate(_stored(runner, call_id), literal, predicate)
         if verdict.unresolved:
-            # Neither true nor false. Passing it would put a green badge on an
-            # unchecked claim; rejecting it would kill true claims whenever a
-            # response shape changes. The author is told what did not resolve.
-            _refuse(step, document, expected, verdict.why)
-            return
-        if not verdict.holds:
-            _refuse(step, document, expected, verdict.why)
+            # Neither true nor false, and therefore not a reason to delete the
+            # sentence.
+            #
+            # `predicate.py` says this in its own docstring: folding
+            # cannot-evaluate into pass builds a laundering machine, folding it
+            # into reject kills true claims whenever a response shape changes,
+            # and it belongs in `whyNot` where a person can read it. This branch
+            # was doing the second of those. The claim is kept as the plain
+            # `contains` it would have been without a predicate, and what could
+            # not be checked is recorded on the evidence rather than used to
+            # throw the claim away.
+            #
+            # The cost is measured and it is not hypothetical: a predicate
+            # addresses a container by role and accessible name, and a real
+            # storefront's containers have neither. On `rec_MTG3YY559C5U` a
+            # `first_of` over a product grid resolved to the page-level group
+            # and reported that the first item was 'Skip to main content'; a
+            # true sort verdict was deleted for it, twice, in two rounds.
+            #
+            # What this does NOT do is claim more than it checked. The sentence
+            # may still say FIRST while the check says PRESENT -- that gap is
+            # exactly what `predicateUnresolved` records, what the sidecar
+            # prints, and what the judge's `claim_within_evidence` reads.
+            unresolved = verdict.why
+            predicate = None
+        elif not verdict.holds:
+            # False is different, and still refuses. The container was found,
+            # the question was asked, and the answer was no.
+            _refuse(step, document, expected, verdict.why, store, expectations)
             return
 
     # How precisely the literal resolves, and how many places satisfied the
@@ -1246,8 +1332,9 @@ def _attach_claim(
     stored = _stored(runner, call_id)
     step.assertions.append(
         Assertion(
-            id=f"assert_{step.step_id.split('_')[-1]}_001",
+            id=_assertion_id(step),
             text=expected,
+            status=AssertionStatus.proved,
             provenance=_provenance(step, store, expectations),
             evidence=Evidence(
                 literal=literal,
@@ -1257,6 +1344,7 @@ def _attach_claim(
                 predicate=predicate,
                 strength=grade(stored, literal),
                 occurrences=occurrences(stored, literal),
+                **({"predicateUnresolved": unresolved} if unresolved else {}),
             ),
             accepted=True,
         )
@@ -1266,17 +1354,152 @@ def _attach_claim(
     step.why_not = ""
 
 
-def _refuse(step: AuthoredStep, document: AuthoredDocument, claim: str, reason: str) -> None:
-    """Drop a claim, and leave a sentence where it was.
+def _rescue(
+    store: EvidenceStore,
+    runner: ToolRunner,
+    tool_call_ids: list[str],
+    document: AuthoredDocument,
+    literal: str,
+    event_id: str,
+    negative: bool,
+) -> str | None:
+    """Go and look at the moment this claim is about, before refusing it.
+
+    The rule is that a claim must point at a retrieval made in this run. It was
+    being enforced as something narrower and accidental: a claim must point at a
+    retrieval the AUTHOR HAPPENED TO MAKE. Those are the same thing only when
+    the author guessed right about which response would hold the value, and when
+    it guesses wrong a true, provable verdict is deleted while its evidence sits
+    in the recording untouched.
+
+    Measured on `rec_MTG3YY559C5U`. The tester sorted a tea listing high to low
+    and marked the top price by hand. The author retrieved `evt_003.after` --
+    the right event -- and that snapshot holds the UNSORTED list, because the
+    recorder closed its settle window 645 ms in, before the results came back
+    from the network. The sorted page first appears in the recording as
+    `evt_004.before`, twenty seconds later, with nothing done in between. The
+    run told the tester that nothing had retrieved the value they had pointed at
+    themselves.
+
+    So two candidates, in this order, and no more:
+
+      1. **the cited event's `after`** -- for an author that wrote the verdict
+         from the session index without retrieving anything.
+      2. **the NEXT event's `before`** -- which is the same page after it
+         finished settling. This is not a search of the session; it is the one
+         place the evidence goes when a settle window closes early, and it is
+         bounded at a single event of distance.
+
+    Each candidate is a real retrieval, persisted and hashed through
+    `ToolRunner.call`, and each is then resolved by `citation` exactly as any
+    other would be. **This function never decides that a literal is present** --
+    it decides where to look, and `resolve_call` decides what came back. That is
+    what keeps it from being a search for something to agree with.
+
+    Three further bounds:
+
+    * **Never for a negative claim.** `absent` is proved by the ABSENCE of the
+      literal from a retrieval of the event it names, so hunting for a response
+      that contains it would be looking for the opposite of the claim.
+    * **`Evidence.eventId` does not move.** The claim stays about the moment the
+      author named, and `store.contains_at` still checks it against the
+      recording at that moment. Only the retrieval that shows it is elsewhere.
+    * **Bounded per document.** An author that wrote every verdict without
+      retrieving anything should reach `investigate`'s `needs_retrieval` nudge
+      and be sent back to look, not be quietly carried by this.
+    """
+    if negative or not event_id:
+        return None
+
+    order = [event.id for event in store.recording.events]
+    candidates: list[tuple[str, str]] = [(event_id, "after")]
+    if event_id in order:
+        following = order.index(event_id) + 1
+        if following < len(order):
+            candidates.append((order[following], "before"))
+
+    for target, when in candidates:
+        if document.rescues >= RESCUE_BUDGET:
+            return None
+        document.rescues += 1
+        try:
+            call_id, _ = runner.call(
+                "get_snapshot",
+                {"eventId": target, "when": when},
+                stage=PipelineStage.author,
+            )
+        except Exception:  # noqa: BLE001 - a failed rescue is a refusal, never a crash
+            continue
+        tool_call_ids.append(call_id)
+        found = resolve_call(runner, tool_call_ids, literal)
+        if found is not None:
+            return found
+    return None
+
+
+def _refuse(
+    step: AuthoredStep,
+    document: AuthoredDocument,
+    claim: str,
+    reason: str,
+    store: EvidenceStore,
+    expectations: ExpectationSet | None,
+) -> None:
+    """Keep the claim, and say it could not be proved.
 
     The old pipeline deleted it silently; the scenario then ended with no
     `Then` and a style warning said so in a vocabulary nobody outside the
     pipeline reads. 27 of those warnings were a readout of the capture problem
     and not one of them told a reviewer what to do.
+
+    Naming the refusal fixed half of that, and the half it left is the one the
+    tester sees: **the sentence still disappeared.** A scenario that stopped on
+    a `When` with a comment underneath naming the STEP -- not the claim -- is
+    what a QA tester was handed for a check they had marked by hand, and the
+    feature file is the artifact that gets imported into Xray and mailed around.
+    Every reason a claim was refused turned out to be a statement about this
+    run's retrievals rather than about the application: the author looked one
+    event over, or the page had no container to address, or the recorder had
+    thrown the evidence away before either of them ran.
+
+    So the claim becomes an assertion that says what it is. It renders as a
+    `Then` like any other, and it carries `status="unproved"` and the reason.
+
+    The one thing that must never happen is this being mistaken for a proved
+    claim, and three separate places enforce that rather than trusting a
+    convention: `validators/grounding._assertions` filters these out, because
+    `evidence_retrieved` would otherwise reject every one of them; `_metrics`
+    counts proved claims only, or the grounding rate would be measuring itself;
+    and the renderers label them. `document.refused` still carries it to
+    `_revision_feedback`, so the author still gets a round to go and prove it.
     """
     document.refused.append({"stepId": step.step_id, "claim": claim, "reason": reason})
+    step.assertions.append(
+        Assertion(
+            id=_assertion_id(step),
+            text=claim,
+            provenance=_provenance(step, store, expectations),
+            status=AssertionStatus.unproved,
+            whyNot=reason,
+            # Accepted, because this is a line in the file and a reviewer can
+            # untick it exactly as they can untick any other. `accepted` says
+            # whether the sentence is IN the document; `status` says whether
+            # anything backs it. Conflating them is what deleted it.
+            accepted=True,
+        )
+    )
     if not step.why_not:
         step.why_not = f"Could not check that {claim}: {reason}."
+
+
+def _assertion_id(step: AuthoredStep) -> str:
+    """Unique within the step, which a fixed `_001` was not.
+
+    A step can now hold a proved claim and an unproved one at once -- the author
+    wrote two verdicts and only one resolved -- and two assertions sharing an id
+    would collide in `review.py`, whose every edit is addressed by it.
+    """
+    return f"assert_{step.step_id.split('_')[-1]}_{len(step.assertions) + 1:03d}"
 
 
 def _provenance(
@@ -1353,6 +1576,26 @@ def _scenarios(
 
 
 def _examples(value: Any) -> ScenarioExamples | None:
+    """The author's own `Examples` table, from the JSON fallback path.
+
+    A single row is a table here, and it did not used to be.
+
+    The floor was two, on the argument that one row is a scenario with extra
+    ceremony and `parameters: inline` renders those values in the step text
+    where a reader finds them without looking in two places. That argument is
+    about a table used as a DATA MATRIX, and it is right about one.
+
+    It is wrong about the other use, which is the one a QA team actually writes:
+    the table is the PARAMETER CONTRACT. `<product>` in the step text is what
+    makes the scenario a test of the feature rather than a transcript of one
+    session -- an application with a million products needs a test that reads
+    the same for any of them -- and the row underneath says which values this
+    run used. Three of the four reference feature files this style was built
+    from ship exactly one row.
+
+    So a one-row table is kept. What is still refused is a table with no rows at
+    all, and a ragged one, because neither is a table under any reading.
+    """
     if not isinstance(value, dict):
         return None
     columns = _strings(value.get("columns"))
@@ -1362,10 +1605,7 @@ def _examples(value: Any) -> ScenarioExamples | None:
     rows = [
         [str(cell) for cell in row] for row in rows_raw if isinstance(row, list) and len(row) == len(columns)
     ]
-    # One row is not a table. `parameters: inline` already renders a single set
-    # of values in the step text, where a reader finds them without looking in
-    # two places.
-    if len(rows) < 2:
+    if not rows:
         return None
     return ScenarioExamples(columns=columns, rows=rows)
 

@@ -39,7 +39,7 @@ KNOWN_VOICES = ("the tester", "the user", "I", "the admin")
 #: else in the pipeline changes. That is the whole reason this became a config
 #: knob rather than the three-branches-in-a-prompt shape that was cut once
 #: already for measuring near-zero uptake.
-STYLES = ("automation", "business", "data-driven")
+STYLES = ("journey", "automation", "business", "data-driven")
 
 TRACE_MODES = ("sidecar", "none")
 PARAMETER_MODES = ("inline", "outline")
@@ -87,15 +87,29 @@ class ProjectConfig:
     #: Which worked feature file the author is shown, and therefore how the
     #: output reads.
     #:
-    #: automation -- every action, specific values, a check whenever there is
-    #:               something worth checking. For whoever writes the step
-    #:               definitions.
-    #: business   -- few steps, plain language, one verdict at the end of each
-    #:               scenario. For whoever decides the behaviour is right.
+    #: journey     -- the whole flow as one `Scenario Outline` reaching one
+    #:                outcome, with every value that identifies WHICH item in an
+    #:                `Examples` table and section comments where the journey
+    #:                turns. For a QA team who will write step definitions
+    #:                against this and run it against any product.
+    #: automation  -- every action, specific values in the prose, a check
+    #:                whenever there is something worth checking. Shorter
+    #:                scenarios, one behaviour each.
+    #: business    -- few steps, plain language, one verdict at the end of each
+    #:                scenario. For whoever decides the behaviour is right.
+    #: data-driven -- a repeated flow becomes one outline; a flow that happened
+    #:                once stays a plain scenario.
     #:
     #: It changes the EXAMPLE, never the rules and never what may be claimed. A
     #: business-style document is bound exactly as tightly as an automation one.
-    style: str = "automation"
+    #:
+    #: `journey` is the default because it is the shape a QA team hands to an
+    #: automation engineer: the step text names no particular product, so one
+    #: scenario covers a catalogue, and the values the run actually used sit in
+    #: the table where the gate can still bind each of them to a literal. The
+    #: default was `automation`, and a QA lead reading its output said the
+    #: sentences described one afternoon rather than a test.
+    style: str = "journey"
 
     #: Filename stem for the rendered feature, formatted with `caseId`, `title`
     #: and `recordingId`.
@@ -164,6 +178,24 @@ class ProjectConfig:
     #: narration is `not_checkable` by machine for exactly that reason.
     narration_keep_audio: bool = True
 
+    #: How long authoring waits for the confirmation screen before starting on
+    #: the guesses, in seconds. 0 disables the hold.
+    #:
+    #: Answering re-runs the recording in place, and a re-run repeats the
+    #: author (up to two rounds) and the judge after each -- so a tester who
+    #: pressed Stop and then answered the screen that opened paid for the
+    #: expensive half of the pipeline twice, to replace a draft nobody had read.
+    #: On a free tier whose real limit is requests per day, that is most of a
+    #: day's budget.
+    #:
+    #: Two minutes because it is the answer to "is the tester still at their
+    #: desk", which is what the window is actually asking. It is not a promise
+    #: about the screen: expiring is the normal path and produces exactly the
+    #: behaviour that existed before the hold. Set it to 0 on a paid endpoint,
+    #: where a second run costs latency rather than quota, and raise it for a
+    #: team who reviews every recording as they make it.
+    confirm_window_seconds: float = 120.0
+
     @property
     def first_person(self) -> bool:
         return self.voice.strip().lower() == "i"
@@ -207,6 +239,11 @@ def load_project_config(path: Path | None = None) -> ProjectConfig:
         fields["exports"] = tuple(str(e).strip().lower() for e in data["exports"] if str(e).strip())
     if "origin_policy" in data:
         fields["origin_policy"] = _origin_policy(data["origin_policy"])
+    if isinstance(data.get("confirm_window_seconds"), int | float):
+        # Clamped at zero rather than rejected: a negative window is a typo for
+        # "off", and refusing the file over it would lose every other setting
+        # in it.
+        fields["confirm_window_seconds"] = max(0.0, float(data["confirm_window_seconds"]))
 
     xray = data.get("xray")
     if isinstance(xray, dict) and isinstance(xray.get("test_key"), str):

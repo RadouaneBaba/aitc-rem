@@ -443,6 +443,14 @@ class AnnotationTarget(StrictModel):
     role: str
     name: str
     value: str | None = None
+    text: str | None = None
+    """
+    The element's own visible text, capped. Separate from `name` so a CONTAINER can be marked: `name` stays a short handle a sentence can use, and this carries the words. A tester pointing at a product card means the card, and until this existed the click was refused outright -- `nameOf` returns "" for an unnamed div and the text fallback gave up over 120 characters.
+    """
+    ordinal: int | None = Field(None, ge=1)
+    """
+    1-based position among the element's like-tagged siblings, set only where there is more than one. This is how `the FIRST product` becomes expressible: the css selector already carried `nth-of-type(1)` and nothing downstream could read it, so a tester marking the first and second prices in a sorted list handed the pipeline no position at all.
+    """
     selectors: common_schema.SelectorSet | None = None
 
 
@@ -462,6 +470,14 @@ class TesterAnnotation(StrictModel):
     """
     timestamp: float
     eventId: str | None = None
+    groupId: str | None = None
+    """
+    Marks made in one picker session share this. A tester checking that a list is SORTED points at two prices; separately those are two identical-looking marks, and the pipeline saw exactly that on rec_MTG3YY559C5U -- two `assertion -> "275.00"` lines with nothing to say they belonged together. Together they are a claim about the RELATION between them, which is the only thing a sort, a total or a difference can be.
+    """
+    index: int | None = Field(None, ge=1)
+    """
+    Order within `groupId`, from 1. The order the tester pointed in is the order they mean: first, then second.
+    """
     target: AnnotationTarget | None = Field(None, title="AnnotationTarget")
     """
     For assertion annotations: the element the tester pointed at.

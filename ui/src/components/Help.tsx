@@ -80,7 +80,11 @@ export function Help({ onBack }: { onBack: () => void }) {
             page.
             <span className="say">
               This is the single most useful button in the product. What you point at becomes the
-              expected result, word for word.
+              expected result, word for word. <b>Point at the value that changes</b> — the
+              capacity counter, the total, the count — not the label beside it: a label is still
+              on the page when the feature is broken, so a test that checks one proves nothing.
+              You can mark several things in one go (they are read as a comparison), and the
+              picker stays open until you press <kbd>Esc</kbd>.
             </span>
           </div>
         </li>
@@ -97,7 +101,10 @@ export function Help({ onBack }: { onBack: () => void }) {
             <span className="ui">Right</span> or <span className="ui">Not right</span>. About a
             minute.
             <span className="say">
-              The draft appears here on its own a couple of minutes later.
+              It waits two minutes for you here, and the screen says how long is left. Answer
+              inside that and the draft is written with your answers first time. Answer later and
+              it still counts — it rewrites the draft instead. Close the tab and a draft is
+              written anyway.
             </span>
           </div>
         </li>
@@ -242,8 +249,18 @@ export function Help({ onBack }: { onBack: () => void }) {
           reason and the suggested fix are written out under the expected result.
         </li>
         <li>
-          <b>A step with no verdict says why</b>, in plain language. That is the tool refusing to
-          claim something it could not prove, and it is working as intended.
+          <b>Beside the page text is how well it resolved</b> — how many places on that page
+          satisfied the check. <span className="ui">2×</span> is a real check.{' '}
+          <span className="ui">198×</span> means the value is everywhere and the verdict would
+          pass on an empty basket. That number is the difference between a test and a
+          decoration.
+        </li>
+        <li>
+          <b>A verdict marked <span className="ui">unproved</span></b> is one the tool wanted to
+          make and could not. The sentence stays in the feature file with a{' '}
+          <code>#&nbsp;unproved</code> comment naming the claim and the reason, and the scenario
+          is tagged <code>@needs-review</code>. It used to delete such sentences silently, which
+          is why scenarios ended in mid-air.
         </li>
         <li>
           <b>What this session did not cover</b> is a suggestion about what to record next. Nothing
@@ -253,8 +270,9 @@ export function Help({ onBack }: { onBack: () => void }) {
 
       <h3>What to actually do on that screen</h3>
       <p>
-        Reword a step or a verdict, delete a step, merge two, approve. Fix wording that would
-        confuse the next person; do not fix wording you merely would have phrased differently. Press{' '}
+        Reword a step or a verdict, accept or reject one, delete a step, merge two, rename a
+        scenario, edit the feature text directly, approve. Fix wording that would confuse the next
+        person; do not fix wording you merely would have phrased differently. Press{' '}
         <kbd>?</kbd> for the keyboard shortcuts, or <kbd>⌘</kbd>
         <kbd>K</kbd> to jump anywhere.
       </p>
@@ -263,6 +281,42 @@ export function Help({ onBack }: { onBack: () => void }) {
         have to stay honest about each other. If a verdict is wrong, delete it or reword the
         sentence — the proof stays what it was.
       </p>
+
+      <h3>Which findings you can fix here, and which you cannot</h3>
+      <p>
+        This screen fixes prose and removes things. It cannot prove anything — so a finding that
+        needs <em>more evidence</em> is a re-record, not an edit. That distinction is the whole
+        of triage:
+      </p>
+      <table className="compare">
+        <tbody>
+          <tr>
+            <td>The page text under a verdict does not support the sentence</td>
+            <td>Reject or reword it, here.</td>
+          </tr>
+          <tr>
+            <td>A clumsy step, or two scenarios covering the same ground</td>
+            <td>Reword, merge or delete, here.</td>
+          </tr>
+          <tr>
+            <td>
+              <code>#&nbsp;unproved</code>, reason “quoted nothing to rest it on”
+            </td>
+            <td>Nothing to fix here — the claim points at no value. Delete the line or leave it flagged.</td>
+          </tr>
+          <tr>
+            <td>A red dot saying the verdict would pass on a broken build</td>
+            <td>
+              Next recording: mark the value that changes, not the label. Nothing on this screen
+              can add evidence that was never captured.
+            </td>
+          </tr>
+          <tr>
+            <td>A verdict that resolved at a high multiple (<span className="ui">198×</span>)</td>
+            <td>Same — it needs a more specific value from the page, which means recording again.</td>
+          </tr>
+        </tbody>
+      </table>
 
       <h2>If something goes wrong</h2>
       <table className="compare">

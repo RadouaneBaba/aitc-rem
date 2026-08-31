@@ -533,7 +533,7 @@ async function main(): Promise<void> {
         throw new Error(`${response.status} ${await response.text()}`);
       }
 
-      const { job, unknownOrigins, narration } = await response.json();
+      const { job, unknownOrigins, narration, confirmWindowSeconds } = await response.json();
 
       // Screenshots last, and deliberately so. The pipeline never reads one
       // (SS7.4 -- they are not sent to a model), so they must not hold up the
@@ -559,7 +559,7 @@ async function main(): Promise<void> {
           : '';
       }
 
-      // Open the run that was just started, not the review UI's front door.
+      // Where to send them, and it depends on whether the run is WAITING.
       //
       // `/runs/<rec>/<run>` is the page for THIS run: it shows the pipeline
       // working, names the stage it is in, and turns into the draft the moment
@@ -568,17 +568,28 @@ async function main(): Promise<void> {
       // banner above it describing the job just started. Two different runs on
       // one screen, and nothing saying which was which.
       //
-      // The confirmation screen is still the loudest thing on that page, and
-      // for the original reason: the pipeline can only restate what the
-      // application DID, the one thing it cannot know is what it SHOULD have
-      // done, and the only person who knows is about to close this tab.
-      const run = job.runId
+      // But when the server holds for the confirmation screen, that screen is
+      // not one thing on the run page among others -- it is the thing with a
+      // clock on it. Answering inside the window means the draft is written
+      // with their answers first time instead of being written twice, and the
+      // person who can answer is about to close this tab. So the link goes
+      // straight there and says what it is for.
+      const holding = Number(confirmWindowSeconds) > 0;
+      const runUrl = job.runId
         ? `${base}/runs/${encodeURIComponent(recording.id)}/${encodeURIComponent(job.runId)}`
         : `${base}/?confirm=${encodeURIComponent(recording.id)}`;
+      const run = holding ? `${base}/confirm/${encodeURIComponent(recording.id)}` : runUrl;
       $('sent').innerHTML =
-        `Sent. <a href="${run}" target="_blank"><strong>Watch it being written</strong></a> ` +
-        `— the page asks what should have happened while it works, which takes about a ` +
-        `minute of clicking and is the one thing the recording cannot show us. ` +
+        (holding
+          ? `Sent. <a href="${run}" target="_blank"><strong>Say what should have ` +
+            `happened</strong></a> — about a minute of clicking, and it is the one thing ` +
+            `the recording cannot show us. The draft waits ` +
+            `${Math.round(Number(confirmWindowSeconds) / 60) || 1} minute` +
+            `${Math.round(Number(confirmWindowSeconds) / 60) === 1 ? '' : 's'} for you, then ` +
+            `writes itself without them. `
+          : `Sent. <a href="${run}" target="_blank"><strong>Watch it being written</strong></a> ` +
+            `— the page asks what should have happened while it works, which takes about a ` +
+            `minute of clicking and is the one thing the recording cannot show us. `) +
         `Job <code>${job.id}</code> is writing the draft.` +
         narrationNote(narration) +
         shotNote +

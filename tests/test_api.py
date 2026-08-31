@@ -15,11 +15,14 @@ effort/difficulty correlation, and it is only free if it happens automatically.
 from __future__ import annotations
 
 import json
+import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from server.api.app import create_app
+from server.config.project import ProjectConfig, load_project_config
 from server.llm import CompletionRequest, ScriptedModelClient, answer
 from server.storage.paths import Storage
 from tests.test_pipeline import grounded_model, recording, stage_of
@@ -63,9 +66,40 @@ def guessing_model() -> ScriptedModelClient:
     return ScriptedModelClient(behave)
 
 
+def no_hold() -> ProjectConfig:
+    """The project config with the confirmation hold turned off.
+
+    Every test below that is about the OLD contract -- answering the screen
+    re-runs the recording in place -- has to be, because with a hold in force
+    the run is still waiting between the guess and the author and answering
+    folds into it instead. Both behaviours are correct and they are different
+    tests, so the window is stated rather than inherited.
+
+    It is also what keeps the suite fast: a fixture that quietly picked up
+    `config/project.yaml`'s two minutes would block every one of these on a
+    screen no test opens.
+    """
+    return replace(load_project_config(), confirm_window_seconds=0)
+
+
 @pytest.fixture
 def guessing_client(storage: Storage):
-    app = create_app(storage=storage, model_factory=guessing_model)
+    app = create_app(storage=storage, model_factory=guessing_model, config=no_hold())
+    with TestClient(app) as client:
+        client.app.state.storage = storage
+        yield client
+
+
+@pytest.fixture
+def holding_client(storage: Storage):
+    """A client whose runs hold for the confirmation screen.
+
+    Ten seconds rather than two minutes: long enough that no test races it, and
+    short enough that a test which forgets to release fails in ten seconds
+    instead of timing out the suite.
+    """
+    config = replace(load_project_config(), confirm_window_seconds=10)
+    app = create_app(storage=storage, model_factory=guessing_model, config=config)
     with TestClient(app) as client:
         client.app.state.storage = storage
         yield client
@@ -876,6 +910,30 @@ def test_unanswered_guesses_are_reported_so_somebody_can_be_asked(guessing_clien
     assert rows[0]["count"] >= 1
 
 
+def test_a_recording_whose_run_was_archived_stops_being_reported(guessing_client):
+    """Archiving moves the RUN, and never the recording.
+
+    So a recording stayed on this list forever once its draft was archived, and
+    the banner went on offering a tester work on runs that are no longer on the
+    review screen -- the count only ever climbed. Answering one of them is worse
+    than pointless: the answers are an input to AUTHORING, so it would re-run a
+    recording whose output somebody has already decided they were done with.
+    """
+    recording_id, run_id = a_run(guessing_client)
+    assert guessing_client.get("/api/expectations/pending").json()["pending"]
+
+    storage = guessing_client.app.state.storage
+    archive = storage.runs_dir / "_archive" / recording_id
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    (storage.runs_dir / recording_id).rename(archive)
+
+    assert guessing_client.get("/api/expectations/pending").json()["pending"] == []
+    # And the recording itself is untouched -- this is about which drafts are
+    # live, not about forgetting the session.
+    assert recording_id in storage.list_recordings()
+    assert run_id
+
+
 def test_a_recording_whose_guesses_were_answered_stops_being_reported(guessing_client):
     recording_id, _run_id = a_run(guessing_client)
     stored = guessing_client.get(f"/api/recordings/{recording_id}/expectations").json()
@@ -950,3 +1008,156 @@ def test_an_unknown_api_path_is_a_404_and_not_the_app_shell(client):
     # un-did the download path-traversal guard when it did.
     response = client.get("/api/there-is-no-such-thing")
     assert response.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# the confirmation hold
+# --------------------------------------------------------------------------
+
+
+def _answer_all(client, recording_id: str) -> dict:
+    stored = client.get(f"/api/recordings/{recording_id}/expectations").json()
+    response = client.post(
+        f"/api/recordings/{recording_id}/expectations",
+        json={"answers": [{"id": item["id"], "source": "confirmed"} for item in stored["expectations"]]},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _runs_for(client, recording_id: str) -> list[str]:
+    return [
+        r["runId"] for r in client.get("/api/runs").json()["runs"] if r["recordingId"] == recording_id
+    ]
+
+
+def test_answering_inside_the_window_costs_one_run_and_not_two(holding_client):
+    """The reason the hold exists at all.
+
+    Answering re-runs the recording in place, and a re-run repeats the author
+    (up to two rounds) and the judge after each -- so pressing Stop and then
+    answering the screen that opens paid for the expensive half of the pipeline
+    twice, to replace a draft nobody had read. On a free tier whose real limit
+    is requests per DAY that is most of a day's budget.
+
+    So the run holds between the guess and the author. Answering releases it,
+    and the document is written against the answers the first time. The
+    observable consequence is that the pipeline runs ONCE.
+    """
+    payload = post_recording_without_waiting(holding_client)
+    recording_id = payload["job"]["recordingId"]
+    assert payload["confirmWindowSeconds"] == 10
+
+    # The guess is saved before the hold, or the screen would have nothing to
+    # show and nobody could end the wait.
+    stored = _wait_for_expectations(holding_client, recording_id)
+    assert stored["expectations"]
+    assert stored["holdingUntil"], "the run should be waiting for this screen"
+
+    body = _answer_all(holding_client, recording_id)
+    assert body["foldedIn"] is True
+    holding_client.app.state.jobs.wait(30)
+
+    assert len(_runs_for(holding_client, recording_id)) == 1
+    # And the run was authored against the answers rather than the guesses --
+    # which is the point of answering, and is what a second run used to buy.
+    saved = holding_client.get(f"/api/recordings/{recording_id}/expectations").json()
+    assert saved["confirmedAt"]
+    assert all(e["source"] == "confirmed" for e in saved["expectations"])
+
+
+def test_skipping_starts_the_draft_now_rather_than_walking_away_from_one(holding_client):
+    """Skip used to mean "a draft was already written without you".
+
+    It now means "write it now". That is strictly better and it is the same
+    button: the tester's intent -- I have nothing to add, get on with it -- was
+    always the same, and only the tool's timing was different.
+    """
+    payload = post_recording_without_waiting(holding_client)
+    recording_id = payload["job"]["recordingId"]
+    _wait_for_expectations(holding_client, recording_id)
+
+    response = holding_client.post(f"/api/recordings/{recording_id}/expectations/skip")
+    assert response.status_code == 200, response.text
+    assert response.json()["released"] is True
+
+    holding_client.app.state.jobs.wait(30)
+    assert len(_runs_for(holding_client, recording_id)) == 1
+    # Nobody answered, so the guesses stay guesses and the screen stays pending.
+    assert holding_client.get("/api/expectations/pending").json()["pending"]
+
+
+def test_skipping_when_nothing_is_holding_is_not_an_error(guessing_client):
+    """The window may have closed, or the run may be a week old.
+
+    Either way the tester's intent is already satisfied -- nothing is waiting on
+    them -- and a 404 here would tell someone who did the right thing that they
+    did something wrong.
+    """
+    recording_id, _ = a_run(guessing_client)
+    response = guessing_client.post(f"/api/recordings/{recording_id}/expectations/skip")
+    assert response.status_code == 200
+    assert response.json()["released"] is False
+
+
+def test_answering_after_the_window_still_counts_and_says_what_it_cost(guessing_client):
+    """The re-run path is not removed, because a late answer must still count.
+
+    `guessing_client` holds for zero seconds, so this is the old contract
+    exactly: the draft is already written, answering enqueues a run over it, and
+    `foldedIn` is False so the screen can say "being rewritten" rather than
+    "being written".
+    """
+    recording_id, first_run = a_run(guessing_client)
+
+    body = _answer_all(guessing_client, recording_id)
+    assert body["foldedIn"] is False
+    assert body["job"]["recordingId"] == recording_id
+    guessing_client.app.state.jobs.wait(30)
+
+    # Still one run: "one recording, one run" is about the run DIRECTORY, and
+    # the re-run writes the same one.
+    assert _runs_for(guessing_client, recording_id) == [first_run]
+    assert guessing_client.get("/api/expectations/pending").json()["pending"] == []
+
+
+def test_a_run_never_waits_on_a_screen_nobody_opens(storage: Storage):
+    """The rule the hold must not break.
+
+    A window is a bound on the wait, not a dependency on the screen. Somebody
+    who presses Stop and closes the laptop still gets a draft -- here in under a
+    second, because the window is a second.
+    """
+    config = replace(load_project_config(), confirm_window_seconds=1)
+    app = create_app(storage=storage, model_factory=guessing_model, config=config)
+    with TestClient(app) as client:
+        client.app.state.storage = storage
+        recording_id, run_id = a_run(client)
+        assert run_id
+        # Unanswered, so the guesses are still guesses -- the draft rests on
+        # them and its scenarios carry @needs-review, which is the honest state.
+        assert client.get("/api/expectations/pending").json()["pending"]
+        assert recording_id
+
+
+def post_recording_without_waiting(client) -> dict:
+    payload = json.loads(recording().model_dump_json(exclude_none=True))
+    response = client.post("/api/recordings", json=payload)
+    assert response.status_code == 202, response.text
+    return response.json()
+
+
+def _wait_for_expectations(client, recording_id: str, timeout: float = 20.0) -> dict:
+    """The guess is a model call, so it is not there the instant Stop returns.
+
+    This is what the confirmation screen itself does -- it polls rather than
+    failing, because arriving before the guess is the normal case and not an
+    error.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        response = client.get(f"/api/recordings/{recording_id}/expectations")
+        if response.status_code == 200:
+            return response.json()
+        time.sleep(0.05)
+    raise AssertionError(f"no expectations for {recording_id} within {timeout}s")

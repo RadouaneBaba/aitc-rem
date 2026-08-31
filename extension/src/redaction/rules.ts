@@ -80,7 +80,11 @@ export const SENSITIVE_KEYS = [
   'secret', 'token', 'accesstoken', 'refreshtoken', 'idtoken',
   'apikey', 'api_key', 'authorization', 'auth', 'credential', 'credentials',
   'ssn', 'socialsecurity', 'nationalid',
-  'cardnumber', 'card_number', 'cc', 'cvv', 'cvc', 'pin',
+  // `ccnumber` is spelled out because `cc` now has to be a word of its own --
+  // see WHOLE_TOKEN_MAX. Every separated spelling (`cc-number`, `cc_number`,
+  // `ccNumber`) still matches through `cc` alone; this covers the run-together
+  // one, which no boundary can find.
+  'cardnumber', 'card_number', 'ccnumber', 'cc', 'cvv', 'cvc', 'pin',
   'sessionid', 'session_id', 'cookie',
 ];
 

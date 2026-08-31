@@ -46,8 +46,18 @@ export interface Assertion {
   id: string;
   text: string;
   provenance: Provenance;
-  evidence: Evidence;
+  /** Absent exactly when `status` is `unproved`. */
+  evidence?: Evidence;
   accepted: boolean;
+  /** Absent means `proved` -- there was no other kind before this existed.
+   *
+   *  `unproved` is a verdict the author wrote and the gate could not license,
+   *  kept in the feature file rather than deleted. Deleting it is how a
+   *  scenario came to stop on a `When`, which a reader cannot tell apart from a
+   *  scenario that had nothing worth checking. */
+  status?: 'proved' | 'unproved';
+  /** Why an `unproved` claim could not be licensed. */
+  whyNot?: string;
   rank?: number;
 }
 
@@ -120,9 +130,11 @@ export interface TestCase {
   tags: string[];
   steps: Step[];
   preconditions?: Precondition[];
-  /** One flow exercised with several sets of values -- a judgement about test
+  /** One flow exercised with a named set of values -- a judgement about test
    *  design the author makes, distinct from the `parameters: outline` rendering
-   *  setting. Two rows minimum: one row is not a table. */
+   *  setting. One row is legitimate: the table is the parameter contract, which
+   *  is what makes the step text say `<product>` rather than name the one
+   *  product this session happened to use. */
   examples?: { columns: string[]; rows: string[][] };
   parameters: { name: string; placeholder: string; category: string }[];
   omitted: { segmentId: string; reason: string; eventCount: number; summary: string }[];
@@ -307,6 +319,8 @@ export interface Judgement {
  */
 export type ExpectationSource = 'inferred' | 'confirmed' | 'corrected' | 'stated' | 'rejected';
 
+export type ExpectationRank = 'outcome' | 'waypoint';
+
 export interface Expectation {
   id: string;
   eventIds: string[];
@@ -316,6 +330,11 @@ export interface Expectation {
   source: ExpectationSource;
   screenshot?: string;
   note?: string;
+  /** Absent means `waypoint`, which is what every expectation written before
+   *  this field existed was in practice. `outcome` is the one the session was
+   *  FOR -- the card a tester should read first and, if they answer only one,
+   *  the one worth answering. */
+  rank?: ExpectationRank;
 }
 
 export interface ExpectationSet {
@@ -324,6 +343,19 @@ export interface ExpectationSet {
   createdAt: string;
   confirmedAt?: string;
   expectations: Expectation[];
+
+  /** When authoring starts on its own, if a run is holding for this screen.
+   *
+   *  Not part of the stored set -- the server attaches it to the response,
+   *  because it is a fact about right now rather than about the recording.
+   *  An INSTANT rather than a remaining duration: this screen is opened
+   *  seconds after Stop sometimes and minutes after at others, and a countdown
+   *  seeded with the full window would be wrong in exactly the case where the
+   *  tester most needs it to be right.
+   *
+   *  Absent means nothing is waiting. Answering still works and still counts;
+   *  it just pays for a second run, which is what every answer used to cost. */
+  holdingUntil?: string | null;
 }
 
 export interface ExpectationAnswer {
@@ -441,9 +473,21 @@ export const api = {
   /** Answering enqueues a fresh run. The answers are an input to authoring, not
    *  an edit to its output, so the pipeline has to run again to use them. */
   answerExpectations: (rec: string, answers: ExpectationAnswer[]) =>
-    call<{ job: Job; expectations: ExpectationSet }>(
+    call<{ job: Job | null; foldedIn: boolean; expectations: ExpectationSet }>(
       `/api/recordings/${rec}/expectations`,
       json({ answers }),
+    ),
+
+  /** Start the draft now, on the guesses.
+   *
+   *  Skipping has always been legitimate and free; what is new is that it is
+   *  also faster. The run is holding between the guess and the author, and this
+   *  ends the hold -- rather than walking away from a run that had already
+   *  begun without you. Never an error when nothing is holding. */
+  skipExpectations: (rec: string) =>
+    call<{ released: boolean; job: Job | null }>(
+      `/api/recordings/${rec}/expectations/skip`,
+      { method: 'POST' },
     ),
 
   /** Recordings whose guesses nobody has answered yet.

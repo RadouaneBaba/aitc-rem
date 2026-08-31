@@ -202,6 +202,12 @@ def build_job(
                 "id": step.id,
                 "text": step.text,
                 "actions": actions_for(list(step.eventIds)),
+                # An unproved claim has no literal to look for, so there is
+                # nothing for the runner to check. Skipped rather than failed:
+                # `ReplayResult.passed` is about whether the application did what
+                # the test says, and "the pipeline could not prove this" is a
+                # fact about the run. Failing here would make `Executes` measure
+                # the harness, which is the vacuity trap in its mirror image.
                 "assertions": [
                     {
                         "id": a.id,
@@ -210,7 +216,7 @@ def build_job(
                         "text": a.text,
                     }
                     for a in step.assertions
-                    if a.accepted
+                    if a.accepted and a.evidence is not None
                 ],
             }
         )

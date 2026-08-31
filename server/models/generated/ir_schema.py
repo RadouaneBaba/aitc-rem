@@ -44,6 +44,21 @@ class StepKeyword(StrEnum):
     But = "But"
 
 
+class AssertionStatus(StrEnum):
+    """
+    Whether this claim points at a retrieval, or only at itself.
+
+    Absent means `proved`, so every artifact written before this field existed means exactly what it always did -- there was no other kind.
+
+    `unproved` exists because the alternative was deletion, and deletion was losing true verdicts. The author writes a sentence, the gate cannot license it, and the sentence used to vanish: the scenario then ended mid-air on a `When` and a comment underneath named the STEP rather than the claim. Measured on rec_MTG3YY559C5U, where the tester had marked the price by hand and the run told them nothing had retrieved it -- true of the one snapshot the author fetched, false of the recording, which held the sorted list one event later.
+
+    So the sentence stays and says what it is. What must never happen is the third thing: an unproved claim reported as proved. `validators/grounding._assertions` filters on this field, because `evidence_retrieved` would otherwise reject every one of them, and the metrics count proved claims only -- a grounding rate that counted these would be measuring itself.
+    """
+
+    proved = "proved"
+    unproved = "unproved"
+
+
 class EvidenceKind(StrEnum):
     semantic_node = "semantic_node"
     url = "url"
@@ -332,6 +347,14 @@ class Evidence(StrictModel):
 
     Descriptive, like `strength`, and deliberately NOT a threshold: `evidence_discriminates` was one of the nine refusal rules deleted for guessing at meaning with a heuristic, and any cutoff here would reject true claims -- `Order confirmed` is legitimately rare and a real page can legitimately repeat a valid literal. It is reported so a human can see the difference, never so code can act on it.
     """
+    predicateUnresolved: str | None = None
+    """
+    Set when the author asked for a `first_of` or a `count`, the predicate could not be EVALUATED at all against the stored response, and the claim was kept as a plain `contains` instead. It carries the evaluator's own reason -- typically that the named container is not in the retrieval, which on a commercial page is the normal case rather than an error: `{"role": "list", "name": "Your Selection"}` finds nothing where the real tree has that string as a bare text node inside an unnamed group.
+
+    Cannot-evaluate used to refuse the claim, and that cost real verdicts: on rec_MTG3YY559C5U a `first_of` over a product grid reported that the first item was 'Skip to main content', and a true sort verdict was deleted for it. Refusing was the wrong half of the three-outcome rule -- the module docstring says cannot-evaluate goes to `whyNot`, where a person can read it, and this is that place for a claim that survived.
+
+    What it does NOT mean is that the claim is weaker than a plain `contains` one; it means the SENTENCE may say more than the check ran. Read it beside `strength` and `occurrences`, which say the same kind of thing about the containment check itself.
+    """
 
 
 class BugDetail(StrictModel):
@@ -362,8 +385,25 @@ class Assertion(StrictModel):
     Prose -- free. 'the confirmation banner appears'. This is what defuses paraphrase thrash: the model is never forced to write stiff sentences to satisfy a string match.
     """
     provenance: common_schema.Provenance
-    evidence: Evidence
+    evidence: Evidence | None = None
+    """
+    Absent exactly when `status` is `unproved`. Required for every proved claim, which is every claim the gate licenses.
+    """
     accepted: bool
+    status: AssertionStatus | None = Field(None, title="AssertionStatus")
+    """
+    Whether this claim points at a retrieval, or only at itself.
+
+    Absent means `proved`, so every artifact written before this field existed means exactly what it always did -- there was no other kind.
+
+    `unproved` exists because the alternative was deletion, and deletion was losing true verdicts. The author writes a sentence, the gate cannot license it, and the sentence used to vanish: the scenario then ended mid-air on a `When` and a comment underneath named the STEP rather than the claim. Measured on rec_MTG3YY559C5U, where the tester had marked the price by hand and the run told them nothing had retrieved it -- true of the one snapshot the author fetched, false of the recording, which held the sorted list one event later.
+
+    So the sentence stays and says what it is. What must never happen is the third thing: an unproved claim reported as proved. `validators/grounding._assertions` filters on this field, because `evidence_retrieved` would otherwise reject every one of them, and the metrics count proved claims only -- a grounding rate that counted these would be measuring itself.
+    """
+    whyNot: str | None = None
+    """
+    Why an `unproved` claim could not be licensed, in language a tester can act on. The same sentence that used to be written to `Step.whyNot` and lose the claim it was about.
+    """
     rank: int | None = None
     """
     Candidate ordering within the step. Two or three where the step genuinely produced more than one checkable outcome, one where only one thing mattered, none where nothing observable happened (SS9.5). Forcing a second candidate onto a step with one obvious outcome manufactures exactly the weak incidental assertion the ranking exists to demote.

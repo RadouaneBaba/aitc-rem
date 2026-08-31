@@ -52,6 +52,14 @@ MAX_DIFF_NODES = 6
 MAX_NETWORK = 4
 MAX_CONSOLE = 2
 MAX_NAME = 80
+#: A mark gets more room than an event target does, and deliberately.
+#:
+#: `MAX_NAME` truncates a clicked control's label, where losing the tail costs
+#: nothing -- nobody quotes it. A mark is the tester saying what the test is
+#: ABOUT, it outranks everything the pipeline infers, and it is the string an
+#: author will try to quote as a literal. Truncating it at 80 turns a real page
+#: string into one that matches nothing.
+MAX_ANNOTATION = 160
 MAX_NARRATION = 240
 
 #: Requests that say something about the application under test. An analytics
@@ -279,6 +287,29 @@ def _event_block(
     # first, because it changes how everything below it should be read.
     for annotation in event.annotations or []:
         out.append(f"      tester: {_annotation(annotation)}")
+
+    # Several marks made in one picker session are ONE claim, about the relation
+    # between them, and nothing here used to say so.
+    #
+    # On `rec_MTG3YY559C5U` the tester was checking that a tea list had sorted.
+    # They pointed at the first product's price and then the second's, and this
+    # index rendered `assertion -> "275.00"` twice -- the same string, no
+    # position, no link between the two lines. From the author's side the tester
+    # had marked the same thing twice for no reason, and the scenario it wrote
+    # asserted that a price was somewhere on the page, which is true of a sorted
+    # list and a shuffled one alike.
+    #
+    # Stated as an instruction, like the scenario-break and tab-change lines
+    # above, because a fact the author has to infer from two adjacent lines is
+    # one it will not infer.
+    for group in _mark_groups(event):
+        out.append(
+            f"      -- THE TESTER MARKED {len(group)} ELEMENTS AT THIS MOMENT. Where they "
+            "are two of a kind -- two prices, two rows, two counts -- the thing being "
+            "checked is the RELATION between them (their order, their difference, their "
+            "total) and not either one alone. A verdict that quotes only one of them is "
+            "true of a working page and a broken one alike. --"
+        )
 
     if event.keys:
         out.append(f"      keys: {event.keys}")
@@ -517,14 +548,85 @@ def _narration(store: EvidenceStore, from_ms: float, to_ms: float) -> str:
     return _short(joined, MAX_NARRATION)
 
 
+def _mark_groups(event: CapturedEvent) -> list[list[Any]]:
+    """Marks that belong together, where there is more than one.
+
+    A single mark says "check this". Two or more say "check these against each
+    other", which is a different claim and the only shape a sort, a total or a
+    difference has. Groups of one are not reported: they are the normal case and
+    the line under the event already says everything.
+
+    `groupId` is the real answer -- one picker session, so the tester deliberately
+    pointed at these together. Marks without one fall back to their event, and
+    that fallback is not a nicety: every recording made before the picker could
+    mark more than one thing has this shape, including `rec_MTG3YY559C5U`, where
+    the two marks that prove the sort worked sit on `evt_007` with no group.
+
+    The wording below carries the difference. Grouping by event is an INFERENCE
+    -- two marks on one moment are usually a comparison and sometimes two
+    unrelated checks -- so the line says what was seen and leaves the reading to
+    the author, rather than asserting an intent it cannot know.
+    """
+    grouped: dict[str, list[Any]] = {}
+    for annotation in event.annotations or []:
+        if getattr(annotation, "target", None) is None:
+            continue
+        key = str(getattr(annotation, "groupId", None) or f"@{event.id}")
+        grouped.setdefault(key, []).append(annotation)
+    return [members for members in grouped.values() if len(members) > 1]
+
+
 def _annotation(annotation: Any) -> str:
+    """One thing the tester pointed at, with everything that distinguishes it.
+
+    This used to print `target.name` and nothing else, and the omissions were
+    doing real damage rather than merely losing detail:
+
+    * **`role` was dropped**, and it is the half of a predicate's address that
+      the author has to supply -- `{"role": "list", "name": "..."}`. The one
+      field the claim vocabulary is built on was the one field thrown away.
+    * **`ordinal` had nowhere to come from.** The selector carried
+      `div.product:nth-of-type(1)` and this printed none of it, so two marks on
+      the first and second rows of a sorted list arrived identical.
+    * **`value` was a fallback for `name`** rather than a fact of its own, so a
+      marked field showed its label and lost what was typed into it.
+    """
     kind = annotation.kind.value
     text = (annotation.text or "").strip()
     target = getattr(annotation, "target", None)
-    if target is not None and (target.name or target.value):
-        pointed = (target.name or target.value or "").strip()
-        return f'{kind} -> "{_short(pointed, MAX_NAME)}"' + (f" — {text}" if text else "")
-    return f"{kind}" + (f": {text}" if text else "")
+    if target is None or not (target.name or target.value or getattr(target, "text", "")):
+        return f"{kind}" + (f": {text}" if text else "")
+
+    pointed = (target.name or target.value or "").strip()
+    parts = [f'{kind} -> "{_short(pointed, MAX_ANNOTATION)}"']
+
+    where = [target.role] if target.role else []
+    ordinal = getattr(target, "ordinal", None)
+    if ordinal:
+        where.append(f"{_ordinal(int(ordinal))} of its kind")
+    index = getattr(annotation, "index", None)
+    if index:
+        where.append(f"mark {int(index)}")
+    if where:
+        parts.append(f"({', '.join(where)})")
+
+    # Only when it says something the name does not. A leaf's text IS its name.
+    body = (getattr(target, "text", "") or "").strip()
+    if body and body != pointed:
+        parts.append(f'containing "{_short(body, MAX_ANNOTATION)}"')
+
+    if target.value and target.value.strip() != pointed:
+        parts.append(f'value "{_short(target.value.strip(), MAX_NAME)}"')
+
+    if text:
+        parts.append(f"— {text}")
+    return " ".join(parts)
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        return f"{n}th"
+    return f"{n}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }"
 
 
 def _dialog(event: CapturedEvent) -> str:

@@ -37,6 +37,7 @@ from server.llm.gemini import DEFAULT_MODEL
 from server.models import (
     AblationConfig,
     AgentTrace,
+    AssertionStatus,
     BugDetail,
     BugEnvironment,
     Confidence,
@@ -119,7 +120,15 @@ class PipelineOptions:
     #: watching a browser tab, and the second thing they do is press Stop again.
     #: Observation only: a callback that raises must not lose a run, so the
     #: caller's exceptions are swallowed at the call site.
-    on_stage: Callable[[PipelineStage], None] | None = None
+    #: Called as each stage starts, with the author round it belongs to.
+    #:
+    #: The round is not decoration. `_write_output` runs INSIDE the author/judge
+    #: loop, so a reviewer watching a run sees round 1's feature file and then
+    #: sees it replaced -- which reads as the tool being unstable unless
+    #: something says a revision is happening. It was reported on a real
+    #: session: a `Scenario Outline` in round 1 became two plain scenarios in
+    #: round 2, correctly, and looked like the style changing at random.
+    on_stage: Callable[[PipelineStage, int], None] | None = None
     #: SS9.8. Gated on its own flag rather than on an ablation arm, so a
     #: comparison never measures two changes at once. Requires tools --
     #: reasoning about the unobserved still has to rest on something observed.
@@ -127,6 +136,19 @@ class PipelineOptions:
     #: The oracle, when a caller already has it. `None` means "look beside the
     #: recording, and guess if nothing is there" -- see `_expectations`.
     expectations: ExpectationSet | None = None
+    #: A chance for the tester to answer the confirmation screen before the
+    #: expensive half begins. Called with the guess, once it is saved, and
+    #: returns what to author against -- so an implementation may block.
+    #:
+    #: This is a seam and not a policy: the pipeline knows only that something
+    #: may want to intervene between guessing and authoring, and the API owns
+    #: how long that is worth waiting (`ConfirmGate`). The CLI passes nothing
+    #: and behaves exactly as it always has.
+    #:
+    #: Not called when the caller already handed in `expectations`, and not
+    #: called when the guess is empty -- there is nothing to confirm, and a
+    #: screen that opens on nothing is a wait nobody can end.
+    await_answers: Callable[[ExpectationSet], ExpectationSet] | None = None
     #: Off for A0, whose whole point is no retrieval and no extra model calls,
     #: and for any run that wants to measure the pipeline without an oracle.
     expectations_enabled: bool = True
@@ -227,6 +249,114 @@ class PipelineResult:
         return dict(self.trace.metrics.toolCallsPerStep or {}) if self.trace.metrics else {}
 
 
+@dataclass
+class _Round:
+    """One author round's whole output, kept so the loop can choose between them.
+
+    The loop wrote two documents and judged both, and then shipped whichever was
+    last. Keeping each round entire -- not just its document -- is what makes
+    the choice possible at all: `ir`, `rendered` and `report` are all derived
+    from the document, and picking a document without them would mean re-running
+    the render and the gate to get back what had just been thrown away.
+    """
+
+    attempt: int
+    document: AuthoredDocument
+    ir: IRDocument
+    trace: AgentTrace
+    rendered: dict[str, str]
+    sidecars: dict[str, str]
+    report: ValidationReport
+    ctx: ValidationContext
+    judgement: JudgeResult | None
+
+
+def _pick_round(rounds: list[_Round]) -> _Round:
+    """Which round's document ships. The last one, unless an earlier one is
+    better on every axis at once.
+
+    **Strict dominance, and not a score.** An earlier round replaces the last
+    one only when it is at least as good on all three of the things that can be
+    compared, and better on one. When nothing dominates -- which is most of the
+    time -- the last round ships, exactly as it always did.
+
+    The three, and why a weighted score over them would be wrong:
+
+    * **The gate.** Whether `evidence_retrieved` and the rest rejected anything.
+      The judge reads prose and can be wrong about it; the gate re-hashes a
+      stored response and cannot.
+    * **Proved verdicts.** How many claims actually point at a retrieval. This
+      key exists because of the trap the rest of this project keeps meeting: a
+      document that claims NOTHING passes the gate and gives the judge nothing
+      to object to, so ranked on findings alone the emptiest document wins every
+      time. A round that abandoned a verdict its predecessor proved is not an
+      improvement, whatever the judge says about what is left.
+    * **Judge `fail`s.** What a QA lead would send back. `weak` is deliberately
+      not counted: it is a finding somebody would sign after an edit, and
+      letting it decide between two documents spends the choice on the
+      difference between good and slightly better worded.
+
+    Any weighting between these is a number somebody made up, and it would be
+    gameable in both directions -- pad the verdicts, or refuse them all.
+    Dominance makes no trade it cannot justify, and its cost is that it declines
+    to choose in the interesting middle, where the honest answer is that nobody
+    knows which is better.
+
+    With the judge disabled -- A0 and A1 -- no round can dominate on findings,
+    so this is the last round unless a revision genuinely lost ground on the
+    gate or on what it proved.
+    """
+    last = rounds[-1]
+    best = last
+    for earlier in rounds[:-1]:
+        if _dominates(earlier, best):
+            best = earlier
+    return best
+
+
+def _dominates(a: _Round, b: _Round) -> bool:
+    """Is `a` at least as good as `b` everywhere, and better somewhere?"""
+    scores = (
+        (a.report.ok, b.report.ok),
+        (_proved(a), _proved(b)),
+        # Negated so that "more is better" holds for every pair.
+        (-_fails(a), -_fails(b)),
+    )
+    return all(mine >= theirs for mine, theirs in scores) and any(
+        mine > theirs for mine, theirs in scores
+    )
+
+
+def _proved(this: _Round) -> int:
+    """Claims in this round that point at a retrieval.
+
+    Unproved ones are excluded for the same reason `claim_total` excludes them:
+    they are sentences the author wrote and the gate could not license, and
+    counting them here would let a round win by writing more of what it cannot
+    back.
+    """
+    return sum(
+        1
+        for case in this.ir.testCases
+        for step in case.steps
+        for claim in step.assertions
+        if claim.status is not AssertionStatus.unproved
+    )
+
+
+def _fails(this: _Round) -> int:
+    return len(this.judgement.fails) if this.judgement else 0
+
+
+def _round_summary(this: _Round) -> str:
+    """How a round scored, for the sentence that says why it was not shipped."""
+    gate = "gate ok" if this.report.ok else "gate rejected"
+    return (
+        f"round {this.attempt}: {gate}, {_proved(this)} proved verdict(s), "
+        f"{_fails(this)} judge fail(s)"
+    )
+
+
 def run_pipeline(
     recording: Recording,
     model: ModelClient,
@@ -282,6 +412,7 @@ def run_pipeline(
     announce(PipelineStage.expectations)
     t0 = time.time()
     expectations = _expectations(store, runner, model, storage, options)
+    expectations = _confirmed(expectations, options)
     path = storage.save_artifact(run, "expectations", expectations)
     stages.append(
         StageRecord(
@@ -315,12 +446,14 @@ def run_pipeline(
     first_report: ValidationReport | None = None
     judgement: JudgeResult | None = None
     previous: AuthoredDocument | None = None
+    #: Every round's whole output, so the end of the loop can CHOOSE.
+    rounds: list[_Round] = []
     attempt = 0
 
     while True:
         attempt += 1
 
-        announce(PipelineStage.author)
+        announce(PipelineStage.author, attempt)
         t0 = time.time()
         document = write_document(
             store,
@@ -385,7 +518,7 @@ def run_pipeline(
         )
 
         # -- render --------------------------------------------------------
-        announce(PipelineStage.render)
+        announce(PipelineStage.render, attempt)
         t0 = time.time()
         ir = _assemble(recording, run_id, document)
         storage.save_artifact(run, "ir", ir)
@@ -421,7 +554,7 @@ def run_pipeline(
         # they produced ONE failure between them while the judge found real
         # defects that all fourteen passed. Those questions are the judge's now,
         # immediately below, which is the other half of that decision.
-        announce(PipelineStage.validate)
+        announce(PipelineStage.validate, attempt)
         t0 = time.time()
         ctx = ValidationContext(
             recording=recording,
@@ -475,6 +608,20 @@ def run_pipeline(
                 )
             )
 
+        rounds.append(
+            _Round(
+                attempt=attempt,
+                document=document,
+                ir=ir,
+                trace=trace,
+                rendered=rendered,
+                sidecars=sidecars,
+                report=report,
+                ctx=ctx,
+                judgement=judgement,
+            )
+        )
+
         feedback, triggers = _revision_feedback(report, judgement, document)
         if not feedback or attempt >= max(1, options.max_author_rounds):
             # Findings the loop did not get to act on are still findings. They
@@ -504,6 +651,68 @@ def run_pipeline(
             for text, trigger in zip(feedback, triggers, strict=True)
         )
         previous = document
+
+    # -- which round ships -------------------------------------------------
+    #
+    # The last one, unless an earlier one was better. Two rounds were already
+    # written and both were already judged; nothing chose between them, so the
+    # later one shipped for no reason other than being later.
+    #
+    # That is not a hypothetical cost. On `rec_MTG3YY559C5U/run_001` the judge
+    # told round 1 that its `Scenario Outline` combined two sorting behaviours
+    # and should be split; round 2 obeyed, shipped, and the outline -- the shape
+    # this project's own house style now asks for -- was written, judged and
+    # thrown away without anyone seeing it. `author.json`, `ir.json` and the
+    # `.feature` are rewritten in place each attempt, so it was not even on disk
+    # to compare against.
+    shipped = _pick_round(rounds)
+    if shipped is not rounds[-1]:
+        repairs.append(
+            RepairAttempt(
+                stage=PipelineStage.author,
+                attempt=rounds[-1].attempt,
+                trigger=RepairTrigger.judge,
+                finding=(
+                    f"the revision was judged no better than what it replaced "
+                    f"({_round_summary(rounds[-1])} against {_round_summary(shipped)}) "
+                    f"-- shipped round {shipped.attempt}"
+                ),
+                exhausted=True,
+            )
+        )
+        # Every later round overwrote these in place, so the winner has to be
+        # written back. A run whose `ir.json` and `.feature` disagree about
+        # which document shipped is worse than either of them.
+        storage.save_artifact(run, "author", shipped.document.to_artifact())
+        storage.save_artifact(run, "ir", shipped.ir)
+        _write_output(run, shipped.ir, shipped.rendered, shipped.sidecars, options.project)
+        if shipped.judgement is not None:
+            storage.save_artifact(
+                run,
+                "judge",
+                {**shipped.judgement.to_artifact(), "attempt": shipped.attempt},
+            )
+
+    document = shipped.document
+    ir = shipped.ir
+    trace = shipped.trace
+    rendered = shipped.rendered
+    sidecars = shipped.sidecars
+    report = shipped.report
+    ctx = shipped.ctx
+    judgement = shipped.judgement
+
+    # The trace records the RUN, not the round that won it. `_trace` collects
+    # model calls and the investigation from the document it was built for, so
+    # shipping an earlier round would otherwise under-report what the run spent
+    # -- and a stage that costs quota invisibly is the exact defect the trace
+    # exists to prevent.
+    for other in rounds:
+        if other is shipped:
+            continue
+        trace.modelCalls.extend(other.document.model_calls)
+        if other.document.investigation is not None:
+            trace.investigations.append(other.document.investigation)
 
     trace.repairAttempts = repairs
     trace.investigations.extend(judge_investigations)
@@ -612,18 +821,18 @@ def run_pipeline(
 # --------------------------------------------------------------------------
 # the judge, and the one revision it can ask for
 # --------------------------------------------------------------------------
-def _announcer(options: PipelineOptions) -> Callable[[PipelineStage], None]:
+def _announcer(options: PipelineOptions) -> Callable[..., None]:
     """Tell the caller which stage is starting, and never fail because of it.
 
     A progress callback is the least important thing in this file and must not
     be able to end a run that was otherwise going to succeed.
     """
 
-    def announce(stage: PipelineStage) -> None:
+    def announce(stage: PipelineStage, attempt: int = 1) -> None:
         if options.on_stage is None:
             return
         with contextlib.suppress(Exception):
-            options.on_stage(stage)
+            options.on_stage(stage, attempt)
 
     return announce
 
@@ -651,7 +860,7 @@ def _judge(
         return None
 
     announce = _announcer(options)
-    announce(PipelineStage.judge)
+    announce(PipelineStage.judge, attempt)
     try:
         result = judge_document(
             store,
@@ -796,6 +1005,28 @@ def _expectations(
     with contextlib.suppress(OSError):
         storage.save_expectations(guessed)
     return guessed
+
+
+def _confirmed(expectations: ExpectationSet, options: PipelineOptions) -> ExpectationSet:
+    """Give the tester a moment to answer, if the caller offered them one.
+
+    The saved artifact is what comes back from here rather than the guess, so
+    the run directory records what the document was actually authored against.
+    A run that held and was answered is indistinguishable, on disk, from one
+    whose answers were already there -- which is right: they are the same run.
+
+    A callback that raises must not lose a run. The oracle degrades to the guess
+    for the same reason `_expectations` degrades to `empty_set`: losing the
+    whole thing over the stage that exists to IMPROVE it is the wrong trade.
+    """
+    if options.await_answers is None or options.expectations is not None:
+        return expectations
+    if not expectations.expectations:
+        return expectations
+    try:
+        return options.await_answers(expectations)
+    except Exception:  # noqa: BLE001 - a failed wait degrades to the guess
+        return expectations
 
 
 def _sync_calls(trace: AgentTrace, runner: ToolRunner) -> None:
@@ -1359,10 +1590,16 @@ def _graded_evidence(ir) -> list:
     `actual` is bound exactly as tightly as any assertion, so a second walk that
     quietly skipped it would report a document as cleaner than it is.
     """
-    out = [a.evidence for c in ir.testCases for s in c.steps for a in s.assertions]
+    out = [
+        a.evidence
+        for c in ir.testCases
+        for s in c.steps
+        for a in s.assertions
+        if a.evidence is not None
+    ]
     for case in ir.testCases:
         claim = bug_claim(case)
-        if claim is not None:
+        if claim is not None and claim[2].evidence is not None:
             out.append(claim[2].evidence)
     return out
 
